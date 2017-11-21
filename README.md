@@ -119,7 +119,8 @@ TODO: Need to get the name of the EFS onto the EC2 instance, for now need to
 look it up in the AWS console
 
 ```
-sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 { EFS NAME }.efs.$AWS_DEFAULT_REGION.amazonaws.com:/ /efs
+sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 \
+    { EFS NAME }.efs.$AWS_DEFAULT_REGION.amazonaws.com:/ /efs
 ```
 
 replacing `{ EFS NAME }` with the file system ID of the EFS volume as found in the AWS console (it should look something like `fs-d795b69e`).
