@@ -1,4 +1,4 @@
-import sqlite3mine as sqlite3
+import sqlite3
 import os
 
 from subprocess import Popen, PIPE, STDOUT
@@ -31,7 +31,7 @@ def test_sqlite(conn):
     return ct
 
 def test_nfs():
-    nfs_url = "nfs://%s.efs.us-west-2.amazonaws.com:2049/test.txt" % os.environ["EFS_IP"]
+    nfs_url = "nfs://%s.efs.%s.amazonaws.com:2049/test.txt" % (os.environ["EFS_IP"], os.environ["AWS_DEFAULT_REGION"])
     print("nfs url: %s" % nfs_url)
     p = Popen(['/var/task/nfs4-cat', nfs_url],stdout=PIPE, stderr=STDOUT)
     for line in p.stdout.readlines():
@@ -40,6 +40,7 @@ def test_nfs():
     return retval
 
 def lambda_handler(event, context):
+    print(os.environ)
     conn = sqlite3.connect('/tmp/example.db')
     conn.enable_load_extension(True)
     # conn.load_extension('vfsstat')

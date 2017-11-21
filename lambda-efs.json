@@ -11,6 +11,10 @@
         "Description": "Name of the S3 bucket in which code will be stored"
       }
    },
+   "Conditions" : {
+     "IsUsWest2": { "Fn::Equals" : [ { "Ref" : "AWS::Region" }, "us-west-2"] },
+     "IsUSEast1": { "Fn::Equals" : [ { "Ref" : "AWS::Region" }, "us-east-1"] }
+   },
    "Resources" : {
       "lambdaVPC" : {
          "Type" : "AWS::EC2::VPC",
@@ -27,7 +31,7 @@
          "Properties" : {
             "VpcId" : { "Ref" : "lambdaVPC" },
             "CidrBlock" : "192.168.1.0/26",
-            "AvailabilityZone" : "us-west-2a"
+            "AvailabilityZone" : { "Fn::Join" : ["", [ { "Ref" : "AWS::Region" }, "a" ]] }
          }
       },
       "lambdaVPCsubnetb" : {
@@ -35,7 +39,7 @@
          "Properties" : {
             "VpcId" : { "Ref" : "lambdaVPC" },
             "CidrBlock" : "192.168.1.64/26",
-            "AvailabilityZone" : "us-west-2b"
+            "AvailabilityZone" : { "Fn::Join" : ["", [ { "Ref" : "AWS::Region" }, "b" ]] }
          }
       },
       "lambdaVPCsubnetc" : {
@@ -43,7 +47,7 @@
          "Properties" : {
             "VpcId" : { "Ref" : "lambdaVPC" },
             "CidrBlock" : "192.168.1.128/26",
-            "AvailabilityZone" : "us-west-2c"
+            "AvailabilityZone" : { "Fn::Join" : ["", [ { "Ref" : "AWS::Region" }, "c" ]] }
          }
       },
       "lambdaInternetGateway" : {
@@ -146,15 +150,34 @@
           "NetworkAclId" : { "Ref" : "PublicNetworkAcl" }
         }
       },
+      "LambdaExecutionRole" : {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+             "Version" : "2012-10-17",
+             "Statement": [ {
+                "Effect": "Allow",
+                "Principal": {
+                   "Service": [ "lambda.amazonaws.com", "ec2.amazonaws.com" ]
+                },
+                "Action": [ "sts:AssumeRole" ]
+             } ]
+           },
+          "ManagedPolicyArns": [
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole",
+            "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole",
+            "arn:aws:iam::aws:policy/AmazonS3FullAccess" ]
+        }
+      },
       "QueryServiceFunction" : {
         "Type" : "AWS::Lambda::Function",
         "Properties" : {
           "Description" : "Serverless SQL Query Endpoint",
           "Code" : {
             "S3Bucket" : { "Ref" : "S3CodeBucket" },
-            "S3Key" : "ssql.zip"
+            "S3Key" : "ssqlite-fn.zip"
           },
-          "FunctionName" : "SQLiteDemo",
+          "FunctionName" : { "Fn::Join" : [ "-", [ "SQLiteDemo", { "Ref" : "AWS::StackName" } ]] },
           "Handler" : "handler.lambda_handler",
           "Runtime" : "python3.6",
           "Timeout" : 5,
@@ -166,7 +189,7 @@
               { "Ref" : "lambdaVPCsubnetc" }
             ]
           },
-          "Role" : "arn:aws:iam::464151344951:role/lambda-vpc",
+          "Role" : { "Fn::GetAtt" : [ "LambdaExecutionRole" , "Arn" ] },
           "Environment" : {
             "Variables" : {
               "CONTROL_SERVICE_IP" : { "Fn::GetAtt" : [ "ControlServer", "PrivateIp"] },
@@ -395,7 +418,16 @@
       "ControlServer": {
         "Type": "AWS::EC2::Instance",
         "Properties": {
-            "ImageId": "ami-32d8124a",
+            "ImageId": {
+              "Fn::If" : [
+                "IsUsWest2",
+                "ami-32d8124a",
+                { "Fn::If" : [
+                  "IsUSEast1",
+                  "ami-6057e21a",
+                  "UNSUPPORTED"
+                ]}
+              ]},
             "InstanceType": "t2.micro",
             "KeyName": { "Ref" : "KeyName" },
             "NetworkInterfaces": [ {
