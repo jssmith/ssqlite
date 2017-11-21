@@ -1,0 +1,411 @@
+{
+   "AWSTemplateFormatVersion" : "2010-09-09",
+   "Description" : "This template creates a development environment with Lambda + VPC + EC2 + EFS.",
+   "Parameters" : {
+     "KeyName": {
+       "Type": "AWS::EC2::KeyPair::KeyName",
+       "Description": "Name of an existing EC2 key pair to enable SSH access to the ECS instances"
+      },
+      "S3CodeBucket": {
+        "Type": "String",
+        "Description": "Name of the S3 bucket in which code will be stored"
+      }
+   },
+   "Resources" : {
+      "lambdaVPC" : {
+         "Type" : "AWS::EC2::VPC",
+         "Properties" : {
+            "CidrBlock" : "192.168.1.0/24",
+            "EnableDnsSupport" : "true",
+            "EnableDnsHostnames" : "true",
+            "InstanceTenancy" : "default",
+            "Tags" : [ {"Key" : "foo", "Value" : "bar"} ]
+         }
+      },
+      "lambdaVPCsubneta" : {
+         "Type" : "AWS::EC2::Subnet",
+         "Properties" : {
+            "VpcId" : { "Ref" : "lambdaVPC" },
+            "CidrBlock" : "192.168.1.0/26",
+            "AvailabilityZone" : "us-west-2a"
+         }
+      },
+      "lambdaVPCsubnetb" : {
+         "Type" : "AWS::EC2::Subnet",
+         "Properties" : {
+            "VpcId" : { "Ref" : "lambdaVPC" },
+            "CidrBlock" : "192.168.1.64/26",
+            "AvailabilityZone" : "us-west-2b"
+         }
+      },
+      "lambdaVPCsubnetc" : {
+         "Type" : "AWS::EC2::Subnet",
+         "Properties" : {
+            "VpcId" : { "Ref" : "lambdaVPC" },
+            "CidrBlock" : "192.168.1.128/26",
+            "AvailabilityZone" : "us-west-2c"
+         }
+      },
+      "lambdaInternetGateway" : {
+         "Type" : "AWS::EC2::InternetGateway",
+         "Properties" : {
+            "Tags" : [ {"Key" : "foo", "Value" : "bar"}]
+         }
+      },
+      "AttachGateway" : {
+          "Type" : "AWS::EC2::VPCGatewayAttachment",
+          "Properties" : {
+          "VpcId" : { "Ref" : "lambdaVPC" },
+          "InternetGatewayId" : { "Ref" : "lambdaInternetGateway" }
+        }
+      },
+      "lambdaRouteTable" : {
+         "Type" : "AWS::EC2::RouteTable",
+         "Properties" : {
+            "VpcId" : { "Ref" : "lambdaVPC" }
+         }
+      },
+      "myRoute" : {
+         "Type" : "AWS::EC2::Route",
+         "DependsOn" : "lambdaInternetGateway",
+         "Properties" : {
+            "RouteTableId" : { "Ref" : "lambdaRouteTable" },
+            "DestinationCidrBlock" : "0.0.0.0/0",
+            "GatewayId" : { "Ref" : "lambdaInternetGateway" }
+         }
+      },
+      "lambdaRouteTableAssociationa" : {
+        "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+        "Properties" : {
+          "SubnetId" : { "Ref" : "lambdaVPCsubneta" },
+          "RouteTableId" : { "Ref" : "lambdaRouteTable" }
+        }
+      },
+      "lambdaRouteTableAssociationb" : {
+        "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+        "Properties" : {
+          "SubnetId" : { "Ref" : "lambdaVPCsubnetb" },
+          "RouteTableId" : { "Ref" : "lambdaRouteTable" }
+        }
+      },
+      "lambdaRouteTableAssociationc" : {
+        "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+        "Properties" : {
+          "SubnetId" : { "Ref" : "lambdaVPCsubnetc" },
+          "RouteTableId" : { "Ref" : "lambdaRouteTable" }
+        }
+      },
+      "PublicNetworkAcl" : {
+        "Type" : "AWS::EC2::NetworkAcl",
+        "Properties" : {
+          "VpcId" : {"Ref" : "lambdaVPC"},
+        }
+      },
+      "InboundPublicNetworkAclEntry" : {
+        "Type" : "AWS::EC2::NetworkAclEntry",
+        "Properties" : {
+          "NetworkAclId" : { "Ref" : "PublicNetworkAcl" },
+          "RuleNumber" : "102",
+          "Protocol" : "6",
+          "RuleAction" : "allow",
+          "Egress" : "false",
+          "CidrBlock" : "0.0.0.0/0",
+          "PortRange" : { "From" : "0", "To" : "65535" }
+        }
+      },
+      "OutboundPublicNetworkAclEntry" : {
+        "Type" : "AWS::EC2::NetworkAclEntry",
+        "Properties" : {
+          "NetworkAclId" : {"Ref" : "PublicNetworkAcl"},
+          "RuleNumber" : "100",
+          "Protocol" : "6",
+          "RuleAction" : "allow",
+          "Egress" : "true",
+          "CidrBlock" : "0.0.0.0/0",
+          "PortRange" : {"From" : "0", "To" : "65535"}
+        }
+      },
+      "PublicSubnetNetworkAclAssociationa" : {
+        "Type" : "AWS::EC2::SubnetNetworkAclAssociation",
+        "Properties" : {
+          "SubnetId" : { "Ref" : "lambdaVPCsubneta" },
+          "NetworkAclId" : { "Ref" : "PublicNetworkAcl" }
+        }
+      },
+      "PublicSubnetNetworkAclAssociationb" : {
+        "Type" : "AWS::EC2::SubnetNetworkAclAssociation",
+        "Properties" : {
+          "SubnetId" : { "Ref" : "lambdaVPCsubnetb" },
+          "NetworkAclId" : { "Ref" : "PublicNetworkAcl" }
+        }
+      },
+      "PublicSubnetNetworkAclAssociationc" : {
+        "Type" : "AWS::EC2::SubnetNetworkAclAssociation",
+        "Properties" : {
+          "SubnetId" : { "Ref" : "lambdaVPCsubnetc" },
+          "NetworkAclId" : { "Ref" : "PublicNetworkAcl" }
+        }
+      },
+      "QueryServiceFunction" : {
+        "Type" : "AWS::Lambda::Function",
+        "Properties" : {
+          "Description" : "Serverless SQL Query Endpoint",
+          "Code" : {
+            "S3Bucket" : { "Ref" : "S3CodeBucket" },
+            "S3Key" : "ssql.zip"
+          },
+          "FunctionName" : "SQLiteDemo",
+          "Handler" : "handler.lambda_handler",
+          "Runtime" : "python3.6",
+          "Timeout" : 5,
+          "VpcConfig" : {
+            "SecurityGroupIds" : [ { "Ref" : "LambdaVPCSecurityGroup" } ],
+            "SubnetIds" : [
+              { "Ref" : "lambdaVPCsubneta" },
+              { "Ref" : "lambdaVPCsubnetb" },
+              { "Ref" : "lambdaVPCsubnetc" }
+            ]
+          },
+          "Role" : "arn:aws:iam::464151344951:role/lambda-vpc",
+          "Environment" : {
+            "Variables" : {
+              "CONTROL_SERVICE_IP" : { "Fn::GetAtt" : [ "ControlServer", "PrivateIp"] },
+              "EFS_IP" : { "Ref" : "FileSystem" }
+            }
+          }
+        }
+      },
+      "QueryServicePermission" : {
+        "Type" : "AWS::Lambda::Permission",
+        "Properties" : {
+          "Action" : "lambda:invokeFunction",
+          "FunctionName" : { "Fn::GetAtt" : [ "QueryServiceFunction", "Arn"] },
+          "Principal" : "apigateway.amazonaws.com",
+          "SourceArn" : { "Fn::Join" : [
+            "",
+            [
+                "arn:aws:execute-api:",
+                {"Ref": "AWS::Region"},
+                ":",
+                {"Ref": "AWS::AccountId"},
+                ":",
+                {"Ref" : "QueryServiceApi" },
+                "/*/POST/*"
+            ]
+          ]}
+        }
+      },
+
+      "QueryServiceProxyResource": {
+        "Type": "AWS::ApiGateway::Resource",
+        "Properties": {
+          "RestApiId" : { "Ref" : "QueryServiceApi" },
+          "ParentId" : { "Fn::GetAtt" : [ "QueryServiceApi", "RootResourceId" ] },
+          "PathPart": "sqp"
+        }
+      },
+      "QueryServiceProxyResourceANY": {
+        "Type": "AWS::ApiGateway::Method",
+        "Properties": {
+          "RestApiId" : { "Ref" : "QueryServiceApi" },
+          "ResourceId": {"Ref":"QueryServiceProxyResource"},
+          "HttpMethod": "POST",
+          "AuthorizationType": "NONE",
+          "Integration": {
+            "Type": "AWS_PROXY",
+            "IntegrationHttpMethod": "POST",
+            "Uri": { "Fn::Sub":"arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${QueryServiceFunction.Arn}/invocations"}
+          }
+        }
+      },
+
+      "QueryServiceApi" : {
+        "Type": "AWS::ApiGateway::RestApi",
+        "Properties" : {
+          "Name" : "ServerlessSqlQueryService",
+        }
+      },
+
+      "QueryServiceResource" : {
+        "Type" : "AWS::ApiGateway::Resource",
+        "Properties" : {
+          "RestApiId" : { "Ref" : "QueryServiceApi" },
+          "ParentId" : { "Fn::GetAtt" : [ "QueryServiceApi", "RootResourceId" ] },
+          "PathPart": "serverlessquery"
+        }
+      },
+
+      "QueryServiceModel": {
+        "Type": "AWS::ApiGateway::Model",
+        "Properties": {
+          "ContentType": "application/json",
+          "Name": "QueryServiceModel",
+          "RestApiId" : { "Ref" : "QueryServiceApi" },
+          "Schema": {
+            "$schema": "http://json-schema.org/draft-04/schema#",
+            "title": "QueryService",
+            "type": "object",
+            "properties": {
+              "success": {
+                "type": "boolean"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["success", "message"]
+          }
+        }
+      },
+
+
+      "QueryPost" : {
+        "Type" : "AWS::ApiGateway::Method",
+        "Properties" : {
+          "ApiKeyRequired" : false,
+          "AuthorizationType" : "NONE",
+          "HttpMethod" : "POST",
+          "Integration" : {
+            "Type" : "AWS",
+            "IntegrationHttpMethod" : "POST",
+            "Uri": { "Fn::Join" : [
+              "", [
+                "arn:aws:apigateway:",
+                {"Ref": "AWS::Region"},
+                ":lambda:path/2015-03-31/functions/",
+                {"Fn::GetAtt": ["QueryServiceFunction", "Arn"]},
+                "/invocations"]
+              ]
+            },
+            "IntegrationResponses" : [{
+              "StatusCode" : 200
+            }],
+          },
+          "MethodResponses" : [{
+            "ResponseModels" : {
+              "application/json" : { "Ref": "QueryServiceModel" }
+            },
+            "ResponseParameters": {
+              "method.response.header.Location": true
+            },
+            "StatusCode" : 200
+          }],
+          "ResourceId" : { "Ref" : "QueryServiceResource" },
+          "RestApiId" : { "Ref" : "QueryServiceApi" }
+        }
+      },
+
+      "QueryServiceApiDeployment" : {
+        "Type" : "AWS::ApiGateway::Deployment",
+        "Properties" : {
+          "RestApiId" : { "Ref" : "QueryServiceApi" },
+          "StageName" : "prod"
+        },
+        "DependsOn" : [ "QueryPost", "QueryServiceProxyResourceANY" ]
+      },
+
+      "LambdaVPCSecurityGroup" : {
+        "Type" : "AWS::EC2::SecurityGroup",
+        "Properties" : {
+          "GroupDescription" : "For Lambda",
+          "VpcId" : { "Ref"  : "lambdaVPC"},
+          "SecurityGroupIngress" : [
+            {
+              "IpProtocol" : "udp",
+              "FromPort" : "0",
+              "ToPort" : "65535",
+              "CidrIp" : "192.168.1.0/24"
+            },
+            {
+              "IpProtocol" : "tcp",
+              "FromPort" : "0",
+              "ToPort" : "65535",
+              "CidrIp" : "0.0.0.0/0"
+            }
+          ],
+          "SecurityGroupEgress" : [
+            {
+              "IpProtocol" : "udp",
+              "FromPort" : "0",
+              "ToPort" : "65535",
+              "CidrIp" : "192.168.1.0/24"
+            },
+            {
+              "IpProtocol" : "tcp",
+              "FromPort" : "0",
+              "ToPort" : "65535",
+              "CidrIp" : "0.0.0.0/0"
+            }
+          ]
+        }
+      },
+
+      "MountTargetSecurityGroup": {
+        "Type": "AWS::EC2::SecurityGroup",
+        "Properties": {
+          "VpcId": { "Ref": "lambdaVPC" },
+          "GroupDescription": "Security group for mount target",
+          "SecurityGroupIngress": [
+            {
+              "IpProtocol": "tcp",
+              "FromPort": "2049",
+              "ToPort": "2049",
+              "CidrIp": "192.168.1.0/24"
+            }
+          ]
+        }
+      },
+      "FileSystem": {
+        "Type": "AWS::EFS::FileSystem",
+        "Properties": {
+          "PerformanceMode": "generalPurpose",
+          "FileSystemTags": [
+            {
+              "Key": "Name",
+              "Value": "sqlite-fs"
+            }
+          ]
+        }
+      },
+      "MountTargeta": {
+        "Type": "AWS::EFS::MountTarget",
+        "Properties": {
+          "FileSystemId": { "Ref": "FileSystem" },
+          "SubnetId": { "Ref": "lambdaVPCsubneta" },
+          "SecurityGroups": [ { "Ref": "MountTargetSecurityGroup" } ]
+        }
+      },
+      "MountTargetb": {
+        "Type": "AWS::EFS::MountTarget",
+        "Properties": {
+          "FileSystemId": { "Ref": "FileSystem" },
+          "SubnetId": { "Ref": "lambdaVPCsubnetb" },
+          "SecurityGroups": [ { "Ref": "MountTargetSecurityGroup" } ]
+        }
+      },
+      "MountTargetc": {
+        "Type": "AWS::EFS::MountTarget",
+        "Properties": {
+          "FileSystemId": { "Ref": "FileSystem" },
+          "SubnetId": { "Ref": "lambdaVPCsubnetc" },
+          "SecurityGroups": [ { "Ref": "MountTargetSecurityGroup" } ]
+        }
+      },
+
+      "ControlServer": {
+        "Type": "AWS::EC2::Instance",
+        "Properties": {
+            "ImageId": "ami-32d8124a",
+            "InstanceType": "t2.micro",
+            "KeyName": { "Ref" : "KeyName" },
+            "NetworkInterfaces": [ {
+              "AssociatePublicIpAddress": "true",
+              "DeviceIndex": "0",
+              "GroupSet": [ { "Ref" : "LambdaVPCSecurityGroup" }  ],
+              "SubnetId": { "Ref" : "lambdaVPCsubneta" }
+            }]
+        }
+      }
+
+   }
+}
