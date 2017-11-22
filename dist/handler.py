@@ -1,5 +1,5 @@
-import sqlite3
 import os
+import sqlite3
 
 from subprocess import Popen, PIPE, STDOUT
 
@@ -41,6 +41,7 @@ def test_nfs():
 
 def lambda_handler(event, context):
     print(os.environ)
+    print(sys.version_info)
     conn = sqlite3.connect('/tmp/example.db')
     conn.enable_load_extension(True)
     # conn.load_extension('vfsstat')

@@ -1,0 +1,103 @@
+--- ../tmp/Python-3.6.1/setup.py	2017-03-20 23:32:38.000000000 -0700
++++ ../ssqlite-builds/Python-3.6.1/setup.py	2017-11-21 18:13:43.000000000 -0800
+@@ -1141,54 +1141,8 @@
+         MIN_SQLITE_VERSION = ".".join([str(x)
+                                     for x in MIN_SQLITE_VERSION_NUMBER])
+ 
+-        # Scan the default include directories before the SQLite specific
+-        # ones. This allows one to override the copy of sqlite on OSX,
+-        # where /usr/include contains an old version of sqlite.
+-        if host_platform == 'darwin':
+-            sysroot = macosx_sdk_root()
+-
+-        for d_ in inc_dirs + sqlite_inc_paths:
+-            d = d_
+-            if host_platform == 'darwin' and is_macosx_sdk_path(d):
+-                d = os.path.join(sysroot, d[1:])
+-
+-            f = os.path.join(d, "sqlite3.h")
+-            if os.path.exists(f):
+-                if sqlite_setup_debug: print("sqlite: found %s"%f)
+-                with open(f) as file:
+-                    incf = file.read()
+-                m = re.search(
+-                    r'\s*.*#\s*.*define\s.*SQLITE_VERSION\W*"([\d\.]*)"', incf)
+-                if m:
+-                    sqlite_version = m.group(1)
+-                    sqlite_version_tuple = tuple([int(x)
+-                                        for x in sqlite_version.split(".")])
+-                    if sqlite_version_tuple >= MIN_SQLITE_VERSION_NUMBER:
+-                        # we win!
+-                        if sqlite_setup_debug:
+-                            print("%s/sqlite3.h: version %s"%(d, sqlite_version))
+-                        sqlite_incdir = d
+-                        break
+-                    else:
+-                        if sqlite_setup_debug:
+-                            print("%s: version %d is too old, need >= %s"%(d,
+-                                        sqlite_version, MIN_SQLITE_VERSION))
+-                elif sqlite_setup_debug:
+-                    print("sqlite: %s had no SQLITE_VERSION"%(f,))
+-
+-        if sqlite_incdir:
+-            sqlite_dirs_to_check = [
+-                os.path.join(sqlite_incdir, '..', 'lib64'),
+-                os.path.join(sqlite_incdir, '..', 'lib'),
+-                os.path.join(sqlite_incdir, '..', '..', 'lib64'),
+-                os.path.join(sqlite_incdir, '..', '..', 'lib'),
+-            ]
+-            sqlite_libfile = self.compiler.find_library_file(
+-                                sqlite_dirs_to_check + lib_dirs, 'sqlite3')
+-            if sqlite_libfile:
+-                sqlite_libdir = [os.path.abspath(os.path.dirname(sqlite_libfile))]
+ 
+-        if sqlite_incdir and sqlite_libdir:
++        if True:
+             sqlite_srcs = ['_sqlite/cache.c',
+                 '_sqlite/connection.c',
+                 '_sqlite/cursor.c',
+@@ -1197,7 +1151,8 @@
+                 '_sqlite/prepare_protocol.c',
+                 '_sqlite/row.c',
+                 '_sqlite/statement.c',
+-                '_sqlite/util.c', ]
++                '_sqlite/util.c',
++                '_sqlite/sqlite3.c', ]
+ 
+             sqlite_defines = []
+             if host_platform != "win32":
+@@ -1210,31 +1165,13 @@
+             if '--enable-loadable-sqlite-extensions' not in sysconfig.get_config_var("CONFIG_ARGS"):
+                 sqlite_defines.append(("SQLITE_OMIT_LOAD_EXTENSION", "1"))
+ 
+-            if host_platform == 'darwin':
+-                # In every directory on the search path search for a dynamic
+-                # library and then a static library, instead of first looking
+-                # for dynamic libraries on the entire path.
+-                # This way a statically linked custom sqlite gets picked up
+-                # before the dynamic library in /usr/lib.
+-                sqlite_extra_link_args = ('-Wl,-search_paths_first',)
+-            else:
+-                sqlite_extra_link_args = ()
+-
+             include_dirs = ["Modules/_sqlite"]
+-            # Only include the directory where sqlite was found if it does
+-            # not already exist in set include directories, otherwise you
+-            # can end up with a bad search path order.
+-            if sqlite_incdir not in self.compiler.include_dirs:
+-                include_dirs.append(sqlite_incdir)
+-            # avoid a runtime library path for a system library dir
+-            if sqlite_libdir and sqlite_libdir[0] in lib_dirs:
+-                sqlite_libdir = None
+             exts.append(Extension('_sqlite3', sqlite_srcs,
+                                   define_macros=sqlite_defines,
+                                   include_dirs=include_dirs,
+-                                  library_dirs=sqlite_libdir,
+-                                  extra_link_args=sqlite_extra_link_args,
+-                                  libraries=["sqlite3",]))
++                                  library_dirs=None,
++                                  extra_link_args=(),
++                                  libraries=[]))
+         else:
+             missing.append('_sqlite3')
+ 

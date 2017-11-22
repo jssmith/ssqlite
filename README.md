@@ -129,3 +129,9 @@ sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retr
 ```
 
 replacing `{ EFS NAME }` with the file system ID of the EFS volume as found in the AWS console (it should look something like `fs-d795b69e`).
+
+Building SQLite and Python
+==========================
+
+This repository includes a binary version of the SQLite library for Python (`dist/_sqlite3.so`) that encompasses SQLite as opposed to loading it from a shared library.
+To build it yourself follow these [instructions](build_sqlite_python.md).
