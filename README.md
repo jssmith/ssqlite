@@ -97,7 +97,12 @@ aws lambda invoke \
     --invocation-type RequestResponse \
     --function-name SQLiteDemo-$SSQL_STACK_NAME \
     --payload '{}' \
-    out.txt
+    out.txt \
+```
+
+view the output
+```
+cat out.txt
 ```
 
 
