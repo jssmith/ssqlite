@@ -159,7 +159,7 @@ int main(int argc, char* argv[])
         }
         for(int i=0;i<2;i++) {
             read_sequentially(pFile, block_size, n_reads);
-            read_randomly(pFile, block_size, n_reads, n_reads);
+            read_randomly(pFile, block_size, n_reads, file_size / block_size);
         }
     }
     return 0;
