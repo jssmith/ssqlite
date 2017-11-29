@@ -10,12 +10,11 @@ typedef struct appd {
 } *appd;
      
 
-typedef struct file {
+typedef struct sqlfile {
     sqlite3_file base;              /* IO methods */
     server s;
-    // xxx - variable length...vector of path elements...cached filehandle?
-    char filename[256];
-} *file;
+    file f;
+} *sqlfile;
 
     
 static int nfs4Close(sqlite3_file *pFile){
@@ -28,7 +27,7 @@ static int nfs4Read(sqlite3_file *pFile,
                    sqlite_int64 iOfst) 
 {
   file f = (file)pFile;
-  readfile(f->s, f->filename, zBuf, iOfst, iAmt);
+  readfile(f, zBuf, iOfst, iAmt);
   return SQLITE_OK;
 }
 
@@ -54,7 +53,7 @@ static int nfs4Sync(sqlite3_file *pFile, int flags)
 static int nfs4FileSize(sqlite3_file *pFile, sqlite_int64 *pSize)
 {
       file f = (file)pFile;
-      *pSize =  file_size(f->s, f->filename);
+      *pSize =  file_size(f);
       return SQLITE_OK;
 }
 
@@ -76,7 +75,7 @@ static int nfs4CheckReservedLock(sqlite3_file *pFile, int *pResOut)
 
 static int nfs4FileControl(sqlite3_file *pFile, int op, void *pArg)
 {
-  file f = (file)pFile;
+  sqlfile f = (sqlfile)pFile;
   int rc = SQLITE_OK;
 
   if (op == SQLITE_FCNTL_MMAP_SIZE) {
@@ -84,7 +83,8 @@ static int nfs4FileControl(sqlite3_file *pFile, int op, void *pArg)
   }
       
   if( op==SQLITE_FCNTL_VFSNAME ){
-      *(char**)pArg = sqlite3_mprintf("nfs4(%s)", f->filename);
+      buffer z = filename(0, f->f);
+      *(char**)pArg = sqlite3_mprintf("nfs4(%s)", z->contents + z->start);
       rc = SQLITE_OK;
   }
   return rc;
@@ -119,7 +119,7 @@ static int nfs4ShmUnmap(sqlite3_file *pFile, int deleteFlag){
 static int nfs4Fetch(sqlite3_file *pFile,  sqlite3_int64 iOfst, int iAmt, void **pp)
 {
     file f = (file )pFile;
-    readfile(f->s, f->filename, *pp, iOfst, iAmt);
+    readfile(f, *pp, iOfst, iAmt);
     return SQLITE_OK;
 }
 
@@ -142,11 +142,11 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     }
 
     appd ad = pVfs->pAppData;     
-    file f = (file)(void *)pFile;
+    sqlfile f = (sqlfile)(void *)pFile;
     memset(f, 0, sizeof(*f));
     char *i, *j;
 
-    // xxx split
+    // xxx split in vector.h even
     buffer host = allocate_buffer(0, 100);
     for (i = (char *)zName; *i != '/'; i++) {
         push_char(host, *i);
@@ -156,10 +156,8 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     // xxx - single server assumption
     ad->s = create_server((char *)host->contents);
     f->base.pMethods = methods;
-    i++;
-    for (j = f->filename; *i != 'o'; i++, j++) *j = *i; 
-    *j = 0;
-    f->s = ad->s;
+    f->f = file_open_read(ad->s, i);
+    // status?
     return SQLITE_OK;
 }
 
@@ -288,7 +286,7 @@ int sqlite3_nfs_init(sqlite3 *db,
     appd ad = allocate(0, sizeof(struct appd));
     nfs4_vfs.pAppData = ad;
     ad->parent = sqlite3_vfs_find(0);
-    nfs4_vfs.szOsFile = sizeof(struct file);
+    nfs4_vfs.szOsFile = sizeof(struct sqlfile);
     methods = &nfs4_io_methods;
     int rc = sqlite3_vfs_register(&nfs4_vfs, 1);
     return rc;

@@ -114,3 +114,11 @@ static u64 read_beu64(buffer b)
     
     return v<<32 | v2;
 }
+
+static void buffer_concat(buffer dest, buffer source)
+{
+    int len = length(source);
+    buffer_extend(dest, len);
+    memcpy(dest->contents + dest->end, source->contents + source->start, len);
+    dest->end += len;
+}

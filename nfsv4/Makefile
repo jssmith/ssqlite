@@ -1,7 +1,7 @@
 
 all: nfs4.so
 
-OBJ = rpc.o nfs4.o
+OBJ = rpc.o nfs4.o xdr.o
 
 .c.o: buffer.h nfs.h check-env
 	gcc -g -fPIC -I. -std=gnu99 -I$(SQLITE) $< -c
