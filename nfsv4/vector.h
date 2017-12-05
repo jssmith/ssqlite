@@ -4,7 +4,7 @@ typedef buffer vector;
 static inline void *vector_get(vector v, int offset)
 {
     void *res;
-    memcpy(res, v->contents + v->start + offset * sizeof(void *), sizeof(void *));
+    memcpy(&res, v->contents + v->start + offset * sizeof(void *), sizeof(void *));
     return res;
 }
 
@@ -21,20 +21,30 @@ static vector allocate_vector(heap h, int length)
 static void vector_push(vector v, void *i)
 {
     buffer_extend(v, sizeof(void *));
-    memcpy(v->contents + v->end, i, sizeof(void *));
+    memcpy(v->contents + v->end, &i, sizeof(void *));
     v->end += sizeof(void *);
 }
 
-static vector split(heap h, char *source, char divider)
+static void *vector_pop(vector v)
+{
+    void *res;
+    buffer_extend(v, sizeof(void *));
+    memcpy(&res, v->contents + v->start, sizeof(void *));
+    v->start += sizeof(void *);
+    return res;
+}
+
+// really should be buffer input
+static vector split(heap h, buffer source, char divider)
 {
     vector result = allocate_vector(h, 10);
     buffer each = allocate_buffer(h, 10);
-    for (char *i = source; *i ; i++ ){
-        if (*i == divider)  {
+    forchar(i, source) {
+        if (i == divider)  {
             vector_push(result, each);
             each = allocate_buffer(h, 10);
         } else {
-            push_char(each, *i);
+            push_char(each, i);
         }
     }
     if (length(each) > 0)  vector_push(result, each);
@@ -54,3 +64,4 @@ static buffer join(heap h, vector source, char between)
     return out;
 }
 
+#define foreach(__i, __v) for(u32 _i = 0, _len = vector_length(__v); _i< _len && (__i = vector_get(__v, _i), 1); _i++)

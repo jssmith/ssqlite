@@ -10,9 +10,14 @@ nfs4.so: $(OBJ)
 	ld -shared $(OBJ) -o nfs4.so
 
 clean:
-	rm -f $(OBJ) nfs4.so *~
+	rm -f *.o nfs4.so *~
 
 check-env:
 ifndef SQLITE
     $(error SQLITE is undefined)
 endif
+
+shell: rpc.o xdr.o shell.o
+	cc -g $^ -o shell
+
+ 

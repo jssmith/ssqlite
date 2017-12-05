@@ -2,6 +2,7 @@
 #define NFS_PROGRAM 0x186a3
 #define NFS4_FHSIZE 128
 #define NFS4_SESSIONID_SIZE 16
+#define NFS4_VERIFIER_SIZE 8
 
 enum nfs_opnum4 {
  OP_ACCESS               = 3,
@@ -498,6 +499,19 @@ enum limit_by4 {
 #define    OPEN4_SHARE_ACCESS_WANT_PUSH_DELEG_WHEN_UNCONTENDED   0x20000
 
 
+enum createmode4 {
+    UNCHECKED4      = 0,
+    GUARDED4        = 1,
+    /* Deprecated in NFSv4.1. */
+    EXCLUSIVE4      = 2,
+    /*
+     * New to NFSv4.1. If session is persistent,
+     * GUARDED4 MUST be used.  Otherwise, use
+     * EXCLUSIVE4_1 instead of EXCLUSIVE4.
+     */
+    EXCLUSIVE4_1    = 3
+};
+
 enum open_delegation_type4 {
     OPEN_DELEGATE_NONE      = 0,
     OPEN_DELEGATE_READ      = 1,
@@ -534,4 +548,10 @@ enum open_claim_type4 {
      * by current filehandle.
      */
     CLAIM_DELEG_PREV_FH     = 6 /* new to v4.1 */
+};
+
+enum state_protect_how4 {
+    SP4_NONE = 0,
+    SP4_MACH_CRED = 1,
+    SP4_SSV = 2
 };

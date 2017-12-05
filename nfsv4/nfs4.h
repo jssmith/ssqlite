@@ -6,6 +6,11 @@
 #include <vector.h>
 #include <nfs4xdr.h>
 
+
+#define true (1)
+#define false (0)
+typedef int boolean;
+
 typedef struct server {
     int fd;
     heap h;
@@ -15,6 +20,8 @@ typedef struct server {
     u8 session[NFS4_SESSIONID_SIZE];
     u32 sequence;
     u32 server_sequence;
+    u8 instance_verifier[NFS4_VERIFIER_SIZE];
+    boolean packet_trace;
 } *server;
 
 typedef struct rpc *rpc;
@@ -43,7 +50,7 @@ static inline void push_op(rpc r, u32 op)
     r->opcount++;
 }
 
-void push_sequence(rpc r, u8* session, u32 sequenceid);
+void push_sequence(rpc r);
 
 
 static inline void verify_and_adv(buffer b, u32 v)
@@ -54,10 +61,6 @@ static inline void verify_and_adv(buffer b, u32 v)
     }
 }
 
-#define true (1)
-#define false (0)
-typedef int boolean;
-
 
 typedef u64 clientid;
 
@@ -65,8 +68,18 @@ typedef u64 clientid;
 void push_stateid(rpc r);
 void push_exchange_id(rpc r);
 void parse_exchange_id(server, buffer);
-void push_create_session(rpc r, clientid id, u32 sequence);
+void push_create_session(rpc r);
 void parse_create_session(server, buffer);
-void push_lookup(rpc r, char *path);
+void push_lookup(rpc r, buffer i);
 buffer filename(heap h, file f);
-file file_open_read(server s, char *filename);
+file file_open_read(server s, vector path);
+file file_open_write(server s, vector path);
+file file_create(server s, vector path);
+boolean parse_rpc(server s, buffer b);
+void push_open(rpc r, buffer name, boolean create);
+void file_close(file f);
+void writefile(file f, void *source, u64 offset, u32 length);
+void push_string(buffer b, char *x, u32 length);
+
+boolean exists(server s, vector path);
+boolean delete(server s, vector path);

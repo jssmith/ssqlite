@@ -29,7 +29,7 @@ static bytes length(buffer b)
 {
     return b->end - b->start;
 }
-    
+
 
 static buffer allocate_buffer(heap h, bytes length){
     buffer b = allocate(h, sizeof(struct buffer));
@@ -56,6 +56,13 @@ static inline void buffer_extend(buffer b, bytes len)
         b->start = 0;
         b->contents = new;
     }
+}
+
+static inline void push_bytes(buffer b, void *x, int length)
+{
+    buffer_extend(b, length);
+    memcpy(b->contents + b->end, x, length);
+    b->end += length;
 }
 
 static void push_char(buffer b, char x)
@@ -122,3 +129,5 @@ static void buffer_concat(buffer dest, buffer source)
     memcpy(dest->contents + dest->end, source->contents + source->start, len);
     dest->end += len;
 }
+
+#define forchar(__c, __b) for(char __c= 1;__c ;__c = 0) for(u32 __j = 0, _len = length(__b); (__j< _len) && ((__c = *(char *)(__b->contents+__b->start + __j)), 1); __j++)

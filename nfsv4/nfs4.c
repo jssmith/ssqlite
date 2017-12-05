@@ -2,7 +2,7 @@
 SQLITE_EXTENSION_INIT1
 #include <nfs4.h>
 
-#define ORIGVFS(p) ((sqlite3_vfs*)((p)->pAppData))
+#define ORIGVFS(p) (((appd)(p)->pAppData)->parent)
 
 typedef struct appd {
     sqlite3_vfs *parent;
@@ -16,8 +16,18 @@ typedef struct sqlfile {
     file f;
 } *sqlfile;
 
+// maybe a macro that allocates b 
+static void bstring(buffer b, char *x)
+{
+    b->contents = (void *)x;
+    b->end = strlen(x);
+    b->start = 0;
+}
+
     
 static int nfs4Close(sqlite3_file *pFile){
+    sqlfile f = (sqlfile)pFile;
+    file_close(f->f);
     return SQLITE_OK;
 }
 
@@ -26,8 +36,8 @@ static int nfs4Read(sqlite3_file *pFile,
                    int iAmt, 
                    sqlite_int64 iOfst) 
 {
-  file f = (file)pFile;
-  readfile(f, zBuf, iOfst, iAmt);
+  sqlfile f = (sqlfile)pFile;
+  readfile(f->f, zBuf, iOfst, iAmt);
   return SQLITE_OK;
 }
 
@@ -36,24 +46,27 @@ static int nfs4Write(sqlite3_file *pFile,
                      int iAmt,
                      sqlite_int64 iOfst)
 {
-  return SQLITE_READONLY;
+    sqlfile f = (sqlfile)pFile;
+    writefile(f->f, (void *)z, iOfst, iAmt);
+    return SQLITE_OK;
 }
 
 static int nfs4Truncate(sqlite3_file *pFile,
                         sqlite_int64 size)
 {
-  return SQLITE_READONLY;
+    printf("truncate!");
+
 }
 
 static int nfs4Sync(sqlite3_file *pFile, int flags)
 {
-  return SQLITE_READONLY;
+    return SQLITE_OK;
 }
 
 static int nfs4FileSize(sqlite3_file *pFile, sqlite_int64 *pSize)
 {
-      file f = (file)pFile;
-      *pSize =  file_size(f);
+      sqlfile f = (sqlfile)pFile;
+      *pSize =  file_size(f->f);
       return SQLITE_OK;
 }
 
@@ -95,17 +108,19 @@ static int nfs4SectorSize(sqlite3_file *pFile){
 }
 
 static int nfs4DeviceCharacteristics(sqlite3_file *pFile){
-    return SQLITE_IOCAP_IMMUTABLE;
+    return 0; //SQLITE_IOCAP_IMMUTABLE;
 }
 
 static int nfs4ShmMap(sqlite3_file *pFile, int iPg, int pgsz, int bExtend, void volatile  **pp)
 {
+    printf("shmap\n");
     return SQLITE_READONLY;
 }
 
 
 static int nfs4ShmLock(sqlite3_file *pFile, int offset, int n, int flags){
-  return SQLITE_READONLY;
+    printf("shm lock\n");
+    return SQLITE_READONLY;
 }
 
 static void nfs4ShmBarrier(sqlite3_file *pFile){
@@ -129,6 +144,27 @@ static int nfs4Unfetch(sqlite3_file *pFile, sqlite3_int64 iOfst, void *pPage){
 
 static sqlite3_io_methods *methods;
 
+/*SQLITE_OPEN_READONLY         
+SQLITE_OPEN_READWRITE        
+SQLITE_OPEN_CREATE           
+SQLITE_OPEN_DELETEONCLOSE    
+SQLITE_OPEN_EXCLUSIVE        
+SQLITE_OPEN_AUTOPROXY        
+SQLITE_OPEN_URI              
+SQLITE_OPEN_MEMORY           
+SQLITE_OPEN_MAIN_DB          
+SQLITE_OPEN_TEMP_DB          
+SQLITE_OPEN_TRANSIENT_DB     
+SQLITE_OPEN_MAIN_JOURNAL     
+SQLITE_OPEN_TEMP_JOURNAL     
+SQLITE_OPEN_SUBJOURNAL       
+SQLITE_OPEN_MASTER_JOURNAL   
+SQLITE_OPEN_NOMUTEX          
+SQLITE_OPEN_FULLMUTEX        
+SQLITE_OPEN_SHAREDCACHE      
+SQLITE_OPEN_PRIVATECACHE     
+SQLITE_OPEN_WAL              */
+
 static int nfs4Open(sqlite3_vfs *pVfs,
                     const char *zName,
                     sqlite3_file *pFile,
@@ -136,52 +172,78 @@ static int nfs4Open(sqlite3_vfs *pVfs,
                     int *pOutFlags)
 {
     int eType = flags&0xFFFFFF00;  /* Type of file to open */
-
-    if (eType != SQLITE_OPEN_MAIN_DB) {
-        return SQLITE_CANTOPEN;
+    
+    if (flags & SQLITE_OPEN_DELETEONCLOSE) {
+        printf ("delete on close\n");
     }
 
-    appd ad = pVfs->pAppData;     
+
+    appd ad = pVfs->pAppData;
     sqlfile f = (sqlfile)(void *)pFile;
     memset(f, 0, sizeof(*f));
-    char *i, *j;
-
-    // xxx split in vector.h even
-    buffer host = allocate_buffer(0, 100);
-    for (i = (char *)zName; *i != '/'; i++) {
-        push_char(host, *i);
-    }
-    push_char(host, 0);
+    struct buffer znb;
+    bstring(&znb, (char *)zName);
     
-    // xxx - single server assumption
-    ad->s = create_server((char *)host->contents);
+    vector path = split(0, &znb, '/');
+    buffer servername = vector_pop(path);
+    buffer zeg =  vector_get(path, 0);
+    push_char(servername, 0);
+    // change interface to buffer...or tuple!
+    ad->s = create_server((char *)servername->contents);
+    
     f->base.pMethods = methods;
-    f->f = file_open_read(ad->s, i);
-    // status?
+    if (flags & SQLITE_OPEN_READONLY) {
+        f->f = file_open_read(ad->s, path);
+    } else {
+        if (flags & SQLITE_OPEN_CREATE) {
+            f->f = file_create(ad->s, path);
+        } else {
+            if (flags & SQLITE_OPEN_READWRITE) {
+                f->f = file_open_write(ad->s, path);
+            } else {
+                // error status and nfs4getlasterror?
+                printf("unkown open mode\n");
+                return SQLITE_CANTOPEN;
+            }
+        } 
+    }
     return SQLITE_OK;
 }
 
 static int nfs4Delete(sqlite3_vfs *pVfs, const char *zPath, int dirSync)
 {
-  return SQLITE_READONLY;
+    appd ad = pVfs->pAppData;
+    struct buffer znb;
+    bstring(&znb, (char *)zPath);
+    vector path = split(0, &znb, '/');
+    vector_pop(path);
+    delete(ad->s, path);
+        
+    return SQLITE_OK;
 }
 
+
+// maybe ask the server?
 static int nfs4Access(sqlite3_vfs *pVfs, 
                       const char *zPath, 
                       int flags, 
                       int *pResOut)
 {
-  /* The spec says there are three possible values for flags.  But only
-  ** two of them are actually used */
-      if( flags==SQLITE_ACCESS_EXISTS ){
-          return SQLITE_CANTOPEN;
-      }
-  if( flags==SQLITE_ACCESS_READWRITE ){
-    *pResOut = 0;
-  }else{
-    *pResOut = 1;
-  }
-  return SQLITE_OK;
+    /* The spec says there are three possible values for flags.  But only
+    ** two of them are actually used */
+    if( flags==SQLITE_ACCESS_EXISTS ){
+        appd ad = pVfs->pAppData;
+        struct buffer znb;
+        bstring(&znb, (char *)zPath);
+        vector path = split(0, &znb, '/');
+        vector_pop(path);
+        *pResOut = exists(ad->s, path);
+    }
+    if( flags==SQLITE_ACCESS_READWRITE ){
+        printf ("writei?\n");
+        *pResOut = 1;
+    }
+    return SQLITE_OK;
 }
 
 static int nfs4FullPathname(sqlite3_vfs *pVfs, 
@@ -280,9 +342,7 @@ int sqlite3_nfs_init(sqlite3 *db,
                       char **pzErrMsg,
                       const sqlite3_api_routines *pApi)
 {
-    mtrace();
     SQLITE_EXTENSION_INIT2(pApi);
-    // ? - this should be the server, right?
     appd ad = allocate(0, sizeof(struct appd));
     nfs4_vfs.pAppData = ad;
     ad->parent = sqlite3_vfs_find(0);

@@ -1,4 +1,6 @@
 #include <nfs4.h>
+#include <sys/time.h>
+
 
 void push_string(buffer b, char *x, u32 length) {
     u32 plen = pad(length, 4) - length;
@@ -30,20 +32,22 @@ void push_session_id(rpc r, u8 *session)
     r->b->end += NFS4_SESSIONID_SIZE;
 }
 
-void push_client_id(rpc r, clientid id)
+void push_client_id(rpc r)
 {
-    buffer_extend(r->b, sizeof(clientid));
-    memcpy(r->b->contents + r->b->end, &id, sizeof(clientid));
-    r->b->end += sizeof(clientid);
+    buffer_extend(r->b, sizeof(r->s->clientid));
+    memcpy(r->b->contents + r->b->end, &r->s->clientid, sizeof(clientid));
+    r->b->end += sizeof(r->s->clientid);
 }
 
+
+// section 18.36, pp 513, rfc 5661
 #define CREATE_SESSION4_FLAG_PERSIST 1
-void push_create_session(rpc r, clientid id, u32 sequence)
+void push_create_session(rpc r)
 {
     push_op(r, OP_CREATE_SESSION);
-    push_client_id(r, id);
+    push_client_id(r);
 
-    push_be32(r->b, sequence);
+    push_be32(r->b, r->s->sequence);
     push_be32(r->b, CREATE_SESSION4_FLAG_PERSIST);
     push_channel_attrs(r); //forward
     push_channel_attrs(r); //return
@@ -61,11 +65,11 @@ void parse_create_session(server s, buffer b)
 }
 
 
-void push_sequence(rpc r, u8* session, u32 sequenceid)
+void push_sequence(rpc r)
 {
     push_op(r, OP_SEQUENCE);
-    push_session_id(r, session);
-    push_be32(r->b, sequenceid); 
+    push_session_id(r, r->s->session);
+    push_be32(r->b, r->s->sequence); 
     push_be32(r->b, 0x00000000);  // slotid
     push_be32(r->b, 0x00000000);  // highest slotid
     push_be32(r->b, 0x00000000);  // sa_cachethis
@@ -122,59 +126,88 @@ rpc allocate_rpc(server s)
     return r;
 }
 
-void push_lookup(rpc r, char *path)
+void push_lookup(rpc r, buffer path)
 {
     push_op(r, OP_LOOKUP);
-    push_string(r->b, path, strlen(path));
+    push_string(r->b, path->contents + path->start, length(path));
 }
 
+static void print_err(int code)
+{
+    int i;
+    for (i=0; (status_strings[i].id >= 0) && (status_strings[i].id != code) ; i++);
+    if (status_strings[i].id == -1 ){
+        printf ("unknown error\n");
+    } else {
+        printf ("%s\n", status_strings[i].text);
+    }
+}
+
+// should be in the same file as create rpc..
 boolean parse_rpc(server s, buffer b)
 {
     verify_and_adv(b, s->xid);
     verify_and_adv(b, 1); // reply
-    u32 status = read_beu32(b);
-    if (status != NFS4_OK) {
-        int i;
-        for (i=0; (status_strings[i].id > 0) && (status_strings[i].id != status) ; i++);
-        if (status_strings[i].id == -1 ){
-            printf ("unknown error\n");
-        } else {
-            printf ("%s\n", status_strings[i].text);
-        }
+    
+    u32 rpcstatus = read_beu32(b);        
+    if (rpcstatus != NFS4_OK) {
+        print_err(rpcstatus); // wrong namespace
         return false;
     }
-    
-    verify_and_adv(b, 0); // status
+
     verify_and_adv(b, 0); // eh?
     verify_and_adv(b, 0); // verf
     verify_and_adv(b, 0); // verf
-    verify_and_adv(b, 0); // nfs status
+    u32 nfsstatus = read_beu32(b); 
+    if (nfsstatus != NFS4_OK) {
+        print_err(nfsstatus);
+        return false;
+    }
     verify_and_adv(b, 0); // tag
     return true;
 }
 
-void push_owner(buffer b, u64 clientid)
+void push_owner(rpc r)
 {
-    char own[] = "sqlite";
-    
-    push_string(b, own, sizeof(own)- 1);
+    char own[12];
+    push_client_id(r); // 5661 18.16.3 says server must ignore clientid
+    sprintf(own, "open id:%lx", *(unsigned long *)r->s->instance_verifier);
+    push_string(r->b, own, 12);
 }
 
-void push_claim_null(buffer b)
+void push_claim_null(buffer b, buffer name)
 {
+    push_be32(b, CLAIM_NULL);
+    push_string(b, name->contents + name->start, length(name));
+}
 
+void push_claim_deleg_cur(buffer b, buffer name)
+{
+    push_be32(b, CLAIM_DELEGATE_CUR);
+    // state id 4 
 }
 
 
-void push_open(rpc r, u64 clientid, boolean create)
+// assuming the current FH is the directory?
+void push_open(rpc r, buffer name, boolean create)
 {
     push_op(r, OP_OPEN);
     push_be32(r->b, 0); // seqid
-    push_be32(r->b, 0); // share access
+    push_be32(r->b, 2); // share access
     push_be32(r->b, 0); // share deny
-    push_owner(r->b, clientid);
-    push_be32(r->b, create?OPEN4_CREATE:OPEN4_NOCREATE); // openhow
-    push_be32(r->b, CLAIM_FH);
+    push_owner(r);
+    if (create) {
+        push_be32(r->b, OPEN4_CREATE);
+        push_be32(r->b, UNCHECKED4);
+        push_be32(r->b, 0x00000002);
+        push_be32(r->b, 0x00000000);
+        push_be32(r->b, 0x00000002);
+        push_be32(r->b, 0x00000004);
+        push_be32(r->b, 0x000001a4);
+    } else {
+        push_be32(r->b, OPEN4_NOCREATE);
+    }
+    push_claim_null(r->b, name);
 }
 
 
@@ -187,23 +220,29 @@ void push_stateid(rpc r)
     push_be32(r->b, 0);
 }
 
+// section 18.35, page 494, rfc 5661.txt
 void push_exchange_id(rpc r)
 {
-    char coid[] = "Linux.NFSv4.1.ip-172-31-27-113";
+    // this is supposed to be an instance descriptor that
+    // spans multiple invocations of the same logical instance...push up
+    char co_owner_id[] = "sqlite.ip-172-31-27-113";
     char author[] = "kernel.org";
     char version[] = "Linux 4.4.0-1038-aws.#47-Ubuntu.SMP Thu Sep 28 20:05:35 UTC.2017 x86_64";
     push_op(r, OP_EXCHANGE_ID);
-    push_client_id(r, r->s->clientid);
+    // clientowner4
+    push_bytes(r->b, r->s->instance_verifier, NFS4_VERIFIER_SIZE);
+    push_string(r->b, co_owner_id, sizeof(co_owner_id) - 1);
 
-    push_string(r->b, coid, sizeof(coid) - 1);
+    // flags
     push_be32(r->b, EXCHGID4_FLAG_SUPP_MOVED_REFER |
               EXCHGID4_FLAG_SUPP_MOVED_MIGR  |
               EXCHGID4_FLAG_BIND_PRINC_STATEID);
-    push_be32(r->b, 0);
-    push_be32(r->b,1);
-    push_string(r->b, author, sizeof(author) - 1);
-    push_string(r->b, version, sizeof(version) - 1);
-    push_be32(r->b, 0);
+
+    push_be32(r->b, SP4_NONE); // state protect how
+    push_be32(r->b, 1); // i guess a single impl id?
+    push_string(r->b, author, sizeof(author) - 1); // domain
+    push_string(r->b, version, sizeof(version) - 1); // name
+    push_be32(r->b, 0); // build date
     push_be32(r->b, 0);
     push_be32(r->b, 0);
 }
