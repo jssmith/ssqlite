@@ -3,7 +3,7 @@
 #include <arpa/inet.h>
 #include <nfs4xdr.h>
 
-struct server {
+struct client {
     int fd;
     heap h;
     u32 xid;
@@ -14,6 +14,16 @@ struct server {
     u32 server_sequence;
     u8 instance_verifier[NFS4_VERIFIER_SIZE];
     boolean packet_trace;
+    buffer b;
+};
+
+
+struct file {
+    // filehandle
+    // stateid
+    client c;
+    vector path;
+    u8 filehandle[NFS4_FHSIZE];
 };
 
 static inline void push_be32(buffer b, u32 w) {
@@ -51,13 +61,11 @@ static u64 read_beu64(buffer b)
     return v<<32 | v2;
 }
 
-
-
 typedef struct rpc *rpc;
-rpc allocate_rpc(server s);
+rpc allocate_rpc(client s);
 
 struct rpc {
-    server s;
+    client c;
     bytes opcountloc;
     int opcount;
     buffer b;
@@ -84,16 +92,24 @@ static inline void verify_and_adv(buffer b, u32 v)
 
 typedef u64 clientid;
 
-// refactor
 void push_stateid(rpc r);
 void push_exchange_id(rpc r);
-void parse_exchange_id(server, buffer);
+status parse_exchange_id(client, buffer);
 void push_create_session(rpc r);
-void parse_create_session(server, buffer);
+status parse_create_session(client, buffer);
 void push_lookup(rpc r, buffer i);
 buffer filename(file f);
-boolean parse_rpc(server s, buffer b);
+status parse_rpc(client s, buffer b);
 void push_open(rpc r, buffer name, boolean create);
 void push_string(buffer b, char *x, u32 length);
 
+
+status segment(status (*each)(file, void *, u64, u32), int chunksize, file f, void *x, u64 offset, u32 length);
+buffer push_initial_path(rpc r, vector path);
+status transact(rpc r, int op);
+
+status write_chunk(file f, void *source, u64 offset, u32 length);
+status read_chunk(file f, void *source, u64 offset, u32 length);
+void push_resolution(rpc r, vector path);
+status nfs4_connect(client s, char *hostname);
 

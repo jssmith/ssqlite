@@ -2,12 +2,12 @@
 #include <unistd.h>
 #include <stdio.h>
 
-server s;
+client c;
 
 static status create(vector path, vector args)
 {
     file f;
-    status st = file_create(s, path, &f);
+    status st = file_create(c, path, &f);
     file_close(f);
     return st;
 }
@@ -36,7 +36,7 @@ static status cdc(vector path, vector args)
 static status writec(vector path, vector args)
 {
     file f;
-    status st = file_open_write(s, path, &f);
+    status st = file_open_write(c, path, &f);
     if (is_ok(st)) {
         buffer c = vector_pop(args);
         st = writefile(f, c->contents + c->start, 0, length(c));
@@ -59,7 +59,7 @@ static struct {char *name; status (*f)(vector, vector);} commands[] = {
 
 int main(int argc, char **argv)
 {
-    s = create_server(argv[1]);
+    status s = create_client(argv[1], &c);
     buffer z = allocate_buffer(0, 100);
     
     while (1) {

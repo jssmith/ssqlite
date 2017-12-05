@@ -7,13 +7,13 @@ SQLITE_EXTENSION_INIT1
 
 typedef struct appd {
     sqlite3_vfs *parent;
-    server s; // xxx - single server assumption
+    client c; // xxx - single server assumption
 } *appd;
      
 
 typedef struct sqlfile {
     sqlite3_file base;              /* IO methods */
-    server s;
+    client c;
     file f;
 } *sqlfile;
 
@@ -195,17 +195,17 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     buffer zeg =  vector_get(path, 0);
     push_char(servername, 0);
     // change interface to buffer...or tuple!
-    ad->s = create_server((char *)servername->contents);
+    create_client((char *)servername->contents, &ad->c);
     
     f->base.pMethods = methods;
     if (flags & SQLITE_OPEN_READONLY) {
-        return translate_status(file_open_read(ad->s, path, &f->f));
+        return translate_status(file_open_read(ad->c, path, &f->f));
     } else {
         if (flags & SQLITE_OPEN_CREATE) {
-            return translate_status(file_create(ad->s, path, &f->f));
+            return translate_status(file_create(ad->c, path, &f->f));
         } else {
             if (flags & SQLITE_OPEN_READWRITE) {
-                return translate_status(file_open_write(ad->s, path, &f->f));
+                return translate_status(file_open_write(ad->c, path, &f->f));
             }
         }
     }
@@ -222,7 +222,7 @@ static int nfs4Delete(sqlite3_vfs *pVfs, const char *zPath, int dirSync)
     bstring(&znb, (char *)zPath);
     vector path = split(0, &znb, '/');
     vector_pop(path);
-    delete(ad->s, path);
+    delete(ad->c, path);
         
     return SQLITE_OK;
 }
@@ -242,7 +242,8 @@ static int nfs4Access(sqlite3_vfs *pVfs,
         bstring(&znb, (char *)zPath);
         vector path = split(0, &znb, '/');
         vector_pop(path);
-        *pResOut = exists(ad->s, path);
+        status s = exists(ad->c, path);
+        *pResOut = is_ok(s)?1:0;
     }
     if( flags==SQLITE_ACCESS_READWRITE ){
         printf ("writei?\n");
