@@ -1,6 +1,7 @@
 #include "sqlite3ext.h"
 SQLITE_EXTENSION_INIT1
 #include <nfs4.h>
+#include <stdio.h>
 
 #define ORIGVFS(p) (((appd)(p)->pAppData)->parent)
 
@@ -24,6 +25,10 @@ static void bstring(buffer b, char *x)
     b->start = 0;
 }
 
+static inline int translate_status(status s)
+{
+    return SQLITE_OK;
+}
     
 static int nfs4Close(sqlite3_file *pFile){
     sqlfile f = (sqlfile)pFile;
@@ -37,8 +42,7 @@ static int nfs4Read(sqlite3_file *pFile,
                    sqlite_int64 iOfst) 
 {
   sqlfile f = (sqlfile)pFile;
-  readfile(f->f, zBuf, iOfst, iAmt);
-  return SQLITE_OK;
+  translate_status(readfile(f->f, zBuf, iOfst, iAmt));
 }
 
 static int nfs4Write(sqlite3_file *pFile,
@@ -47,8 +51,7 @@ static int nfs4Write(sqlite3_file *pFile,
                      sqlite_int64 iOfst)
 {
     sqlfile f = (sqlfile)pFile;
-    writefile(f->f, (void *)z, iOfst, iAmt);
-    return SQLITE_OK;
+    translate_status(writefile(f->f, (void *)z, iOfst, iAmt));
 }
 
 static int nfs4Truncate(sqlite3_file *pFile,
@@ -66,8 +69,10 @@ static int nfs4Sync(sqlite3_file *pFile, int flags)
 static int nfs4FileSize(sqlite3_file *pFile, sqlite_int64 *pSize)
 {
       sqlfile f = (sqlfile)pFile;
-      *pSize =  file_size(f->f);
-      return SQLITE_OK;
+      u64 size;
+      status s =file_size(f->f, &size);
+      *pSize = size;
+      return translate_status(s);
 }
 
 
@@ -96,7 +101,7 @@ static int nfs4FileControl(sqlite3_file *pFile, int op, void *pArg)
   }
       
   if( op==SQLITE_FCNTL_VFSNAME ){
-      buffer z = filename(0, f->f);
+      buffer z = filename(f->f);
       *(char**)pArg = sqlite3_mprintf("nfs4(%s)", z->contents + z->start);
       rc = SQLITE_OK;
   }
@@ -133,9 +138,10 @@ static int nfs4ShmUnmap(sqlite3_file *pFile, int deleteFlag){
 
 static int nfs4Fetch(sqlite3_file *pFile,  sqlite3_int64 iOfst, int iAmt, void **pp)
 {
+    // why is fetch different from read? range lock?
+    printf("fetch\n");
     file f = (file )pFile;
-    readfile(f, *pp, iOfst, iAmt);
-    return SQLITE_OK;
+    translate_status(readfile(f, *pp, iOfst, iAmt));
 }
 
 static int nfs4Unfetch(sqlite3_file *pFile, sqlite3_int64 iOfst, void *pPage){
@@ -193,21 +199,20 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     
     f->base.pMethods = methods;
     if (flags & SQLITE_OPEN_READONLY) {
-        f->f = file_open_read(ad->s, path);
+        return translate_status(file_open_read(ad->s, path, &f->f));
     } else {
         if (flags & SQLITE_OPEN_CREATE) {
-            f->f = file_create(ad->s, path);
+            return translate_status(file_create(ad->s, path, &f->f));
         } else {
             if (flags & SQLITE_OPEN_READWRITE) {
-                f->f = file_open_write(ad->s, path);
-            } else {
-                // error status and nfs4getlasterror?
-                printf("unkown open mode\n");
-                return SQLITE_CANTOPEN;
+                return translate_status(file_open_write(ad->s, path, &f->f));
             }
-        } 
+        }
     }
-    return SQLITE_OK;
+
+    // stash in teh error string
+    printf("unkown open mode\n");
+    return SQLITE_CANTOPEN;
 }
 
 static int nfs4Delete(sqlite3_vfs *pVfs, const char *zPath, int dirSync)
@@ -346,6 +351,7 @@ int sqlite3_nfs_init(sqlite3 *db,
     appd ad = allocate(0, sizeof(struct appd));
     nfs4_vfs.pAppData = ad;
     ad->parent = sqlite3_vfs_find(0);
+    nfs4_vfs.pNext = sqlite3_vfs_find(0);
     nfs4_vfs.szOsFile = sizeof(struct sqlfile);
     methods = &nfs4_io_methods;
     int rc = sqlite3_vfs_register(&nfs4_vfs, 1);

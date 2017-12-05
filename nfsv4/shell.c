@@ -1,31 +1,59 @@
 #include <nfs4.h>
 #include <unistd.h>
+#include <stdio.h>
 
 server s;
 
-static void create(vector path, vector args)
+static status create(vector path, vector args)
 {
-    file f = file_create(s, path);
+    file f;
+    status st = file_create(s, path, &f);
     file_close(f);
+    return st;
 }
 
-static void sizec(vector path, vector args)
+static status sizec(vector path, vector args)
 {
 }
 
-static void writec(vector path, vector args)
+static status deletec(vector path, vector args)
 {
-    file f = file_open_write(s, path);
-    buffer c = vector_pop(args);
-    writefile(f, c->contents + c->start, 0, length(c));
-    file_close(f);
+}
+
+static status readc(vector path, vector args)
+{
+}
+
+static status lsc(vector path, vector args)
+{
+}
+
+static status cdc(vector path, vector args)
+{
+    // exists
+}
+
+static status writec(vector path, vector args)
+{
+    file f;
+    status st = file_open_write(s, path, &f);
+    if (is_ok(st)) {
+        buffer c = vector_pop(args);
+        st = writefile(f, c->contents + c->start, 0, length(c));
+        file_close(f);
+    }
+    return st;
 }
 
 // directories
-static struct {char *name; void (*f)(vector, vector);} commands[] = {
+static struct {char *name; status (*f)(vector, vector);} commands[] = {
     {"create", create},
     {"write", writec},
+    {"read", readc},
+    {"delete", deletec},    
     {"size", sizec},
+    {"ls", sizec},
+    {"cd", sizec},    
     {"", 0}
 };
 
@@ -52,7 +80,10 @@ int main(int argc, char **argv)
             int i;
             for (i = 0; commands[i].name[0] ; i++ ){
                 if (strncmp(commands[i].name, command->contents, length(command)) == 0) {
-                    commands[i].f(fn, v);
+                    status s = commands[i].f(fn, v);
+                    if (!is_ok(s)) {
+                        printf("%s\n", status_string(s));
+                    }
                     break;
                 }
             }

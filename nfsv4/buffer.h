@@ -87,40 +87,6 @@ static buffer print_buffer_u32(heap h, buffer b)
     return out;
 }
 
-static inline void push_be32(buffer b, u32 w) {
-    buffer_extend(b, 4);
-    *(u32 *)(b->contents + b->end) = htonl(w);
-    b->end += 4;
-}
-
-static inline void push_be64(buffer b, u64 w) {
-    buffer_extend(b, 8);
-    *(u32 *)(b->contents + b->end) = htonl(w>>32);
-    *(u32 *)(b->contents + b->end + 4) = htonl(w&0xffffffffull);
-    b->end += 8;
-}
-
-static u32 read_beu32(buffer b)
-{
-    if (length(b) < 4 ) {
-        printf("out of data!\n");
-    }
-    u32 v = ntohl(*(u32*)(b->contents + b->start));
-    b->start += 4;
-    return v;
-}
-
-static u64 read_beu64(buffer b)
-{
-    if (length(b) < 8 ) {
-        printf("out of data!\n");
-    }
-    u64 v = ntohl(*(u32*)(b->contents + b->start));
-    u64 v2 = ntohl(*(u32*)(b->contents + b->start + 4));    
-    b->start += 8;
-    
-    return v<<32 | v2;
-}
 
 static void buffer_concat(buffer dest, buffer source)
 {

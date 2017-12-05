@@ -1,8 +1,7 @@
-#include <nfs4.h>
+#include <nfs4_internal.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
-#include <netinet/in.h>
 #include <sys/time.h>
 
 struct file {
@@ -12,6 +11,11 @@ struct file {
     vector path;
     u8 filehandle[NFS4_FHSIZE];
 };
+
+char *status_string(status s)
+{
+    return "error";
+}
 
 static buffer print_path(heap h, vector v)
 {
@@ -42,14 +46,14 @@ void print_buffer(char *tag, buffer b)
 }
 
 
-buffer filename(heap h, file f)
+buffer filename(file f)
 {
     buffer z = join(0, f->path, '/');
     push_char(z, 0);
     return z;
 }
 
-buffer read_response(server s)
+static buffer read_response(server s)
 {
     char framing[4];
     int chars = read(s->fd, framing, 4);
@@ -72,7 +76,7 @@ buffer read_response(server s)
 }
 
 
-void rpc_send(rpc r)
+static void rpc_send(rpc r)
 {
     buffer temp = allocate_buffer(r->s->h, 2048);
 
@@ -86,7 +90,7 @@ void rpc_send(rpc r)
 }
 
     
-void nfs4_connect(server s)
+static void nfs4_connect(server s)
 {
     int temp;
     struct sockaddr_in a;
@@ -113,29 +117,7 @@ static void push_resolution(rpc r, vector path)
     foreach(i, path) push_lookup(r, i);
 }
 
-
-// add a file struct across this boundary
-// error protocol
-u64 file_size(file f)
-{
-    rpc r = allocate_rpc(f->s);
-    push_sequence(r);
-    push_resolution(r, f->path);
-    push_op(r, OP_GETATTR);
-    push_be32(r->b, 1); 
-    u32 mask = 1<<FATTR4_SIZE;
-    push_be32(r->b, mask);      
-    rpc_send(r);
-    
-    buffer b = read_response(f->s);
-    // demux attr more better
-    b->start = b->end - 8;
-    u64 x = 0;
-    return read_beu64(b); 
-}
-
-
-void read_until(buffer b, u32 which)
+static void read_until(buffer b, u32 which)
 {
     int opcount = read_beu32(b);
     while (1) {
@@ -157,8 +139,29 @@ void read_until(buffer b, u32 which)
     }
 }
 
-// these have the same sig so fragmentor can work
-void readfile(file f, void *dest, u64 offset, u32 length)
+
+status file_size(file f, u64 *dest)
+{
+    rpc r = allocate_rpc(f->s);
+    push_sequence(r);
+    push_resolution(r, f->path);
+    push_op(r, OP_GETATTR);
+    push_be32(r->b, 1); 
+    u32 mask = 1<<FATTR4_SIZE;
+    push_be32(r->b, mask);      
+    rpc_send(r);
+    
+    buffer b = read_response(f->s);
+    // demux attr more better
+    b->start = b->end - 8;
+    u64 x = 0;
+    *dest = read_beu64(b);  
+    return STATUS_OK;
+}
+
+
+
+static status read_chunk(file f, void *dest, u64 offset, u32 length)
 {
     rpc r = allocate_rpc(f->s);
 
@@ -180,7 +183,7 @@ void readfile(file f, void *dest, u64 offset, u32 length)
     memcpy(dest, b->contents+b->start, len);
 }
 
-void writefile(file f, void *source, u64 offset, u32 length)
+static status write_chunk(file f, void *source, u64 offset, u32 length)
 {
     rpc r = allocate_rpc(f->s);
 
@@ -200,25 +203,7 @@ void writefile(file f, void *source, u64 offset, u32 length)
 
 
 
-
-// error here
-file file_open_read(server s, vector path)
-{
-    file f = allocate(s->h, sizeof(struct file));
-    f->path = path;
-    f->s = s;
-    pf("read", f);
-    // xxx lookup filehandle here - so we can ENOSUCHFILE
-    return f;
-}
-
-boolean file_upgrade_write(file f)
-{
-
-}
-
-
-buffer push_initial_path(rpc r, vector path)
+static buffer push_initial_path(rpc r, vector path)
 {
     struct buffer initial;
     memcpy(&initial, path, sizeof(struct buffer));
@@ -227,22 +212,56 @@ buffer push_initial_path(rpc r, vector path)
     return vector_get(path, vector_length(path)-1);
 }
 
+#ifndef MAX
+#define MAX(a, b) ((a) > (b) ? (a):(b))
+#endif
 
-file file_open_write(server s, vector path)
+status segment(status (*each)(file, void *, u64, u32), int chunksize, file f, void *x, u64 offset, u32 length)
+{
+    for (u32 done = 0; done < length;) {
+        u32 xfer = MAX(length - done, chunksize);
+        status s = each(f, x + done, offset+done, xfer);
+        if (!is_ok(s)) return s;
+        done += xfer;
+    }
+    return STATUS_OK;
+}
+
+             
+status readfile(file f, void *dest, u64 offset, u32 length)
+{
+    return segment(read_chunk, 8192, f, dest, offset, length);
+}
+
+status writefile(file f, void *dest, u64 offset, u32 length)
+{
+    return segment(write_chunk, 8192, f, dest, offset, length);
+}
+
+status file_open_read(server s, vector path, file *dest)
 {
     file f = allocate(s->h, sizeof(struct file));
     f->path = path;
     f->s = s;
-    pf("open write", f);
+    *dest = f;
+    // xxx lookup filehandle here - so we can ENOSUCHFILE
+    return STATUS_OK;
+}
+
+
+status file_open_write(server s, vector path, file *dest)
+{
+    file f = allocate(s->h, sizeof(struct file));
+    f->path = path;
+    f->s = s;
     rpc r = allocate_rpc(f->s);
     push_sequence(r);
     buffer final = push_initial_path(r, path);
     push_open(r, final, false);
     rpc_send(r);
     buffer b = read_response(f->s);
-    
-    return f;
-
+    *dest = f;
+    return STATUS_OK;
 }
 
 void file_close(file f)
@@ -251,7 +270,7 @@ void file_close(file f)
 }
 
 // permissions, user, a tuple?
-file file_create(server s, vector path)
+status file_create(server s, vector path, file *dest)
 {
     file f = allocate(s->h, sizeof(struct file));
     f->path = path;
@@ -263,8 +282,8 @@ file file_create(server s, vector path)
     push_open(r, final, true);
     rpc_send(r);
     buffer b = read_response(f->s);
-
-    return f;
+    *dest = f;
+    return STATUS_OK;
 }
 
 // might as well implement something like stat()
@@ -281,7 +300,7 @@ boolean exists(server s, vector path)
 
 }
 
-boolean delete(server s, vector path)
+status delete(server s, vector path)
 {
     rpc r = allocate_rpc(s);
     push_sequence(r);
@@ -292,9 +311,18 @@ boolean delete(server s, vector path)
     buffer b = read_response(s);
     boolean x = parse_rpc(s, b);
     read_until(b, OP_REMOVE);
-    return x;
-
+    return STATUS_OK;
 }
+
+status readdir(server s, vector path, vector result)
+{
+}
+
+
+status mkdir(server s, vector path)
+{
+}
+
 
 server create_server(char *hostname)
 {
@@ -342,3 +370,4 @@ server create_server(char *hostname)
         
     return s;
 }
+ 
