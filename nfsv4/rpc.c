@@ -18,14 +18,14 @@ void print_buffer(char *tag, buffer b)
 }
 
 
-static void print_err(int code)
+static char *nfs4_error_string(int code)
 {
     int i;
     for (i=0; (status_strings[i].id >= 0) && (status_strings[i].id != code) ; i++);
     if (status_strings[i].id == -1 ){
-        printf ("unknown error\n");
+        return "unknown error";
     } else {
-        printf ("%s\n", status_strings[i].text);
+        return status_strings[i].text;
     }
 }
 
@@ -64,48 +64,43 @@ rpc allocate_rpc(client c)
 
 
 // should be in the same file as create rpc..
-status parse_rpc(client s, buffer b)
+status parse_rpc(client c, buffer b)
 {
-    verify_and_adv(b, s->xid);
-    verify_and_adv(b, 1); // reply
+    verify_and_adv(c, b, c->xid);
+    verify_and_adv(c, b, 1); // reply
     
     u32 rpcstatus = read_beu32(b);        
-    if (rpcstatus != NFS4_OK) {
-        print_err(rpcstatus); // wrong namespace
-        return STATUS_ERROR;
-    }
+    if (rpcstatus != NFS4_OK) 
+        return allocate_status(c, nfs4_error_string(rpcstatus));
 
-    verify_and_adv(b, 0); // eh?
-    verify_and_adv(b, 0); // verf
-    verify_and_adv(b, 0); // verf
+    verify_and_adv(c, b, 0); // eh?
+    verify_and_adv(c, b, 0); // verf
+    verify_and_adv(c, b, 0); // verf
     u32 nfsstatus = read_beu32(b); 
-    if (nfsstatus != NFS4_OK) {
-        print_err(nfsstatus);
-        return STATUS_ERROR;
-    }
-    verify_and_adv(b, 0); // tag
+    if (nfsstatus != NFS4_OK) 
+        return allocate_status(c, nfs4_error_string(nfsstatus));
+
+    verify_and_adv(c, b, 0); // tag
     return STATUS_OK;
 }
 
 
-static status read_response(client s, buffer b)
+static status read_response(client c, buffer b)
 {
     char framing[4];
-    int chars = read(s->fd, framing, 4);
-    if (chars != 4) {
-        printf ("Read error");
-    }
+    int chars = read(c->fd, framing, 4);
+    if (chars != 4) 
+        return (allocate_status(c, "server socket read error"));
+
     
     int frame = ntohl(*(u32 *)framing) & 0x07fffffff;
     buffer_extend(b, frame);
-    chars = read(s->fd, b->contents + b->start, frame);
-    if (chars != frame ) {
-        // read error
-        printf ("Read error");
-        return STATUS_ERROR;
-    }
+    chars = read(c->fd, b->contents + b->start, frame);
+    if (chars != frame ) 
+        return (allocate_status(c, "server socket read error"));        
+
     b->end = chars;
-    if (s->packet_trace) {
+    if (c->packet_trace) {
         print_buffer("resp", b);
     }
     return STATUS_OK;
@@ -127,26 +122,26 @@ static status rpc_send(rpc r)
 }
 
     
-status nfs4_connect(client s, char *hostname)
+status nfs4_connect(client c, char *hostname)
 {
     int temp;
     struct sockaddr_in a;
 
     struct hostent *he = gethostbyname(hostname);
-    memcpy(&s->address, he->h_addr, 4);
+    memcpy(&c->address, he->h_addr, 4);
     
-    s->fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);    
+    c->fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);    
     // xxx - abstract
-    memcpy(&a.sin_addr, &s->address, 4);
+    memcpy(&a.sin_addr, &c->address, 4);
     a.sin_family = AF_INET;
     a.sin_port = htons(2049); //configure
     
-    int res = connect(s->fd,
+    int res = connect(c->fd,
                       (struct sockaddr *)&a,
                       sizeof(struct sockaddr_in));
     if (res != 0) {
-        return STATUS_ERROR;
-        printf("connect failure %x %d\n", ntohl(s->address), res);
+        // make printf status variant
+        return allocate_status(c, "connect failure");
     }
 }
 
@@ -228,9 +223,10 @@ status read_chunk(file f, void *dest, u64 offset, u32 length)
     push_be32(r->b, length);
     status s = transact(r, OP_READ);
     if (!is_ok(s)) return s;    
-    verify_and_adv(r->b, 0);
+    verify_and_adv(f->c, r->b, 0);
     r->b->start += 4; // we dont care if its the end of file
     u32 len = read_beu32(r->b);
+    // guard against len != length
     memcpy(dest, r->b->contents+r->b->start, len);
     return STATUS_OK;
 }
@@ -258,14 +254,14 @@ buffer push_initial_path(rpc r, vector path)
     return vector_get(path, vector_length(path)-1);
 }
 
-#ifndef MAX
-#define MAX(a, b) ((a) > (b) ? (a):(b))
+#ifndef MIN
+#define MIN(a, b) ((a) < (b) ? (a):(b))
 #endif
 
 status segment(status (*each)(file, void *, u64, u32), int chunksize, file f, void *x, u64 offset, u32 length)
 {
     for (u32 done = 0; done < length;) {
-        u32 xfer = MAX(length - done, chunksize);
+        u32 xfer = MIN(length - done, chunksize);
         status s = each(f, x + done, offset+done, xfer);
         if (!is_ok(s)) return s;
         done += xfer;

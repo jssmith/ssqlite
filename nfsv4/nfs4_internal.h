@@ -64,6 +64,11 @@ static u64 read_beu64(buffer b)
 typedef struct rpc *rpc;
 rpc allocate_rpc(client s);
 
+struct status {
+    char *cause;
+    file f;
+};
+    
 struct rpc {
     client c;
     bytes opcountloc;
@@ -81,13 +86,8 @@ static inline void push_op(rpc r, u32 op)
 void push_sequence(rpc r);
 
 
-static inline void verify_and_adv(buffer b, u32 v)
-{
-    u32 v2 = read_beu32(b);
-    if (v != v2) {
-        printf("%x not equal to %x!\n", v, v2);
-    }
-}
+// pull in printf - "%x not equal to %x!\n", v, v2"
+#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__b); if (__v != v2) return allocate_status(__c, "encoding mismatch");}
 
 
 typedef u64 clientid;
@@ -112,4 +112,12 @@ status write_chunk(file f, void *source, u64 offset, u32 length);
 status read_chunk(file f, void *source, u64 offset, u32 length);
 void push_resolution(rpc r, vector path);
 status nfs4_connect(client s, char *hostname);
+
+// statusses should have a different allocation policy entirely
+static inline status allocate_status(client c, char *cause)
+{
+    status s = allocate(0, sizeof(struct status));
+    s->cause = cause;
+    return s;
+}
 

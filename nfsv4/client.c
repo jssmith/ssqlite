@@ -30,6 +30,7 @@ static void pf(char *header, file f)
 }
 
 
+// change to negotiated sizes!
 status readfile(file f, void *dest, u64 offset, u32 length)
 {
     return segment(read_chunk, 8192, f, dest, offset, length);
@@ -56,6 +57,9 @@ status file_open_write(client c, vector path, file *dest)
     file f = allocate(s->h, sizeof(struct file));
     f->path = path;
     f->c = c;
+    pf("open write", f);
+    
+
     rpc r = allocate_rpc(f->c);
     push_sequence(r);
     buffer final = push_initial_path(r, path);
@@ -69,7 +73,6 @@ status file_open_write(client c, vector path, file *dest)
 
 void file_close(file f)
 {
-    pf("close", f);
 }
 
 // permissions, user, a tuple?
@@ -140,9 +143,8 @@ status create_client(char *hostname, client *dest)
     
     rpc r = allocate_rpc(c);
     push_exchange_id(r);
-    buffer b;
     transact(r, OP_EXCHANGE_ID);
-    parse_exchange_id(c, b);
+    parse_exchange_id(c, r->b);
 
     r = allocate_rpc(c);
     // check - zero results in a seq error, it would be nice if

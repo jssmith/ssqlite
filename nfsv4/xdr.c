@@ -56,7 +56,7 @@ void push_create_session(rpc r)
 
 status parse_create_session(client c, buffer b)
 {
-    verify_and_adv(b, 0); // why is there another nfs status here?
+    verify_and_adv(c, b, 0); // why is there another nfs status here?
     // check length
     memcpy(c->session, b->contents + b->start, sizeof(c->session));
     b->start +=sizeof(c->session);
@@ -179,7 +179,7 @@ void push_exchange_id(rpc r)
 
 status parse_exchange_id(client c, buffer b)
 {
-    verify_and_adv(b, 0); // why is there another nfs status here?
+    verify_and_adv(c, b, 0); // why is there another nfs status here?
     memcpy(&c->clientid, b->contents + b->start, sizeof(c->clientid));
     b->start += sizeof(c->clientid);
     c->server_sequence = read_beu32(b);
