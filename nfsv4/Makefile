@@ -5,12 +5,13 @@ OBJ = rpc.o xdr.o client.o
 SQLITE_OBJ = nfs4.o $(OBJ)
 
 # set -DTRACE on nfs4.c for operation printfs
+# TRACING = -DTRACE
 
 nfs4.o: nfs4.c
 ifndef SQLITE
 	echo 'SQLITE is undefined'
 else
-	gcc -g -fPIC -I. -std=gnu99 -I$(SQLITE) $< -c
+	gcc -g -fPIC -I. $(TRACING) -std=gnu99 -I$(SQLITE) $< -c
 endif
 
 # how to depend on buffer.h nfs.h 

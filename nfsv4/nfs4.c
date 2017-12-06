@@ -8,11 +8,13 @@ SQLITE_EXTENSION_INIT1
 typedef struct appd {
     sqlite3_vfs *parent;
     client c; // xxx - single server assumption
+    char *current_error;
 } *appd;
      
 
 typedef struct sqlfile {
     sqlite3_file base;              /* IO methods */
+    appd ad;
     client c;
     file f;
 #ifdef TRACE
@@ -28,8 +30,22 @@ static void bstring(buffer b, char *x)
     b->start = 0;
 }
 
-static inline int translate_status(status s)
+// try to translate if we can
+// SQLITE_BUSY
+// SQLITE_LOCKED
+// SQLITE_NOMEM
+// SQLITE_READONLY
+// SQLITE_NOTFOUND
+// SQLITE_CANTOPEN
+// SQLITE_IOERR
+// SQLITE_AUTH
+
+static inline int translate_status(appd ad, status s)
 {
+#ifdef TRACE
+    printf ("status %p\n", s);
+#endif
+    if (!is_ok(s)) return SQLITE_ERROR;
     return SQLITE_OK;
 }
     
@@ -51,7 +67,7 @@ static int nfs4Read(sqlite3_file *pFile,
     printf ("read %p\n", zBuf);
 #endif
   sqlfile f = (sqlfile)pFile;
-  translate_status(readfile(f->f, zBuf, iOfst, iAmt));
+  translate_status(f->ad, readfile(f->f, zBuf, iOfst, iAmt));
 }
 
 static int nfs4Write(sqlite3_file *pFile,
@@ -63,7 +79,7 @@ static int nfs4Write(sqlite3_file *pFile,
     printf ("write\n");
 #endif
     sqlfile f = (sqlfile)pFile;
-    translate_status(writefile(f->f, (void *)z, iOfst, iAmt));
+    translate_status(f->ad, writefile(f->f, (void *)z, iOfst, iAmt));
 }
 
 static int nfs4Truncate(sqlite3_file *pFile,
@@ -93,7 +109,7 @@ static int nfs4FileSize(sqlite3_file *pFile, sqlite_int64 *pSize)
       u64 size;
       status s =file_size(f->f, &size);
       *pSize = size;
-      return translate_status(s);
+      return translate_status(f->ad, s);
 }
 
 
@@ -188,8 +204,8 @@ static int nfs4Fetch(sqlite3_file *pFile,  sqlite3_int64 iOfst, int iAmt, void *
 #ifdef TRACE
     printf ("fetch\n");
 #endif                                    
-    file f = (file )pFile;
-    translate_status(readfile(f, *pp, iOfst, iAmt));
+    sqlfile f = (sqlfile)pFile;
+    translate_status(f->ad, readfile(f->f, *pp, iOfst, iAmt));
 }
 
 static int nfs4Unfetch(sqlite3_file *pFile, sqlite3_int64 iOfst, void *pPage){
@@ -230,7 +246,7 @@ static int nfs4Open(sqlite3_vfs *pVfs,
 {
     sqlfile f = (sqlfile)(void *)pFile;
 #ifdef TRACE
-    printf ("open %s\n", zName);
+    printf ("open %s %x\n", zName, flags);
     memcpy(f->filename, zName, strlen(zName));
 #endif                                            
     int eType = flags&0xFFFFFF00;  /* Type of file to open */
@@ -239,8 +255,8 @@ static int nfs4Open(sqlite3_vfs *pVfs,
         printf ("delete on close\n");
     }
 
-
     appd ad = pVfs->pAppData;
+    f->ad = ad;
     memset(f, 0, sizeof(*f));
     struct buffer znb;
     bstring(&znb, (char *)zName);
@@ -257,13 +273,13 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     
     f->base.pMethods = methods;
     if (flags & SQLITE_OPEN_READONLY) {
-        return translate_status(file_open_read(ad->c, path, &f->f));
+        return translate_status(ad, file_open_read(ad->c, path, &f->f));
     } else {
         if (flags & SQLITE_OPEN_CREATE) {
-            return translate_status(file_create(ad->c, path, &f->f));
+            return translate_status(ad, file_create(ad->c, path, &f->f));
         } else {
             if (flags & SQLITE_OPEN_READWRITE) {
-                return translate_status(file_open_write(ad->c, path, &f->f));
+                return translate_status(ad, file_open_write(ad->c, path, &f->f));
             }
         }
     }
@@ -354,9 +370,12 @@ static int nfs4CurrentTime(sqlite3_vfs *pVfs, double *pTimeOut){
   return ORIGVFS(pVfs)->xCurrentTime(ORIGVFS(pVfs), pTimeOut);
 }
 
+// have to deal with errors from next in all the next through calls
 static int nfs4GetLastError(sqlite3_vfs *pVfs, int a, char *b){
-  return ORIGVFS(pVfs)->xGetLastError(ORIGVFS(pVfs), a, b);
+    // this is apparently...not useful
+    return SQLITE_OK;
 }
+
 static int nfs4CurrentTimeInt64(sqlite3_vfs *pVfs, sqlite3_int64 *p){
   return ORIGVFS(pVfs)->xCurrentTimeInt64(ORIGVFS(pVfs), p);
 }
@@ -408,8 +427,8 @@ static sqlite3_io_methods nfs4_io_methods = {
 
 // why is this not sqlite_nfs4_init?
 int sqlite3_nfs_init(sqlite3 *db,
-                      char **pzErrMsg,
-                      const sqlite3_api_routines *pApi)
+                     char **pzErrMsg,
+                     const sqlite3_api_routines *pApi)
 {
     SQLITE_EXTENSION_INIT2(pApi);
     appd ad = allocate(0, sizeof(struct appd));
@@ -420,6 +439,7 @@ int sqlite3_nfs_init(sqlite3 *db,
     nfs4_vfs.szOsFile = sizeof(struct sqlfile);
     methods = &nfs4_io_methods;
     int rc = sqlite3_vfs_register(&nfs4_vfs, 1);
+    if (rc == SQLITE_OK) return SQLITE_OK_LOAD_PERMANENTLY;
     return rc;
 }
 

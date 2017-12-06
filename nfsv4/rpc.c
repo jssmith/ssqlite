@@ -153,26 +153,32 @@ void push_resolution(rpc r, vector path)
     foreach(i, path) push_lookup(r, i);
 }
 
-static void read_until(buffer b, u32 which)
+static status read_until(client c, buffer b, u32 which)
 {
     int opcount = read_beu32(b);
     while (1) {
         int op =  read_beu32(b);
         if (op == which) {
-            return;
+            return STATUS_OK;
         }
+        u32 code = read_beu32(b);
+        if (code != 0) return allocate_status(c, nfs4_error_string(code));
+
         switch (op) {
         case OP_SEQUENCE:
-            b->start += 40;
+            b->start += 36;
             break;
         case OP_PUTROOTFH:
-            b->start += 4;
             break;
         case OP_LOOKUP:
-            b->start += 4;
             break;
+        default:
+            // printf style with code
+            return allocate_status(c, "unhandled scan code");
         }
     }
+    // fix
+    return STATUS_OK;
 }
 
 static rpc file_rpc(file f)
@@ -192,8 +198,11 @@ status transact(rpc r, int op)
     if (!is_ok(s)) return s;
     s = parse_rpc(r->c, r->b);
     if (!is_ok(s)) return s;
-    read_until(r->b, op);
-    return STATUS_OK;
+    s = read_until(r->c, r->b, op);
+    if (!is_ok(s)) return s;
+    u32 code = read_beu32(r->b);
+    if (code == 0) return STATUS_OK;
+    return allocate_status(r->c, nfs4_error_string(code));
 }
 
 status file_size(file f, u64 *dest)
@@ -213,7 +222,6 @@ status file_size(file f, u64 *dest)
 }
 
 
-
 status read_chunk(file f, void *dest, u64 offset, u32 length)
 {
     rpc r = file_rpc(f);
@@ -223,7 +231,6 @@ status read_chunk(file f, void *dest, u64 offset, u32 length)
     push_be32(r->b, length);
     status s = transact(r, OP_READ);
     if (!is_ok(s)) return s;    
-    verify_and_adv(f->c, r->b, 0);
     r->b->start += 4; // we dont care if its the end of file
     u32 len = read_beu32(r->b);
     // guard against len != length
@@ -241,7 +248,6 @@ status write_chunk(file f, void *source, u64 offset, u32 length)
     push_be32(r->b, FILE_SYNC4);
     push_string(r->b, source, length);
     buffer b;
-    // check status!
     return transact(r, OP_WRITE);
 }
 

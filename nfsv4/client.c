@@ -57,8 +57,6 @@ status file_open_write(client c, vector path, file *dest)
     file f = allocate(s->h, sizeof(struct file));
     f->path = path;
     f->c = c;
-    pf("open write", f);
-    
 
     rpc r = allocate_rpc(f->c);
     push_sequence(r);
@@ -130,7 +128,6 @@ status mkdir(client c, vector path)
 status create_client(char *hostname, client *dest)
 {
     client c = allocate(0, sizeof(struct client));
-
     c->packet_trace = false;
     nfs4_connect(c, hostname);     
     c->xid = 0xb956bea4;
@@ -143,7 +140,8 @@ status create_client(char *hostname, client *dest)
     
     rpc r = allocate_rpc(c);
     push_exchange_id(r);
-    transact(r, OP_EXCHANGE_ID);
+    status st = transact(r, OP_EXCHANGE_ID);
+    if (!is_ok(st)) return st;
     parse_exchange_id(c, r->b);
 
     r = allocate_rpc(c);
@@ -151,15 +149,16 @@ status create_client(char *hostname, client *dest)
     // this were explicitly defined someplace
     r->c->sequence = 1;
     push_create_session(r);
-    transact(r, OP_CREATE_SESSION);
+    st = transact(r, OP_CREATE_SESSION);
+    if (!is_ok(st)) return st;
     parse_create_session(c, r->b);
 
     r = allocate_rpc(c);
     push_sequence(r);
     push_op(r, OP_RECLAIM_COMPLETE);
     push_be32(r->b, 0);
-    transact(r, OP_RECLAIM_COMPLETE);
-
+    st = transact(r, OP_RECLAIM_COMPLETE);
+    if (!is_ok(st)) return st;
     *dest = c;
     return STATUS_OK;
 }
