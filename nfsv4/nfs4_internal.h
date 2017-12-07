@@ -39,27 +39,18 @@ static inline void push_be64(buffer b, u64 w) {
     b->end += 8;
 }
 
-static u32 read_beu32(buffer b)
-{
-    if (length(b) < 4 ) {
-        printf("out of data!\n");
-    }
-    u32 v = ntohl(*(u32*)(b->contents + b->start));
-    b->start += 4;
-    return v;
-}
+#define read_beu32(__c, __b) ({\
+    if ((__b->end - __b->start) < 4 ) return allocate_status(__c, "out of data"); \
+    u32 v = ntohl(*(u32*)(__b->contents + __b->start));\
+    __b->start += 4;\
+    v;})
 
-static u64 read_beu64(buffer b)
-{
-    if (length(b) < 8 ) {
-        printf("out of data!\n");
-    }
-    u64 v = ntohl(*(u32*)(b->contents + b->start));
-    u64 v2 = ntohl(*(u32*)(b->contents + b->start + 4));    
-    b->start += 8;
-    
-    return v<<32 | v2;
-}
+#define read_beu64(__c, __b) ({\
+    if ((__b->end - __b->start) < 8 ) return allocate_status(__c, "out of data");\
+    u64 v = ntohl(*(u32*)(__b->contents + __b->start));\
+    u64 v2 = ntohl(*(u32*)(__b->contents + __b->start + 4));    \
+    __b->start += 8;                                        \
+    v<<32 | v2;})
 
 typedef struct rpc *rpc;
 rpc allocate_rpc(client s);
@@ -87,7 +78,7 @@ void push_sequence(rpc r);
 
 
 // pull in printf - "%x not equal to %x!\n", v, v2"
-#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__b); if (__v != v2) return allocate_status(__c, "encoding mismatch");}
+#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__c, __b); if (__v != v2) return allocate_status(__c, "encoding mismatch");}
 
 
 typedef u64 clientid;
@@ -121,3 +112,7 @@ static inline status allocate_status(client c, char *cause)
     return s;
 }
 
+static void deallocate_rpc(rpc r)
+{
+    deallocate(0, r, sizeof(struct r));
+}

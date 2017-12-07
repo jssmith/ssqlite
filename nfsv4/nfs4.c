@@ -23,7 +23,7 @@ typedef struct sqlfile {
 } *sqlfile;
 
 // maybe a macro that allocates b 
-static void bstring(buffer b, char *x)
+static void buffer_wrap_string(buffer b, char *x)
 {
     b->contents = (void *)x;
     b->end = strlen(x);
@@ -102,14 +102,15 @@ static int nfs4Sync(sqlite3_file *pFile, int flags)
 
 static int nfs4FileSize(sqlite3_file *pFile, sqlite_int64 *pSize)
 {
+    sqlfile f = (sqlfile)pFile;
 #ifdef TRACE
-    printf ("filesize\n");
+    printf ("filesize %s\n", f->filename);
 #endif    
-      sqlfile f = (sqlfile)pFile;
-      u64 size;
-      status s =file_size(f->f, &size);
-      *pSize = size;
-      return translate_status(f->ad, s);
+
+    u64 size;
+    status s =file_size(f->f, &size);
+    *pSize = size;
+    return translate_status(f->ad, s);
 }
 
 
@@ -143,20 +144,20 @@ static int nfs4FileControl(sqlite3_file *pFile, int op, void *pArg)
 #ifdef TRACE
     printf ("control %d\n", op);
 #endif                
-  sqlfile f = (sqlfile)pFile;
-  int rc = SQLITE_OK;
-
-  if (op == SQLITE_FCNTL_MMAP_SIZE) {
-      *(u64 *) pArg = 0;
-  }
-      
-  if( op==SQLITE_FCNTL_VFSNAME ){
-      buffer z = filename(f->f);
-      *(char**)pArg = sqlite3_mprintf("nfs4(%s)", z->contents + z->start);
-      rc = SQLITE_OK;
-  }
-
-  return rc;
+    sqlfile f = (sqlfile)pFile;
+    int rc = SQLITE_OK;
+    
+    if (op == SQLITE_FCNTL_MMAP_SIZE) {
+        *(u64 *) pArg = 0;
+    }
+    
+    if( op==SQLITE_FCNTL_VFSNAME ){
+        buffer z = filename(f->f);
+        *(char**)pArg = sqlite3_mprintf("nfs4(%s)", z->contents + z->start);
+        rc = SQLITE_OK;
+    }
+    
+    return rc;
 }
 
 static int nfs4SectorSize(sqlite3_file *pFile){
@@ -164,11 +165,14 @@ static int nfs4SectorSize(sqlite3_file *pFile){
 }
 
 static int nfs4DeviceCharacteristics(sqlite3_file *pFile){
-    return 0; //SQLITE_IOCAP_IMMUTABLE;
+    //set SQLITE_IOCAP_IMMUTABLE for read only
+    return 0;
 }
 
 static int nfs4ShmMap(sqlite3_file *pFile, int iPg, int pgsz, int bExtend, void volatile  **pp)
 {
+    // jss - probably ok to leave this as a noop rather than forwarding to the
+    // parent VFS since there is no shared memory support.
 #ifdef TRACE
     printf ("shmap\n");
 #endif                    
@@ -187,7 +191,7 @@ static void nfs4ShmBarrier(sqlite3_file *pFile){
 #ifdef TRACE
     printf ("barrier\n");
 #endif                            
-  return;
+    return;
 }
 
 
@@ -195,7 +199,7 @@ static int nfs4ShmUnmap(sqlite3_file *pFile, int deleteFlag){
 #ifdef TRACE
     printf ("unmap\n");
 #endif                                
-  return SQLITE_OK;
+    return SQLITE_OK;
 }
 
 static int nfs4Fetch(sqlite3_file *pFile,  sqlite3_int64 iOfst, int iAmt, void **pp)
@@ -249,7 +253,6 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     printf ("open %s %x\n", zName, flags);
     memcpy(f->filename, zName, strlen(zName));
 #endif                                            
-    int eType = flags&0xFFFFFF00;  /* Type of file to open */
     
     if (flags & SQLITE_OPEN_DELETEONCLOSE) {
         printf ("delete on close\n");
@@ -257,9 +260,9 @@ static int nfs4Open(sqlite3_vfs *pVfs,
 
     appd ad = pVfs->pAppData;
     f->ad = ad;
-    memset(f, 0, sizeof(*f));
+    memset(f, 0, sizeof(struct sqlfile));
     struct buffer znb;
-    bstring(&znb, (char *)zName);
+    buffer_wrap_string(&znb, (char *)zName);
     
     vector path = split(0, &znb, '/');
     buffer servername = vector_pop(path);
@@ -296,7 +299,7 @@ static int nfs4Delete(sqlite3_vfs *pVfs, const char *zPath, int dirSync)
 #endif                                                
     appd ad = pVfs->pAppData;
     struct buffer znb;
-    bstring(&znb, (char *)zPath);
+    buffer_wrap_string(&znb, (char *)zPath);
     vector path = split(0, &znb, '/');
     vector_pop(path);
     delete(ad->c, path);
@@ -318,7 +321,7 @@ static int nfs4Access(sqlite3_vfs *pVfs,
     if( flags==SQLITE_ACCESS_EXISTS ){
         appd ad = pVfs->pAppData;
         struct buffer znb;
-        bstring(&znb, (char *)zPath);
+        buffer_wrap_string(&znb, (char *)zPath);
         vector path = split(0, &znb, '/');
         vector_pop(path);
         status s = exists(ad->c, path);

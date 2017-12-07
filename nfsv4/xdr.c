@@ -33,7 +33,7 @@ void push_session_id(rpc r, u8 *session)
 
 void push_client_id(rpc r)
 {
-    buffer_extend(r->b, sizeof(r->c->clientid));
+    buffer_extend(r->b, sizeof(clientid));
     memcpy(r->b->contents + r->b->end, &r->c->clientid, sizeof(clientid));
     r->b->end += sizeof(r->c->clientid);
 }
@@ -59,7 +59,7 @@ status parse_create_session(client c, buffer b)
     // check length
     memcpy(c->session, b->contents + b->start, sizeof(c->session));
     b->start +=sizeof(c->session);
-    c->sequence = read_beu32(b);
+    c->sequence = read_beu32(c, b);
     return STATUS_OK;
 }
 
@@ -76,6 +76,7 @@ void push_sequence(rpc r)
     r->c->sequence++;
 }
 
+// xxx - fix or remove, efs doesn't seem to care about it
 void push_auth_sys(rpc r)
 {
     push_be32(r->b, 1);     // enum - AUTH_SYS
@@ -180,7 +181,7 @@ status parse_exchange_id(client c, buffer b)
 {
     memcpy(&c->clientid, b->contents + b->start, sizeof(c->clientid));
     b->start += sizeof(c->clientid);
-    c->server_sequence = read_beu32(b);
+    c->server_sequence = read_beu32(c, b);
     //    clientid4        eir_clientid;
     //    sequenceid4      eir_sequenceid;
     //    uint32_t         eir_flags;

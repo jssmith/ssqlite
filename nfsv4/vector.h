@@ -27,8 +27,13 @@ static void vector_push(vector v, void *i)
 
 static void *vector_pop(vector v)
 {
+    if ((v->end - v->start) < sizeof(void *)){
+        // not ideal, since it aliases and may or may not fault the caller.
+        // could just take a segv
+        return 0;
+    }
+    
     void *res;
-    buffer_extend(v, sizeof(void *));
     memcpy(&res, v->contents + v->start, sizeof(void *));
     v->start += sizeof(void *);
     return res;
@@ -51,9 +56,6 @@ static vector split(heap h, buffer source, char divider)
     return result;
 }
 
-  
-
-// should probably be string between
 static buffer join(heap h, vector source, char between)
 {
     buffer out = allocate_buffer(h, 100);

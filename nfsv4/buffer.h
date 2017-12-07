@@ -13,9 +13,10 @@ static inline u32 pad(u32 a, u32 to)
 }
 
 typedef struct buffer {
+    heap h;
     bytes start;
     bytes end;
-    bytes length;
+    bytes capacity;
     void *contents;
 } *buffer;
 
@@ -31,11 +32,11 @@ static bytes length(buffer b)
 }
 
 
-static buffer allocate_buffer(heap h, bytes length){
+static buffer allocate_buffer(heap h, bytes capacity){
     buffer b = allocate(h, sizeof(struct buffer));
     memset(b, 0, sizeof(struct buffer));    
-    b->length = length + 100;
-    b->contents = allocate(h, b->length);
+    b->capacity = capacity;
+    b->contents = allocate(h, b->capacity);
     return b;
 }
 
@@ -44,11 +45,12 @@ static buffer allocate_buffer(heap h, bytes length){
 static inline void buffer_extend(buffer b, bytes len)
 {
     // pad to pagesize
+    // jss - maybe align also?
 
-    if (b->length < (b->end + len)) {
-        bytes oldlen = b->length;
-        b->length = 2*(oldlen+len);
-        void *new =  allocate(b->h, b->length);
+    if (b->capacity < (b->end + len)) {
+        bytes oldcap = b->capacity;
+        b->capacity = 2*(oldcap+len);
+        void *new =  allocate(b->h, b->capacity);
 
         memcpy(new, b->contents + b->start, length(b));        
         deallocate(b->h, b->contents, oldlen);
@@ -97,3 +99,9 @@ static void buffer_concat(buffer dest, buffer source)
 }
 
 #define forchar(__c, __b) for(char __c= 1;__c ;__c = 0) for(u32 __j = 0, _len = length(__b); (__j< _len) && ((__c = *(char *)(__b->contents+__b->start + __j)), 1); __j++)
+
+static inline void deallocate_buffer(buffer b)
+{
+    deallocate(b->h, b->contents, b->capacity);
+    deallocate(b->h, b, sizeof(struct buffer));
+}

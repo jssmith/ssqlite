@@ -85,6 +85,7 @@ status file_create(client c, vector path, file *dest)
     buffer final = push_initial_path(r, path);
     push_open(r, final, true);
     status st = transact(r, OP_OPEN);
+    deallocate_rpc(r);
     if (!is_ok(st)) return st;    
     *dest = f;
     return STATUS_OK;
@@ -98,6 +99,7 @@ status exists(client c, vector path)
     push_resolution(r, path);
     push_op(r, OP_GETFH);
     status st = transact(r, OP_GETFH);
+    deallocate_rpc(r);    
     if (!is_ok(st)) return st;    
     return STATUS_OK;
 
@@ -111,6 +113,7 @@ status delete(client c, vector path)
     push_op(r, OP_REMOVE);
     push_string(r->b, final->contents + final->start, length(final));
     status s= transact(r, OP_REMOVE);
+    deallocate_rpc(r);
     if (!is_ok(s)) return s;    
     return STATUS_OK;
 }
@@ -141,8 +144,13 @@ status create_client(char *hostname, client *dest)
     rpc r = allocate_rpc(c);
     push_exchange_id(r);
     status st = transact(r, OP_EXCHANGE_ID);
+    if (!is_ok(st)) {
+        deallocate_rpc(r);    
+        return st;
+    }
+    st = parse_exchange_id(c, r->b);
     if (!is_ok(st)) return st;
-    parse_exchange_id(c, r->b);
+    deallocate_rpc(r);
 
     r = allocate_rpc(c);
     // check - zero results in a seq error, it would be nice if
@@ -150,14 +158,20 @@ status create_client(char *hostname, client *dest)
     r->c->sequence = 1;
     push_create_session(r);
     st = transact(r, OP_CREATE_SESSION);
+    if (!is_ok(st)) {
+        deallocate_rpc(r);    
+        return st;
+    }    
+    st = parse_create_session(c, r->b);
     if (!is_ok(st)) return st;
-    parse_create_session(c, r->b);
+    deallocate_rpc(r);    
 
     r = allocate_rpc(c);
     push_sequence(r);
     push_op(r, OP_RECLAIM_COMPLETE);
     push_be32(r->b, 0);
     st = transact(r, OP_RECLAIM_COMPLETE);
+    deallocate_rpc(r);        
     if (!is_ok(st)) return st;
     *dest = c;
     return STATUS_OK;

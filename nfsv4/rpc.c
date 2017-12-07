@@ -15,7 +15,9 @@ void print_buffer(char *tag, buffer b)
     buffer temp = print_buffer_u32(0, b);
     write(1, temp->contents + temp->start, length(temp));
     printf("----------\n");
+    deallocate_buffer(temp);
 }
+
 
 
 static char *nfs4_error_string(int code)
@@ -69,14 +71,14 @@ status parse_rpc(client c, buffer b)
     verify_and_adv(c, b, c->xid);
     verify_and_adv(c, b, 1); // reply
     
-    u32 rpcstatus = read_beu32(b);        
+    u32 rpcstatus = read_beu32(c, b);        
     if (rpcstatus != NFS4_OK) 
         return allocate_status(c, nfs4_error_string(rpcstatus));
 
     verify_and_adv(c, b, 0); // eh?
     verify_and_adv(c, b, 0); // verf
     verify_and_adv(c, b, 0); // verf
-    u32 nfsstatus = read_beu32(b); 
+    u32 nfsstatus = read_beu32(c, b); 
     if (nfsstatus != NFS4_OK) 
         return allocate_status(c, nfs4_error_string(nfsstatus));
 
@@ -155,13 +157,13 @@ void push_resolution(rpc r, vector path)
 
 static status read_until(client c, buffer b, u32 which)
 {
-    int opcount = read_beu32(b);
+    int opcount = read_beu32(c, b);
     while (1) {
-        int op =  read_beu32(b);
+        int op =  read_beu32(c, b);
         if (op == which) {
             return STATUS_OK;
         }
-        u32 code = read_beu32(b);
+        u32 code = read_beu32(c, b);
         if (code != 0) return allocate_status(c, nfs4_error_string(code));
 
         switch (op) {
@@ -200,7 +202,7 @@ status transact(rpc r, int op)
     if (!is_ok(s)) return s;
     s = read_until(r->c, r->b, op);
     if (!is_ok(s)) return s;
-    u32 code = read_beu32(r->b);
+    u32 code = read_beu32(r->c, r->b);
     if (code == 0) return STATUS_OK;
     return allocate_status(r->c, nfs4_error_string(code));
 }
@@ -217,7 +219,7 @@ status file_size(file f, u64 *dest)
     // demux attr more better
     r->b->start = r->b->end - 8;
     u64 x = 0;
-    *dest = read_beu64(r->b);  
+    *dest = read_beu64(f->c, r->b);  
     return STATUS_OK;
 }
 
@@ -230,9 +232,10 @@ status read_chunk(file f, void *dest, u64 offset, u32 length)
     push_be64(r->b, offset);
     push_be32(r->b, length);
     status s = transact(r, OP_READ);
-    if (!is_ok(s)) return s;    
-    r->b->start += 4; // we dont care if its the end of file
-    u32 len = read_beu32(r->b);
+    if (!is_ok(s)) return s;
+    // we dont care if its the end of file -- we might for a single round trip read entire
+    r->b->start += 4; 
+    u32 len = read_beu32(r->c, r->b);
     // guard against len != length
     memcpy(dest, r->b->contents+r->b->start, len);
     return STATUS_OK;
