@@ -1,12 +1,13 @@
+.PHONY: check-env
 
 all: nfs4.so
 
 OBJ = rpc.o nfs4.o
 
-.c.o: buffer.h nfs.h check-env
+.c.o: buffer.h nfs.h
 	gcc -g -fPIC -I. -std=gnu99 -I$(SQLITE) $< -c
 
-nfs4.so: $(OBJ)
+nfs4.so: check-env $(OBJ)
 	ld -shared $(OBJ) -o nfs4.so
 
 clean:
@@ -14,5 +15,5 @@ clean:
 
 check-env:
 ifndef SQLITE
-    $(error SQLITE is undefined)
+	$(error SQLITE is undefined)
 endif
