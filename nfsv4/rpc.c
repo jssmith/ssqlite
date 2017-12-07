@@ -5,9 +5,8 @@
 
 char *status_string(status s)
 {
-    return "error";
+    return s->cause;
 }
-
 
 void print_buffer(char *tag, buffer b)
 {
@@ -17,8 +16,6 @@ void print_buffer(char *tag, buffer b)
     printf("----------\n");
     deallocate_buffer(temp);
 }
-
-
 
 static char *nfs4_error_string(int code)
 {
@@ -33,11 +30,12 @@ static char *nfs4_error_string(int code)
 
 rpc allocate_rpc(client c) 
 {
+    // can use a single entity or a freelist
     rpc r = allocate(s->h, sizeof(struct rpc));
     buffer b = r->b = c->b;
     b->start = b->end = 0;
     
-    // tcp framer
+    // tcp framer - to be filled on transmit
     push_be32(b, 0);
     
     // rpc layer 
@@ -47,7 +45,6 @@ rpc allocate_rpc(client c)
     push_be32(b, NFS_PROGRAM);
     push_be32(b, 4); //version
     push_be32(b, 1); //proc
-    //    push_auth_sys(r); // optional?
     push_be32(b, 0); //auth
     push_be32(b, 0); //authbody
     push_be32(b, 0); //verf
@@ -64,8 +61,6 @@ rpc allocate_rpc(client c)
     return r;
 }
 
-
-// should be in the same file as create rpc..
 status parse_rpc(client c, buffer b)
 {
     verify_and_adv(c, b, c->xid);
@@ -86,14 +81,12 @@ status parse_rpc(client c, buffer b)
     return STATUS_OK;
 }
 
-
 static status read_response(client c, buffer b)
 {
     char framing[4];
     int chars = read(c->fd, framing, 4);
     if (chars != 4) 
         return (allocate_status(c, "server socket read error"));
-
     
     int frame = ntohl(*(u32 *)framing) & 0x07fffffff;
     buffer_extend(b, frame);
@@ -149,10 +142,13 @@ status nfs4_connect(client c, char *hostname)
 
 void push_resolution(rpc r, vector path)
 {
-    // oh, we can put the cacheed fh here
+    // xxx use a cached FH if its valid
     push_op(r, OP_PUTROOTFH);
     buffer i;
-    foreach(i, path) push_lookup(r, i);
+    vector_foreach(i, path) {
+        push_op(r, OP_LOOKUP);
+        push_string(r->b, path->contents + path->start, length(path));
+    }
 }
 
 static status read_until(client c, buffer b, u32 which)
@@ -223,7 +219,9 @@ status file_size(file f, u64 *dest)
     return STATUS_OK;
 }
 
-
+// we can actually use the framing length to delineate 
+// header and data, and read directly into the dest buffer
+// because the data is always at the end
 status read_chunk(file f, void *dest, u64 offset, u32 length)
 {
     rpc r = file_rpc(f);
@@ -241,13 +239,15 @@ status read_chunk(file f, void *dest, u64 offset, u32 length)
     return STATUS_OK;
 }
 
+// if we break transact, can writev with the header and 
+// source buffer as two fragments
 status write_chunk(file f, void *source, u64 offset, u32 length)
 {
     rpc r = file_rpc(f);
     push_op(r, OP_WRITE);
     push_stateid(r);
     push_be64(r->b, offset);
-    // parameterization of file?
+    // xxx - parameterize the file by its synchronization properties? expose flush?
     push_be32(r->b, FILE_SYNC4);
     push_string(r->b, source, length);
     buffer b;

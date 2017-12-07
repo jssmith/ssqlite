@@ -15,6 +15,8 @@ struct client {
     u8 instance_verifier[NFS4_VERIFIER_SIZE];
     boolean packet_trace;
     buffer b;
+    bytes write_limit;
+    bytes read_limit;
 };
 
 

@@ -39,7 +39,6 @@ static void *vector_pop(vector v)
     return res;
 }
 
-// really should be buffer input
 static vector split(heap h, buffer source, char divider)
 {
     vector result = allocate_vector(h, 10);
@@ -66,4 +65,4 @@ static buffer join(heap h, vector source, char between)
     return out;
 }
 
-#define foreach(__i, __v) for(u32 _i = 0, _len = vector_length(__v); _i< _len && (__i = vector_get(__v, _i), 1); _i++)
+#define vector_foreach(__i, __v) for(u32 _i = 0, _len = vector_length(__v); _i< _len && (__i = vector_get(__v, _i), 1); _i++)

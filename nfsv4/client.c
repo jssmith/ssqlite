@@ -1,18 +1,19 @@
 #include <nfs4_internal.h>
 #include <sys/time.h>
 
-
+// replace with dedicated printf
 static buffer print_path(heap h, vector v)
 {
     buffer b = allocate_buffer(h, 100);
     buffer i;
     push_char(b, '/');
-    foreach (i, v) {
+    vector_foreach (i, v) {
         if (length(b) != 1) push_char(b, '/');
         buffer_concat(b, i);
     }
     return b;
 }
+
 buffer filename(file f)
 {
     buffer z = join(0, f->path, '/');
@@ -20,8 +21,6 @@ buffer filename(file f)
     return z;
 }
 
-
-//getting to be printf time
 static void pf(char *header, file f)
 {
     buffer b = print_path(0, f->path);
@@ -29,16 +28,15 @@ static void pf(char *header, file f)
     printf ("%s %s\n", header, (char *)b->contents);
 }
 
-
 // change to negotiated sizes!
 status readfile(file f, void *dest, u64 offset, u32 length)
 {
-    return segment(read_chunk, 8192, f, dest, offset, length);
+    return segment(read_chunk, f->c->read_limit, f, dest, offset, length);
 }
 
 status writefile(file f, void *dest, u64 offset, u32 length)
 {
-    return segment(write_chunk, 8192, f, dest, offset, length);
+    return segment(write_chunk, f->c->read_limit, f, dest, offset, length);
 }
 
 status file_open_read(client c, vector path, file *dest)
@@ -64,6 +62,7 @@ status file_open_write(client c, vector path, file *dest)
     push_open(r, final, false);
     // macro this shortcut return
     status st = transact(r, OP_OPEN);
+    deallocate_rpc(r);
     if (!is_ok(st)) return st;
     *dest = f;
     return STATUS_OK;
@@ -71,9 +70,10 @@ status file_open_write(client c, vector path, file *dest)
 
 void file_close(file f)
 {
+    // xxx - release delegations
 }
 
-// permissions, user, a tuple?
+// create a tuple interface to parameterize user/access/etc
 status file_create(client c, vector path, file *dest)
 {
     file f = allocate(s->h, sizeof(struct file));
@@ -91,7 +91,6 @@ status file_create(client c, vector path, file *dest)
     return STATUS_OK;
 }
 
-// might as well implement something like stat()
 status exists(client c, vector path)
 {
     rpc r = allocate_rpc(c);
@@ -134,9 +133,12 @@ status create_client(char *hostname, client *dest)
     c->packet_trace = false;
     nfs4_connect(c, hostname);     
     c->xid = 0xb956bea4;
+    // because the current implementation has no concurrency,
+    // we use a single buffer for all transmit and receive
     c->b = allocate_buffer(0, 16384);
     
-    // sketch
+    // xxx - we're actually using very few bits from tv_usec, make a better
+    // instance id
     struct timeval p;
     gettimeofday(&p, 0);
     memcpy(c->instance_verifier, &p.tv_usec, NFS4_VERIFIER_SIZE);
@@ -148,13 +150,15 @@ status create_client(char *hostname, client *dest)
         deallocate_rpc(r);    
         return st;
     }
+    // xxx - extract from exhange id result
+    c->read_limit = 8192;
+    c->write_limit = 8192;
     st = parse_exchange_id(c, r->b);
     if (!is_ok(st)) return st;
     deallocate_rpc(r);
 
     r = allocate_rpc(c);
-    // check - zero results in a seq error, it would be nice if
-    // this were explicitly defined someplace
+    // xxx - determine if we should officially start at 1 or if its part of some server exchange
     r->c->sequence = 1;
     push_create_session(r);
     st = transact(r, OP_CREATE_SESSION);

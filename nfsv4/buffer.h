@@ -20,17 +20,15 @@ typedef struct buffer {
     void *contents;
 } *buffer;
 
+// move
 typedef void *heap;
-
 #define allocate(__h, __b) (malloc(__b))
 #define deallocate(__h, __x, __len) (free(__x))
-
 
 static bytes length(buffer b) 
 {
     return b->end - b->start;
 }
-
 
 static buffer allocate_buffer(heap h, bytes capacity){
     buffer b = allocate(h, sizeof(struct buffer));
@@ -40,13 +38,8 @@ static buffer allocate_buffer(heap h, bytes capacity){
     return b;
 }
 
-
-
 static inline void buffer_extend(buffer b, bytes len)
 {
-    // pad to pagesize
-    // jss - maybe align also?
-
     if (b->capacity < (b->end + len)) {
         bytes oldcap = b->capacity;
         b->capacity = 2*(oldcap+len);
@@ -72,7 +65,6 @@ static void push_char(buffer b, char x)
     buffer_extend(b, 1);
     *(u8 *)(b->contents + b->end) = x;
     b->end ++ ;
-
 }
 
 static buffer print_buffer_u32(heap h, buffer b)
@@ -88,7 +80,6 @@ static buffer print_buffer_u32(heap h, buffer b)
     push_char(out, '\n');    
     return out;
 }
-
 
 static void buffer_concat(buffer dest, buffer source)
 {

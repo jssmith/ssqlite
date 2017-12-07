@@ -63,8 +63,6 @@ status parse_create_session(client c, buffer b)
     return STATUS_OK;
 }
 
-
-
 void push_sequence(rpc r)
 {
     push_op(r, OP_SEQUENCE);
@@ -75,27 +73,6 @@ void push_sequence(rpc r)
     push_be32(r->b, 0x00000000);  // sa_cachethis
     r->c->sequence++;
 }
-
-// xxx - fix or remove, efs doesn't seem to care about it
-void push_auth_sys(rpc r)
-{
-    push_be32(r->b, 1);     // enum - AUTH_SYS
-    buffer temp = allocate_buffer(0, 24);
-    push_be32(temp, 0x01063369); // stamp
-    char host[] = "ip-172-31-27-113";
-    push_string(temp, host, sizeof(host)-1); // stamp
-    push_be32(temp, 0); // uid
-    push_be32(temp, 0); // gid
-    push_be32(temp, 0); // gids
-    push_string(r->b, temp->contents, length(temp));
-}
-
-void push_lookup(rpc r, buffer path)
-{
-    push_op(r, OP_LOOKUP);
-    push_string(r->b, path->contents + path->start, length(path));
-}
-
 
 void push_owner(rpc r)
 {
@@ -117,8 +94,6 @@ void push_claim_deleg_cur(buffer b, buffer name)
     // state id 4 
 }
 
-
-// assuming the current FH is the directory?
 void push_open(rpc r, buffer name, boolean create)
 {
     push_op(r, OP_OPEN);
@@ -129,6 +104,8 @@ void push_open(rpc r, buffer name, boolean create)
     if (create) {
         push_be32(r->b, OPEN4_CREATE);
         push_be32(r->b, UNCHECKED4);
+        // xxx - encode this properly, this is the fattr for
+        // the newly created file
         push_be32(r->b, 0x00000002);
         push_be32(r->b, 0x00000000);
         push_be32(r->b, 0x00000002);
@@ -139,7 +116,6 @@ void push_open(rpc r, buffer name, boolean create)
     }
     push_claim_null(r->b, name);
 }
-
 
 void push_stateid(rpc r)
 {
@@ -154,25 +130,29 @@ void push_stateid(rpc r)
 void push_exchange_id(rpc r)
 {
     // this is supposed to be an instance descriptor that
-    // spans multiple invocations of the same logical instance...push up
+    // spans multiple invocations of the same logical instance...
+    // either expose in create_client or assume we will never
+    // try to reclaim locks
     char co_owner_id[] = "sqlite.ip-172-31-27-113";
+    // change this to something more appropriate
     char author[] = "kernel.org";
     char version[] = "Linux 4.4.0-1038-aws.#47-Ubuntu.SMP Thu Sep 28 20:05:35 UTC.2017 x86_64";
     push_op(r, OP_EXCHANGE_ID);
+
     // clientowner4
     push_bytes(r->b, r->c->instance_verifier, NFS4_VERIFIER_SIZE);
     push_string(r->b, co_owner_id, sizeof(co_owner_id) - 1);
 
-    // flags
+    // xxx - recive flag usage, this is just copied from the kernel
     push_be32(r->b, EXCHGID4_FLAG_SUPP_MOVED_REFER |
               EXCHGID4_FLAG_SUPP_MOVED_MIGR  |
               EXCHGID4_FLAG_BIND_PRINC_STATEID);
 
     push_be32(r->b, SP4_NONE); // state protect how
     push_be32(r->b, 1); // i guess a single impl id?
-    push_string(r->b, author, sizeof(author) - 1); // domain
+    push_string(r->b, author, sizeof(author) - 1); // authors domain name
     push_string(r->b, version, sizeof(version) - 1); // name
-    push_be32(r->b, 0); // build date
+    push_be32(r->b, 0); // build date... populate
     push_be32(r->b, 0);
     push_be32(r->b, 0);
 }
@@ -182,6 +162,7 @@ status parse_exchange_id(client c, buffer b)
     memcpy(&c->clientid, b->contents + b->start, sizeof(c->clientid));
     b->start += sizeof(c->clientid);
     c->server_sequence = read_beu32(c, b);
+    // xxx record the server sequence id for recovery, and stash the negotiated transfer limits
     //    clientid4        eir_clientid;
     //    sequenceid4      eir_sequenceid;
     //    uint32_t         eir_flags;

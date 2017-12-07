@@ -30,7 +30,7 @@ static void buffer_wrap_string(buffer b, char *x)
     b->start = 0;
 }
 
-// try to translate if we can
+// try to translate if we can...maybe use unix errno in status as a translation bridge
 // SQLITE_BUSY
 // SQLITE_LOCKED
 // SQLITE_NOMEM
@@ -50,10 +50,11 @@ static inline int translate_status(appd ad, status s)
 }
     
 static int nfs4Close(sqlite3_file *pFile){
-#ifdef TRACE
-    printf ("close\n");
-#endif
     sqlfile f = (sqlfile)pFile;
+#ifdef TRACE
+    printf ("close %s\n", f->filename);
+#endif
+
     file_close(f->f);
     return SQLITE_OK;
 }
@@ -63,10 +64,11 @@ static int nfs4Read(sqlite3_file *pFile,
                     int iAmt, 
                     sqlite_int64 iOfst) 
 {
+    sqlfile f = (sqlfile)pFile;
 #ifdef TRACE
-    printf ("read %p\n", zBuf);
+    printf ("read %s offset:%ld bytes:%d\n", f->filename, iOfst, iAmt);
 #endif
-  sqlfile f = (sqlfile)pFile;
+
   translate_status(f->ad, readfile(f->f, zBuf, iOfst, iAmt));
 }
 
@@ -75,27 +77,29 @@ static int nfs4Write(sqlite3_file *pFile,
                      int iAmt,
                      sqlite_int64 iOfst)
 {
-#ifdef TRACE
-    printf ("write\n");
-#endif
     sqlfile f = (sqlfile)pFile;
+#ifdef TRACE
+    printf ("write %s offset:%ld bytes:%d\n", f->filename, iOfst, iAmt);
+#endif
     translate_status(f->ad, writefile(f->f, (void *)z, iOfst, iAmt));
 }
 
 static int nfs4Truncate(sqlite3_file *pFile,
                         sqlite_int64 size)
 {
+    sqlfile f = (sqlfile)pFile;
 #ifdef TRACE
-    printf ("truncate\n");
+    printf ("truncate %s - WARNING NOT IMPLEMENTED\n", f->filename);
 #endif
-    return SQLITE_OK;
+    return SQLITE_ERROR;
 
 }
 
 static int nfs4Sync(sqlite3_file *pFile, int flags)
-{
+{ 
+   sqlfile f = (sqlfile)pFile;
 #ifdef TRACE
-    printf ("sync\n");
+   printf ("sync %s\n", f->filename);
 #endif
     return SQLITE_OK;
 }
@@ -141,10 +145,11 @@ static int nfs4CheckReservedLock(sqlite3_file *pFile, int *pResOut)
 
 static int nfs4FileControl(sqlite3_file *pFile, int op, void *pArg)
 {
-#ifdef TRACE
-    printf ("control %d\n", op);
-#endif                
     sqlfile f = (sqlfile)pFile;
+#ifdef TRACE
+    printf ("control %s %d\n", f->filename, op);
+#endif                
+
     int rc = SQLITE_OK;
     
     if (op == SQLITE_FCNTL_MMAP_SIZE) {
@@ -160,7 +165,9 @@ static int nfs4FileControl(sqlite3_file *pFile, int op, void *pArg)
     return rc;
 }
 
-static int nfs4SectorSize(sqlite3_file *pFile){
+static int nfs4SectorSize(sqlite3_file *pFile)
+{
+    // see if we can get sqlite to use larger pages
     return 512;
 }
 
@@ -252,12 +259,10 @@ static int nfs4Open(sqlite3_vfs *pVfs,
 #ifdef TRACE
     printf ("open %s %x\n", zName, flags);
     memcpy(f->filename, zName, strlen(zName));
-#endif                                            
-    
     if (flags & SQLITE_OPEN_DELETEONCLOSE) {
         printf ("delete on close\n");
     }
-
+#endif                                            
     appd ad = pVfs->pAppData;
     f->ad = ad;
     memset(f, 0, sizeof(struct sqlfile));
@@ -270,25 +275,24 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     push_char(servername, 0);
 
     if (ad->c == 0) {
-        // change interface to buffer...or tuple!
+        // change interface to tuple in order to parameterize
         create_client((char *)servername->contents, &ad->c);
     }
     
     f->base.pMethods = methods;
+
     if (flags & SQLITE_OPEN_READONLY) {
         return translate_status(ad, file_open_read(ad->c, path, &f->f));
-    } else {
-        if (flags & SQLITE_OPEN_CREATE) {
-            return translate_status(ad, file_create(ad->c, path, &f->f));
-        } else {
-            if (flags & SQLITE_OPEN_READWRITE) {
-                return translate_status(ad, file_open_write(ad->c, path, &f->f));
-            }
-        }
     }
 
-    // stash in teh error string
-    printf("unkown open mode\n");
+    if (flags & SQLITE_OPEN_CREATE) {
+        return translate_status(ad, file_create(ad->c, path, &f->f));
+    }
+
+    if (flags & SQLITE_OPEN_READWRITE) {
+        return translate_status(ad, file_open_write(ad->c, path, &f->f));
+    }
+
     return SQLITE_CANTOPEN;
 }
 
@@ -297,6 +301,9 @@ static int nfs4Delete(sqlite3_vfs *pVfs, const char *zPath, int dirSync)
 #ifdef TRACE
     printf ("delete %s\n", zPath);
 #endif                                                
+    // note - its not clear if there is an appropriate nfs4 implmentation of 
+    // dirSync, and it might affect consistency at least probibalistically
+
     appd ad = pVfs->pAppData;
     struct buffer znb;
     buffer_wrap_string(&znb, (char *)zPath);
@@ -328,7 +335,6 @@ static int nfs4Access(sqlite3_vfs *pVfs,
         *pResOut = is_ok(s)?1:0;
     }
     if( flags==SQLITE_ACCESS_READWRITE ){
-        printf ("writei?\n");
         *pResOut = 1;
     }
     return SQLITE_OK;
@@ -344,91 +350,92 @@ static int nfs4FullPathname(sqlite3_vfs *pVfs,
 }
 
 static void *nfs4DlOpen(sqlite3_vfs *pVfs, const char *zPath){
-  return ORIGVFS(pVfs)->xDlOpen(ORIGVFS(pVfs), zPath);
+    return ORIGVFS(pVfs)->xDlOpen(ORIGVFS(pVfs), zPath);
 }
 
 
 static void nfs4DlError(sqlite3_vfs *pVfs, int nByte, char *zErrMsg){
-  ORIGVFS(pVfs)->xDlError(ORIGVFS(pVfs), nByte, zErrMsg);
+    ORIGVFS(pVfs)->xDlError(ORIGVFS(pVfs), nByte, zErrMsg);
 }
 
 
 static void (*nfs4DlSym(sqlite3_vfs *pVfs, void *p, const char *zSym))(void){
-  return ORIGVFS(pVfs)->xDlSym(ORIGVFS(pVfs), p, zSym);
+    return ORIGVFS(pVfs)->xDlSym(ORIGVFS(pVfs), p, zSym);
 }
 
 static void nfs4DlClose(sqlite3_vfs *pVfs, void *pHandle){
-  ORIGVFS(pVfs)->xDlClose(ORIGVFS(pVfs), pHandle);
+    ORIGVFS(pVfs)->xDlClose(ORIGVFS(pVfs), pHandle);
 }
 
 static int nfs4Randomness(sqlite3_vfs *pVfs, int nByte, char *zBufOut){
-  return ORIGVFS(pVfs)->xRandomness(ORIGVFS(pVfs), nByte, zBufOut);
+    return ORIGVFS(pVfs)->xRandomness(ORIGVFS(pVfs), nByte, zBufOut);
 }
 
 static int nfs4Sleep(sqlite3_vfs *pVfs, int nMicro){
-  return ORIGVFS(pVfs)->xSleep(ORIGVFS(pVfs), nMicro);
+    return ORIGVFS(pVfs)->xSleep(ORIGVFS(pVfs), nMicro);
 }
 
 static int nfs4CurrentTime(sqlite3_vfs *pVfs, double *pTimeOut){
-  return ORIGVFS(pVfs)->xCurrentTime(ORIGVFS(pVfs), pTimeOut);
+    return ORIGVFS(pVfs)->xCurrentTime(ORIGVFS(pVfs), pTimeOut);
 }
 
-// have to deal with errors from next in all the next through calls
 static int nfs4GetLastError(sqlite3_vfs *pVfs, int a, char *b){
-    // this is apparently...not useful
+    // this is apparently...not used which is tragic.
+    // if it were, we would have to merge errors fromthe 
+    // lower level
     return SQLITE_OK;
 }
 
 static int nfs4CurrentTimeInt64(sqlite3_vfs *pVfs, sqlite3_int64 *p){
-  return ORIGVFS(pVfs)->xCurrentTimeInt64(ORIGVFS(pVfs), p);
+    return ORIGVFS(pVfs)->xCurrentTimeInt64(ORIGVFS(pVfs), p);
 }
 
 
 static sqlite3_vfs nfs4_vfs = {
-  2,                           /* iVersion */
-  0,                           /* szOsFile (set when registered) */
-  1024,                        /* mxPathname */
-  0,                           /* pNext */
-  "nfs4",                    /* zName */
-  0,                           /* pAppData (set when registered) */ 
-  nfs4Open,                     /* xOpen */
-  nfs4Delete,                   /* xDelete */
-  nfs4Access,                   /* xAccess */
-  nfs4FullPathname,             /* xFullPathname */
-  nfs4DlOpen,                   /* xDlOpen */
-  nfs4DlError,                  /* xDlError */
-  nfs4DlSym,                    /* xDlSym */
-  nfs4DlClose,                  /* xDlClose */
-  nfs4Randomness,               /* xRandomness */
-  nfs4Sleep,                    /* xSleep */
-  nfs4CurrentTime,              /* xCurrentTime */
-  nfs4GetLastError,             /* xGetLastError */
-  nfs4CurrentTimeInt64          /* xCurrentTimeInt64 */
+    2,                           /* iVersion */
+    0,                           /* szOsFile (set when registered) */
+    1024,                        /* mxPathname */
+    0,                           /* pNext */
+    "nfs4",                      /* zName */
+    0,                           /* pAppData (set when registered) */ 
+    nfs4Open,                    /* xOpen */
+    nfs4Delete,                  /* xDelete */
+    nfs4Access,                  /* xAccess */
+    nfs4FullPathname,            /* xFullPathname */
+    nfs4DlOpen,                  /* xDlOpen */
+    nfs4DlError,                 /* xDlError */
+    nfs4DlSym,                   /* xDlSym */
+    nfs4DlClose,                 /* xDlClose */
+    nfs4Randomness,              /* xRandomness */
+    nfs4Sleep,                   /* xSleep */
+    nfs4CurrentTime,             /* xCurrentTime */
+    nfs4GetLastError,            /* xGetLastError */
+    nfs4CurrentTimeInt64         /* xCurrentTimeInt64 */
 };
 
 static sqlite3_io_methods nfs4_io_methods = {
-  3,                              /* iVersion */
-  nfs4Close,                      /* xClose */
-  nfs4Read,                       /* xRead */
-  nfs4Write,                      /* xWrite */
-  nfs4Truncate,                   /* xTruncate */
-  nfs4Sync,                       /* xSync */
-  nfs4FileSize,                   /* xFileSize */
-  nfs4Lock,                       /* xLock */
-  nfs4Unlock,                     /* xUnlock */
-  nfs4CheckReservedLock,          /* xCheckReservedLock */
-  nfs4FileControl,                /* xFileControl */
-  nfs4SectorSize,                 /* xSectorSize */
-  nfs4DeviceCharacteristics,      /* xDeviceCharacteristics */
-  nfs4ShmMap,                     /* xShmMap */
-  nfs4ShmLock,                    /* xShmLock */
-  nfs4ShmBarrier,                 /* xShmBarrier */
-  nfs4ShmUnmap,                   /* xShmUnmap */
-  nfs4Fetch,                      /* xFetch */
-  nfs4Unfetch                     /* xUnfetch */
+    3,                              /* iVersion */
+    nfs4Close,                      /* xClose */
+    nfs4Read,                       /* xRead */
+    nfs4Write,                      /* xWrite */
+    nfs4Truncate,                   /* xTruncate */
+    nfs4Sync,                       /* xSync */
+    nfs4FileSize,                   /* xFileSize */
+    nfs4Lock,                       /* xLock */
+    nfs4Unlock,                     /* xUnlock */
+    nfs4CheckReservedLock,          /* xCheckReservedLock */
+    nfs4FileControl,                /* xFileControl */
+    nfs4SectorSize,                 /* xSectorSize */
+    nfs4DeviceCharacteristics,      /* xDeviceCharacteristics */
+    nfs4ShmMap,                     /* xShmMap */
+    nfs4ShmLock,                    /* xShmLock */
+    nfs4ShmBarrier,                 /* xShmBarrier */
+    nfs4ShmUnmap,                   /* xShmUnmap */
+    nfs4Fetch,                      /* xFetch */
+    nfs4Unfetch                     /* xUnfetch */
 };
 
-// why is this not sqlite_nfs4_init?
+// xxx - why is this not sqlite_nfs4_init?
 int sqlite3_nfs_init(sqlite3 *db,
                      char **pzErrMsg,
                      const sqlite3_api_routines *pApi)
