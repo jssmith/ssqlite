@@ -1,3 +1,4 @@
+.PHONY: check-env
 
 all: nfs4.so
 
@@ -23,7 +24,6 @@ nfs4.so: $(SQLITE_OBJ)
 
 clean:
 	rm -f *.o nfs4.so *~
-
 
 shell: $(OBJ)  shell.o
 	cc -g $^ -o shell
