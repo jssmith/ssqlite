@@ -6,7 +6,7 @@ OBJ = rpc.o xdr.o client.o
 SQLITE_OBJ = nfs4.o $(OBJ)
 
 # set -DTRACE on nfs4.c for operation printfs
-# TRACING = -DTRACE
+#TRACING = -DTRACE
 
 nfs4.o: nfs4.c
 ifndef SQLITE
