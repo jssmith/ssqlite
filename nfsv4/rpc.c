@@ -5,6 +5,7 @@
 
 char *status_string(status s)
 {
+    if (s == 0) return "ok";
     return s->cause;
 }
 
@@ -147,7 +148,7 @@ void push_resolution(rpc r, vector path)
     buffer i;
     vector_foreach(i, path) {
         push_op(r, OP_LOOKUP);
-        push_string(r->b, path->contents + path->start, length(path));
+        push_string(r->b, i->contents + i->start, length(i));
     }
 }
 

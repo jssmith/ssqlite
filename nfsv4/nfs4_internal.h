@@ -118,3 +118,5 @@ static void deallocate_rpc(rpc r)
 {
     deallocate(0, r, sizeof(struct r));
 }
+
+buffer print_path(heap h, vector v);

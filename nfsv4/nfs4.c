@@ -43,7 +43,7 @@ static void buffer_wrap_string(buffer b, char *x)
 static inline int translate_status(appd ad, status s)
 {
 #ifdef TRACE
-    printf ("status %p\n", s);
+    printf ("status %s\n", status_string(s));
 #endif
     if (!is_ok(s)) return SQLITE_ERROR;
     return SQLITE_OK;
@@ -66,7 +66,7 @@ static int nfs4Read(sqlite3_file *pFile,
 {
     sqlfile f = (sqlfile)pFile;
 #ifdef TRACE
-    printf ("read %s offset:%ld bytes:%d\n", f->filename, iOfst, iAmt);
+    printf ("read %s offset:%lld bytes:%d\n", f->filename, iOfst, iAmt);
 #endif
 
   translate_status(f->ad, readfile(f->f, zBuf, iOfst, iAmt));
@@ -79,7 +79,7 @@ static int nfs4Write(sqlite3_file *pFile,
 {
     sqlfile f = (sqlfile)pFile;
 #ifdef TRACE
-    printf ("write %s offset:%ld bytes:%d\n", f->filename, iOfst, iAmt);
+    printf ("write %s offset:%lld bytes:%d\n", f->filename, iOfst, iAmt);
 #endif
     translate_status(f->ad, writefile(f->f, (void *)z, iOfst, iAmt));
 }

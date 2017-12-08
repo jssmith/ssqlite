@@ -2,7 +2,7 @@
 #include <sys/time.h>
 
 // replace with dedicated printf
-static buffer print_path(heap h, vector v)
+buffer print_path(heap h, vector v)
 {
     buffer b = allocate_buffer(h, 100);
     buffer i;
@@ -131,6 +131,9 @@ status create_client(char *hostname, client *dest)
 {
     client c = allocate(0, sizeof(struct client));
     c->packet_trace = false;
+#if TRACE==2
+    c->packet_trace = true;
+#endif
     nfs4_connect(c, hostname);     
     c->xid = 0xb956bea4;
     // because the current implementation has no concurrency,
