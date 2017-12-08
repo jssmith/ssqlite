@@ -21,11 +21,13 @@ struct client {
 
 
 struct file {
-    // filehandle
-    // stateid
     client c;
     vector path;
     u8 filehandle[NFS4_FHSIZE];
+    struct {
+        u32 sequence;
+        u8 opaque [NFS4_OTHER_SIZE];
+    } stateid;
 };
 
 static inline void push_be32(buffer b, u32 w) {

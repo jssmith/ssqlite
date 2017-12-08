@@ -264,10 +264,6 @@ buffer push_initial_path(rpc r, vector path)
     return vector_get(path, vector_length(path)-1);
 }
 
-#ifndef MIN
-#define MIN(a, b) ((a) < (b) ? (a):(b))
-#endif
-
 status segment(status (*each)(file, void *, u64, u32), int chunksize, file f, void *x, u64 offset, u32 length)
 {
     for (u32 done = 0; done < length;) {

@@ -3,6 +3,8 @@
 #define NFS4_FHSIZE 128
 #define NFS4_SESSIONID_SIZE 16
 #define NFS4_VERIFIER_SIZE 8
+// good job with names IETF, this is the stateid opaque uniquifier
+#define NFS4_OTHER_SIZE 12
 
 enum nfs_opnum4 {
  OP_ACCESS               = 3,

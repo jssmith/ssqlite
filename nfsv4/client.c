@@ -28,7 +28,6 @@ static void pf(char *header, file f)
     printf ("%s %s\n", header, (char *)b->contents);
 }
 
-// change to negotiated sizes!
 status readfile(file f, void *dest, u64 offset, u32 length)
 {
     return segment(read_chunk, f->c->read_limit, f, dest, offset, length);
