@@ -17,6 +17,8 @@ typedef struct sqlfile {
     appd ad;
     client c;
     file f;
+    boolean powersafe;
+    boolean readonly;
 #ifdef TRACE
     char filename[255];
 #endif    
@@ -172,8 +174,15 @@ static int nfs4SectorSize(sqlite3_file *pFile)
 }
 
 static int nfs4DeviceCharacteristics(sqlite3_file *pFile){
-    //set SQLITE_IOCAP_IMMUTABLE for read only
+    sqlfile f = (sqlfile)(void *)pFile;
+    if (f->powersafe) {
+        return SQLITE_IOCAP_POWERSAFE_OVERWRITE;
+    }
+    if (f->readonly) {
+        return SQLITE_IOCAP_IMMUTABLE;
+    }
     return 0;
+
 }
 
 static int nfs4ShmMap(sqlite3_file *pFile, int iPg, int pgsz, int bExtend, void volatile  **pp)
@@ -265,6 +274,8 @@ static int nfs4Open(sqlite3_vfs *pVfs,
 #endif                                            
     appd ad = pVfs->pAppData;
     f->ad = ad;
+    f->powersafe = true;
+    f->readonly = false;
     memset(f, 0, sizeof(struct sqlfile));
     struct buffer znb;
     buffer_wrap_string(&znb, (char *)zName);

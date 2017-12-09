@@ -4,7 +4,11 @@ typedef buffer vector;
 static inline void *vector_get(vector v, int offset)
 {
     void *res;
-    memcpy(&res, v->contents + v->start + offset * sizeof(void *), sizeof(void *));
+    bytes base = v->start + offset * sizeof(void *);
+    if ((base + sizeof(void *)) > v->end) 
+        panic("out of bounds vector reference");
+    
+    memcpy(&res, v->contents + base, sizeof(void *));
     return res;
 }
 
@@ -27,11 +31,8 @@ static void vector_push(vector v, void *i)
 
 static void *vector_pop(vector v)
 {
-    if ((v->end - v->start) < sizeof(void *)){
-        // not ideal, since it aliases and may or may not fault the caller.
-        // could just take a segv
-        return 0;
-    }
+    if ((v->end - v->start) < sizeof(void *))
+        panic("out of bounds vector reference");
     
     void *res;
     memcpy(&res, v->contents + v->start, sizeof(void *));

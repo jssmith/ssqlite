@@ -1,11 +1,6 @@
-#include <stdlib.h>
-#include <string.h>
+#include <runtime.h>
 #include <buffer.h>
 #include <vector.h>
-
-#define true (1)
-#define false (0)
-typedef int boolean;
 
 typedef struct status *status;
 typedef struct file *file;
