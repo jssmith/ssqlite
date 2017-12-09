@@ -1,5 +1,10 @@
 
 #define NFS_PROGRAM 0x186a3
+#define NFS4_FHSIZE 128
+#define NFS4_SESSIONID_SIZE 16
+#define NFS4_VERIFIER_SIZE 8
+// good job with names IETF, this is the stateid opaque uniquifier
+#define NFS4_OTHER_SIZE 12
 
 enum nfs_opnum4 {
  OP_ACCESS               = 3,
@@ -333,4 +338,222 @@ enum nfsstat4 {
  NFS4ERR_WRONG_LFS      = 10092, /* LFS not supported         */
  NFS4ERR_BADLABEL       = 10093, /* incorrect label           */
  NFS4ERR_OFFLOAD_NO_REQS= 10094  /* dest not meeting reqs     */
+};
+
+
+
+static struct {int id; char *text;} status_strings[] = {
+    { 0, "everything is okay"},
+    { 1, "caller not privileged"},
+    { 2, "no such file/directory"},
+    { 5, "hard I/O error"},
+    { 6, "no such device"},
+    { 13, "access denied"},
+    { 17, "file already exists"},
+    { 18, "different file systems"},
+    { 20, "should be a directory"},
+    { 21, "should not be a directory"},
+    { 22, "invalid argument "},
+    { 27, "file exceeds server max"},
+    { 28, "no space on file system"},
+    { 30, "read-only file system"},
+    { 31, "too many hard links"},
+    { 63, "name exceeds server max"},
+    { 66, "directory not empty"},
+    { 69, "hard quota limit reached"},
+    { 70, "file no longer exists"},
+    { 10001, "illegal filehandle"},
+    { 10003, "READDIR cookie is stale"},
+    { 10004, "operation not supported"},
+    { 10005, "response limit exceeded"},
+    { 10006, "undefined server error"},
+    { 10007, "type invalid for CREATE"},
+    { 10008, "file busy -- retry"},
+    { 10009, "nverify says attrs same"},
+    { 10010, "lock unavailable "},
+    { 10011, "lock lease expired"},
+    { 10012, "I/O failed due to lock"},
+    { 10013, "in grace period  "},
+    { 10014, "filehandle expired"},
+    { 10015, "share reserve denied"},
+    { 10016, "wrong security flavor"},
+    { 10017, "client ID in use "},
+    { 10018, "resource exhaustion"},
+    { 10019, "file system relocated"},
+    { 10020, "current FH is not set"},
+    { 10021, "minor vers not supp"},
+    { 10022, "server has rebooted"},
+    { 10023, "server has rebooted"},
+    { 10024, "state is out of sync"},
+    { 10025, "incorrect stateid"},
+    { 10026, "request is out of seq."},
+    { 10027, "verify -- attrs not same"},
+    { 10028, "overlapping lock range"},
+    { 10029, "should be file/directory"},
+    { 10030, "no saved filehandle"},
+    { 10031, "some file system moved"},
+    { 10032, "recommended attr not supp"},
+    { 10033, "reclaim outside of grace"},
+    { 10034, "reclaim error at server"},
+    { 10035, "conflict on reclaim"},
+    { 10036, "XDR decode failed"},
+    { 10037, "file locks held at CLOSE"},
+    { 10038, "conflict in OPEN and I/O"},
+    { 10039, "owner translation bad"},
+    { 10040, "UTF-8 char not supported"},
+    { 10041, "name not supported"},
+    { 10042, "lock range not supported"},
+    { 10043, "no atomic up/downgrade"},
+    { 10044, "undefined operation"},
+    { 10045, "file-locking deadlock"},
+    { 10046, "open file blocks op"},
+    { 10047, "lock-owner state revoked"},
+    { 10048, "callback path down"},
+    { 10049, "bad io mode"},
+    { 10050, "bad layout"},
+    { 10051, "bad session digest"},
+    { 10052, "bad session"},
+    { 10053, "bad slot"},
+    { 10054, "complete already"},
+    { 10055, "conn not bound to session"},
+    { 10056, "deleg aready wanted"},
+    { 10057, "backchan reqs outstanding"},
+    { 10058, "layout try later"},
+    { 10059, "layout unavailable"},
+    { 10060, "no matching layout"},
+    { 10061, "recall conflict"},
+    { 10062, "laytout type"},
+    { 10063, "unexpected seq. ID in req"},
+    { 10064, "[CB_]SEQ. op not 1st op"},
+    { 10065, "request too big  "},
+    { 10066, "reply too big    "},
+    { 10067, "rep. not all cached"},
+    { 10068, "retry + rep. uncached"},
+    { 10069, "retry/recovery too hard"},
+    { 10070, "too many ops in [CB_]COMP"},
+    { 10071, "op needs [CB_]SEQ. op"},
+    { 10072, "hash alg. not supp"},
+    { 10074, "client ID has state"},
+    { 10075, "IO to _SPARSE file hole"},
+    { 10076, "retry != original req"},
+    { 10077, "req has bad highest_slot"},
+    { 10078, "new req sent to dead sess"},
+    { 10079, "encr alg. not supp"},
+    { 10080, "I/O without a layout"},
+    { 10081, "addl ops not allowed"},
+    { 10082, "op done by wrong cred"},
+    { 10083, "op on wrong type object"},
+    { 10084, "delegation not avail."},
+    { 10085, "cb rejected delegation"},
+    { 10086, "layout get before return"},
+    { 10087, "deleg./layout revoked"},
+    { 10088, "s2s not supported"},
+    { 10089, "s2s not authorized"},
+    { 10090, "arm of union not supp"},
+    { 10091, "dest not allowing copy"},
+    { 10092, "LFS not supported"},
+    { 10093, "incorrect label  "},
+    { 10094, "dest not meeting reqs"},
+    {-1,  ""}
+};
+
+enum stable_how4 {
+        UNSTABLE4       = 0,
+        DATA_SYNC4      = 1,
+        FILE_SYNC4      = 2
+};
+
+enum opentype4 {
+    OPEN4_NOCREATE  = 0,
+    OPEN4_CREATE    = 1
+};
+
+enum limit_by4 {
+    NFS_LIMIT_SIZE          = 1,
+    NFS_LIMIT_BLOCKS        = 2
+    /* others as needed */
+};
+
+   /*
+    * Share Access and Deny constants for open argument
+    */
+#define OPEN4_SHARE_ACCESS_READ  0x00000001
+#define OPEN4_SHARE_ACCESS_WRITE  0x00000002
+#define OPEN4_SHARE_ACCESS_BOTH   0x00000003
+
+#define OPEN4_SHARE_DENY_NONE   0x00000000
+#define OPEN4_SHARE_DENY_READ   0x00000001
+#define OPEN4_SHARE_DENY_WRITE  0x00000002
+#define OPEN4_SHARE_DENY_BOTH   0x00000003
+
+
+   /* new flags for share_access field of OPEN4args */
+#define OPEN4_SHARE_ACCESS_WANT_DELEG_MASK     0xFF00
+#define OPEN4_SHARE_ACCESS_WANT_NO_PREFERENCE  0x0000
+#define OPEN4_SHARE_ACCESS_WANT_READ_DELEG     0x0100
+#define OPEN4_SHARE_ACCESS_WANT_WRITE_DELEG    0x0200
+#define OPEN4_SHARE_ACCESS_WANT_ANY_DELEG      0x0300
+#define OPEN4_SHARE_ACCESS_WANT_NO_DELEG       0x0400
+#define OPEN4_SHARE_ACCESS_WANT_CANCEL         0x0500
+
+#define    OPEN4_SHARE_ACCESS_WANT_SIGNAL_DELEG_WHEN_RESRC_AVAIL  0x10000
+
+#define    OPEN4_SHARE_ACCESS_WANT_PUSH_DELEG_WHEN_UNCONTENDED   0x20000
+
+
+enum createmode4 {
+    UNCHECKED4      = 0,
+    GUARDED4        = 1,
+    /* Deprecated in NFSv4.1. */
+    EXCLUSIVE4      = 2,
+    /*
+     * New to NFSv4.1. If session is persistent,
+     * GUARDED4 MUST be used.  Otherwise, use
+     * EXCLUSIVE4_1 instead of EXCLUSIVE4.
+     */
+    EXCLUSIVE4_1    = 3
+};
+
+enum open_delegation_type4 {
+    OPEN_DELEGATE_NONE      = 0,
+    OPEN_DELEGATE_READ      = 1,
+    OPEN_DELEGATE_WRITE     = 2,
+    OPEN_DELEGATE_NONE_EXT  = 3 /* new to v4.1 */
+};
+
+enum open_claim_type4 {
+    /*
+     * Not a reclaim.
+     */
+    CLAIM_NULL              = 0,
+    
+    CLAIM_PREVIOUS          = 1,
+    CLAIM_DELEGATE_CUR      = 2,
+    CLAIM_DELEGATE_PREV     = 3,
+    
+    /*
+     * Not a reclaim.
+     *
+     * Like CLAIM_NULL, but object identified
+     * by the current filehandle.
+     */
+    CLAIM_FH                = 4, /* new to v4.1 */
+    
+    /*
+     * Like CLAIM_DELEGATE_CUR, but object identified
+     * by current filehandle.
+     */
+    CLAIM_DELEG_CUR_FH      = 5, /* new to v4.1 */
+    
+    /*
+     * Like CLAIM_DELEGATE_PREV, but object identified
+     * by current filehandle.
+     */
+    CLAIM_DELEG_PREV_FH     = 6 /* new to v4.1 */
+};
+
+enum state_protect_how4 {
+    SP4_NONE = 0,
+    SP4_MACH_CRED = 1,
+    SP4_SSV = 2
 };

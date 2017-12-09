@@ -18,14 +18,13 @@ steps to test:
     to the top of the sqlite tree you are running, or sqlite.h may be found from
     some other installed location
 
-  * from the ext/v4 directory:
+  * from the directory:
 
-    * ../../sqlite3
+    * $(SQLITE)/sqlite3
     * .load ./nfs4.so
-    * attach database 'file:172.31.24.76/db?vfs=nfs4&mode=ro' as nfsdb;
-    * select * from nfsd.foo;
+    * .open file:172.31.24.76/db
+    * select * from foo;
 
-  * sqlite may complain about a corrupted heap on exit, that needs to be tracked down
     
   
   
