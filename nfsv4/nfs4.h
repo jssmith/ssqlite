@@ -1,8 +1,5 @@
 #include <runtime.h>
-#include <buffer.h>
-#include <vector.h>
 
-typedef struct status *status;
 typedef struct file *file;
 typedef struct client *client;
 
@@ -13,7 +10,7 @@ status file_open_write(client c, vector path, file *x);
 status file_create(client c, vector path, file *x);
 void file_close(file f);
 status file_size(file f, u64 *s); // should be path instead of requiring an open file?
-status writefile(file f, void *source, u64 offset, u32 length);
+status writefile(file f, void *source, u64 offset, u32 length, u32 synch);
 status readfile(file f, void *dest, u64 offset, u32 length);;
 buffer filename(file f);
 
@@ -22,12 +19,8 @@ status delete(client c, vector path);
 status readdir(client c, vector path, vector result);
 status mkdir(client c, vector path);
 
-#define STATUS_OK 0
-#define STATUS_ERROR (void *)1
-
-static inline boolean is_ok(status s) {
-    return s == STATUS_OK;
-}
-
-char *status_description(status s);
-char *status_string(status x);
+enum file_synch {
+    SYNCH_LOCAL,
+    SYNCH_REMOTE, /* UNSTABLE */
+    SYNCH_COMMIT, /* DATA/FILE  - some difference in the amonut of metadata? */
+};

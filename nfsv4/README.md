@@ -24,8 +24,7 @@ steps to test:
     * .load ./nfs4.so
     * .open file:172.31.24.76/db
     * select * from foo;
-
-    
   
-  
-   
+  * environment variables
+     * NFS_PACKET_TRACE - show the byte contents of each request/response
+     

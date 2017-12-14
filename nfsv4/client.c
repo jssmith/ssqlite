@@ -28,14 +28,17 @@ static void pf(char *header, file f)
     printf ("%s %s\n", header, (char *)b->contents);
 }
 
+// should return the number of bytes read, can be short
 status readfile(file f, void *dest, u64 offset, u32 length)
 {
-    return segment(read_chunk, f->c->read_limit, f, dest, offset, length);
+    // size calc off by the headers
+    return segment(read_chunk, f->c->maxresp, f, dest, offset, length);
 }
 
-status writefile(file f, void *dest, u64 offset, u32 length)
+status writefile(file f, void *dest, u64 offset, u32 length, u32 synch)
 {
-    return segment(write_chunk, f->c->read_limit, f, dest, offset, length);
+    // size calc off by the headers
+    return segment(write_chunk, f->c->maxreq, f, dest, offset, length);
 }
 
 status file_open_read(client c, vector path, file *dest)
@@ -44,27 +47,58 @@ status file_open_read(client c, vector path, file *dest)
     f->path = path;
     f->c = c;
     *dest = f;
-    // xxx lookup filehandle here - so we can ENOSUCHFILE
+    rpc r = allocate_rpc(f->c, c->forward);
+    push_sequence(r);
+    push_resolution(r, path);
+    push_op(r, OP_GETFH);
+    buffer res = c->reverse;
+    status st = transact(r, OP_GETFH, res);
+    if (!is_ok(st)) {
+        deallocate_rpc(r);
+        return st;
+    }
+    st = read_buffer(f->c, res, &f->filehandle, NFS4_FHSIZE);
+    deallocate_rpc(r);    
+    if (!is_ok(st)) return st;
     return STATUS_OK;
 }
 
+
+static status file_open_internal(file f, vector path, boolean create)
+{
+    rpc r = allocate_rpc(f->c, f->c->forward);
+    push_sequence(r);
+    buffer final = push_initial_path(r, path);
+    push_open(r, final, false);
+    push_op(r, OP_GETFH);
+    buffer res = f->c->reverse;    
+    status st = transact(r, OP_OPEN, res);
+    // macro this shortcut return
+    if (!is_ok(st)) {
+        deallocate_rpc(r);
+        return st;
+    }
+    st = parse_open(f, res);
+    if (!is_ok(st)) {
+        deallocate_rpc(r);
+        return st;
+    }
+    verify_and_adv(f->c, res, OP_GETFH);
+    verify_and_adv(f->c, res, 0); // status
+    verify_and_adv(f->c, res, 0x80); // length
+    st = read_buffer(f->c, res, &f->filehandle, NFS4_FHSIZE);
+    deallocate_rpc(r);
+    if (!is_ok(st)) return st;
+    return STATUS_OK;
+}
 
 status file_open_write(client c, vector path, file *dest)
 {
     file f = allocate(s->h, sizeof(struct file));
     f->path = path;
     f->c = c;
-
-    rpc r = allocate_rpc(f->c);
-    push_sequence(r);
-    buffer final = push_initial_path(r, path);
-    push_open(r, final, false);
-    // macro this shortcut return
-    status st = transact(r, OP_OPEN);
-    deallocate_rpc(r);
-    if (!is_ok(st)) return st;
     *dest = f;
-    return STATUS_OK;
+    return file_open_internal(f, path, false) ;
 }
 
 void file_close(file f)
@@ -78,25 +112,18 @@ status file_create(client c, vector path, file *dest)
     file f = allocate(s->h, sizeof(struct file));
     f->path = path;
     f->c = c;
-
-    rpc r = allocate_rpc(f->c);
-    push_sequence(r);
-    buffer final = push_initial_path(r, path);
-    push_open(r, final, true);
-    status st = transact(r, OP_OPEN);
-    deallocate_rpc(r);
-    if (!is_ok(st)) return st;    
     *dest = f;
-    return STATUS_OK;
+    return file_open_internal(f, path, true) ;
 }
 
 status exists(client c, vector path)
 {
-    rpc r = allocate_rpc(c);
+    rpc r = allocate_rpc(c, c->forward);
     push_sequence(r);
     push_resolution(r, path);
     push_op(r, OP_GETFH);
-    status st = transact(r, OP_GETFH);
+    buffer res = c->reverse;    
+    status st = transact(r, OP_GETFH, res);
     deallocate_rpc(r);    
     if (!is_ok(st)) return st;    
     return STATUS_OK;
@@ -105,12 +132,13 @@ status exists(client c, vector path)
 
 status delete(client c, vector path)
 {
-    rpc r = allocate_rpc(c);
+    rpc r = allocate_rpc(c, c->forward);
     push_sequence(r);
-    buffer final  = push_initial_path(r, path);
+    buffer final = push_initial_path(r, path);
     push_op(r, OP_REMOVE);
     push_string(r->b, final->contents + final->start, length(final));
-    status s= transact(r, OP_REMOVE);
+    buffer res = r->c->reverse;
+    status s = transact(r, OP_REMOVE, res);
     deallocate_rpc(r);
     if (!is_ok(s)) return s;    
     return STATUS_OK;
@@ -129,55 +157,28 @@ status mkdir(client c, vector path)
 status create_client(char *hostname, client *dest)
 {
     client c = allocate(0, sizeof(struct client));
-    c->packet_trace = false;
-#if TRACE==2
-    c->packet_trace = true;
-#endif
     nfs4_connect(c, hostname);     
     c->xid = 0xb956bea4;
-    // because the current implementation has no concurrency,
-    // we use a single buffer for all transmit and receive
-    c->b = allocate_buffer(0, 16384);
-    
+    c->maxops = config_u64("NFS_OPS_LIMIT", 16);
+    c->maxreqs = config_u64("NFS_REQUESTSx_LIMIT", 32);
+    c->forward = allocate_buffer(0, 16384);
+    c->reverse = allocate_buffer(0, 16384);
+
     // xxx - we're actually using very few bits from tv_usec, make a better
     // instance id
     struct timeval p;
     gettimeofday(&p, 0);
     memcpy(c->instance_verifier, &p.tv_usec, NFS4_VERIFIER_SIZE);
     
-    rpc r = allocate_rpc(c);
-    push_exchange_id(r);
-    status st = transact(r, OP_EXCHANGE_ID);
-    if (!is_ok(st)) {
-        deallocate_rpc(r);    
-        return st;
-    }
-    // xxx - extract from exhange id result
-    c->read_limit = 8192;
-    c->write_limit = 8192;
-    st = parse_exchange_id(c, r->b);
+    status st = exchange_id(c);
     if (!is_ok(st)) return st;
-    deallocate_rpc(r);
 
-    r = allocate_rpc(c);
-    // xxx - determine if we should officially start at 1 or if its part of some server exchange
-    r->c->sequence = 1;
-    push_create_session(r);
-    st = transact(r, OP_CREATE_SESSION);
-    if (!is_ok(st)) {
-        deallocate_rpc(r);    
-        return st;
-    }    
-    st = parse_create_session(c, r->b);
+    c->maxresp = config_u64("NFS_READ_LIMIT", 1024*1024);
+    c->maxreq = config_u64("NFS_WRITE_LIMIT", 1024*1024);
+
+    st = create_session(c);
     if (!is_ok(st)) return st;
-    deallocate_rpc(r);    
-
-    r = allocate_rpc(c);
-    push_sequence(r);
-    push_op(r, OP_RECLAIM_COMPLETE);
-    push_be32(r->b, 0);
-    st = transact(r, OP_RECLAIM_COMPLETE);
-    deallocate_rpc(r);        
+    st = reclaim_complete(c);
     if (!is_ok(st)) return st;
     *dest = c;
     return STATUS_OK;

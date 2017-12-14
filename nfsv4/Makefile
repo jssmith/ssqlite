@@ -2,11 +2,8 @@
 
 all: nfs4.so
 
-OBJ = rpc.o xdr.o client.o
+OBJ = rpc.o xdr.o client.o 
 SQLITE_OBJ = nfs4.o $(OBJ)
-
-# set -DTRACE on nfs4.c for operation printfs
-# TRACING = -DTRACE
 
 nfs4.o: nfs4.c
 ifndef SQLITE
@@ -24,8 +21,5 @@ nfs4.so: $(SQLITE_OBJ)
 
 clean:
 	rm -f *.o nfs4.so *~
-
-shell: $(OBJ)  shell.o
-	cc -g $^ -o shell
 
  

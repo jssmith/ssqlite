@@ -1,7 +1,10 @@
 #include <nfs4.h>
 #include <stdio.h>
 #include <arpa/inet.h>
+#include <codepoint.h>
 #include <nfs4xdr.h>
+#include <config.h>
+#include <unistd.h>
 
 struct client {
     int fd;
@@ -12,22 +15,26 @@ struct client {
     u8 session[NFS4_SESSIONID_SIZE];
     u32 sequence;
     u32 server_sequence;
+    u32 session_sequence;    
     u8 instance_verifier[NFS4_VERIFIER_SIZE];
-    boolean packet_trace;
-    buffer b;
-    bytes write_limit;
-    bytes read_limit;
+    buffer forward;
+    buffer reverse; 
+    bytes maxreq;
+    bytes maxresp;
+    u32 maxops;
+    u32 maxreqs;
 };
 
+typedef struct  stateid {
+    u32 sequence;
+    u8 opaque [NFS4_OTHER_SIZE];
+} *stateid;
 
 struct file {
     client c;
     vector path;
     u8 filehandle[NFS4_FHSIZE];
-    struct {
-        u32 sequence;
-        u8 opaque [NFS4_OTHER_SIZE];
-    } stateid;
+    struct stateid sid;
 };
 
 static inline void push_be32(buffer b, u32 w) {
@@ -57,7 +64,7 @@ static inline void push_be64(buffer b, u64 w) {
     v<<32 | v2;})
 
 typedef struct rpc *rpc;
-rpc allocate_rpc(client s);
+rpc allocate_rpc(client s, buffer b);
 
 struct status {
     char *cause;
@@ -69,9 +76,16 @@ struct rpc {
     bytes opcountloc;
     int opcount;
     buffer b;
+    vector completions;
 };
 
+// consider pulling in proper closures 
+typedef struct callback {
+    void (*f)(void *a);
+    void *a;
+} *callback;
 
+// should check client maxops and throw status
 static inline void push_op(rpc r, u32 op)
 {
     push_be32(r->b, op);
@@ -82,7 +96,7 @@ void push_sequence(rpc r);
 
 
 // pull in printf - "%x not equal to %x!\n", v, v2"
-#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__c, __b); if (__v != v2) return allocate_status(__c, "encoding mismatch");}
+#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__c, __b); if (__v != v2) {printf ("%d %d\n", __v, v2); return allocate_status(__c, "encoding mismatch");}}
 
 
 typedef u64 clientid;
@@ -94,14 +108,15 @@ void push_create_session(rpc r);
 status parse_create_session(client, buffer);
 void push_lookup(rpc r, buffer i);
 buffer filename(file f);
-status parse_rpc(client s, buffer b);
+status parse_rpc(client s, buffer b, boolean *badsession);
 void push_open(rpc r, buffer name, boolean create);
+status parse_open(file f, buffer b);
 void push_string(buffer b, char *x, u32 length);
 
 
 status segment(status (*each)(file, void *, u64, u32), int chunksize, file f, void *x, u64 offset, u32 length);
 buffer push_initial_path(rpc r, vector path);
-status transact(rpc r, int op);
+status transact(rpc r, int op, buffer b);
 
 status write_chunk(file f, void *source, u64 offset, u32 length);
 status read_chunk(file f, void *source, u64 offset, u32 length);
@@ -122,3 +137,26 @@ static void deallocate_rpc(rpc r)
 }
 
 buffer print_path(heap h, vector v);
+
+
+static void print_buffer(char *tag, buffer b)
+{
+    printf("%s:\n", tag);
+    buffer temp = print_buffer_u32(0, b);
+    write(1, temp->contents + temp->start, length(temp));
+    printf("----------\n");
+    deallocate_buffer(temp);
+}
+
+static inline status read_buffer(client c, buffer b, void *dest, u32 len)
+{
+    if (length(b) < len) return allocate_status(c, "out of data");
+    if (dest != (void *)0) memcpy(dest, b->contents + b->start, len);
+    b->start += len;
+    return STATUS_OK;
+}
+
+
+status create_session(client c);
+status exchange_id(client c);
+status reclaim_complete(client c);

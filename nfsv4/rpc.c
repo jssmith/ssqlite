@@ -2,6 +2,79 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <netinet/tcp.h>
+
+static struct codepoint nfsops[] = {
+{"ACCESS"               , 3},
+{"CLOSE"                , 4},
+{"COMMIT"               , 5},
+{"CREATE"               , 6},
+{"DELEGPURGE"           , 7},
+{"DELEGRETURN"          , 8},
+{"GETATTR"              , 9},
+{"GETFH"                , 10},
+{"LINK"                 , 11},
+{"LOCK"                 , 12},
+{"LOCKT"                , 13},
+{"LOCKU"                , 14},
+{"LOOKUP"               , 15},
+{"LOOKUPP"              , 16},
+{"NVERIFY"              , 17},
+{"OPEN"                 , 18},
+{"OPENATTR"             , 19},
+{"OPEN_CONFIRM"         , 20},
+{"OPEN_DOWNGRADE"       , 21},
+{"PUTFH"                , 22},
+{"PUTPUBFH"             , 23},
+{"PUTROOTFH"            , 24},
+{"READ"                 , 25},
+{"READDIR"              , 26},
+{"READLINK"             , 27},
+{"REMOVE"               , 28},
+{"RENAME"               , 29},
+{"RENEW"                , 30}, 
+{"RESTOREFH"            , 31},
+{"SAVEFH"               , 32},
+{"SECINFO"              , 33},
+{"SETATTR"              , 34},
+{"SETCLIENTID"          , 35}, 
+{"SETCLIENTID_CONFIRM"  , 36}, 
+{"VERIFY"               , 37},
+{"WRITE"                , 38},
+{"RELEASE_LOCKOWNER"    , 39}, 
+{"BACKCHANNEL_CTL"      , 40},
+{"BIND_CONN_TO_SESSION" , 41},
+{"EXCHANGE_ID"          , 42},
+{"CREATE_SESSION"       , 43},
+{"DESTROY_SESSION"      , 44},
+{"FREE_STATEID"         , 45},
+{"GET_DIR_DELEGATION"   , 46},
+{"GETDEVICEINFO"        , 47},
+{"GETDEVICELIST"        , 48},
+{"LAYOUTCOMMIT"         , 49},
+{"LAYOUTGET"            , 50},
+{"LAYOUTRETURN"         , 51},
+{"SECINFO_NO_NAME"      , 52},
+{"SEQUENCE"             , 53},
+{"SET_SSV"              , 54},
+{"TEST_STATEID"         , 55},
+{"WANT_DELEGATION"      , 56},
+{"DESTROY_CLIENTID"     , 57},
+{"RECLAIM_COMPLETE"     , 58},
+{"ALLOCATE"             , 59},
+{"COPY"                 , 60},
+{"COPY_NOTIFY"          , 61},
+{"DEALLOCATE"           , 62},
+{"IO_ADVISE"            , 63},
+{"LAYOUTERROR"          , 64},
+{"LAYOUTSTATS"          , 65},
+{"OFFLOAD_CANCEL"       , 66},
+{"OFFLOAD_STATUS"       , 67},
+{"READ_PLUS"            , 68},
+{"SEEK"                 , 69},
+{"WRITE_SAME"           , 70},
+{"CLONE"                , 71},
+{"ILLEGAL"              , 10044}};
 
 char *status_string(status s)
 {
@@ -9,31 +82,11 @@ char *status_string(status s)
     return s->cause;
 }
 
-void print_buffer(char *tag, buffer b)
-{
-    printf("%s:\n", tag);
-    buffer temp = print_buffer_u32(0, b);
-    write(1, temp->contents + temp->start, length(temp));
-    printf("----------\n");
-    deallocate_buffer(temp);
-}
-
-static char *nfs4_error_string(int code)
-{
-    int i;
-    for (i=0; (status_strings[i].id >= 0) && (status_strings[i].id != code) ; i++);
-    if (status_strings[i].id == -1 ){
-        return "unknown error";
-    } else {
-        return status_strings[i].text;
-    }
-}
-
-rpc allocate_rpc(client c) 
+rpc allocate_rpc(client c, buffer b) 
 {
     // can use a single entity or a freelist
     rpc r = allocate(s->h, sizeof(struct rpc));
-    buffer b = r->b = c->b;
+    r->b = b;
     b->start = b->end = 0;
     
     // tcp framer - to be filled on transmit
@@ -62,21 +115,29 @@ rpc allocate_rpc(client c)
     return r;
 }
 
-status parse_rpc(client c, buffer b)
+status parse_rpc(client c, buffer b, boolean *badsession)
 {
+    *badsession = false;
     verify_and_adv(c, b, c->xid);
     verify_and_adv(c, b, 1); // reply
     
-    u32 rpcstatus = read_beu32(c, b);        
+    u32 rpcstatus = read_beu32(c, b);
     if (rpcstatus != NFS4_OK) 
-        return allocate_status(c, nfs4_error_string(rpcstatus));
+        return allocate_status(c, codestring(nfsstatus, rpcstatus));
 
     verify_and_adv(c, b, 0); // eh?
     verify_and_adv(c, b, 0); // verf
     verify_and_adv(c, b, 0); // verf
-    u32 nfsstatus = read_beu32(c, b); 
-    if (nfsstatus != NFS4_OK) 
-        return allocate_status(c, nfs4_error_string(nfsstatus));
+    u32 nstatus = read_beu32(c, b);
+    if (nstatus != NFS4_OK) {
+        if (config_boolean("NFS_TRACE", false))
+            printf("nfs rpc error %s\n", codestring(nfsstatus, nstatus));
+
+        if (nstatus == NFS4ERR_BADSESSION) {
+            *badsession = true;
+        }
+        return allocate_status(c, codestring(nfsstatus, nstatus));
+    }
 
     verify_and_adv(c, b, 0); // tag
     return STATUS_OK;
@@ -96,7 +157,7 @@ static status read_response(client c, buffer b)
         return (allocate_status(c, "server socket read error"));        
 
     b->end = chars;
-    if (c->packet_trace) {
+    if (config_boolean("NFS_PACKET_TRACE", false)) {
         print_buffer("resp", b);
     }
     return STATUS_OK;
@@ -108,12 +169,12 @@ static status rpc_send(rpc r)
     *(u32 *)(r->b->contents + r->opcountloc) = htonl(r->opcount);
     // framer length
     *(u32 *)(r->b->contents) = htonl(0x80000000 + length(r->b)-4);
-    if (r->c->packet_trace)
+    if (config_boolean("NFS_PACKET_TRACE", false))
         print_buffer("sent", r->b);
     
     int res = write(r->c->fd, r->b->contents + r->b->start, length(r->b));
     if (res != length(r->b)) {
-        return STATUS_ERROR;
+        return allocate_status(r->c, "failed rpc write");
     }
 }
 
@@ -131,6 +192,12 @@ status nfs4_connect(client c, char *hostname)
     memcpy(&a.sin_addr, &c->address, 4);
     a.sin_family = AF_INET;
     a.sin_port = htons(2049); //configure
+
+    if (config_boolean("NFS_TCP_NODELAY", true)) {
+        unsigned char x = 1;
+        setsockopt(c->fd, /*SOL_TCP*/0, TCP_NODELAY,
+                   (char *)&x, sizeof(x));
+    }
     
     int res = connect(c->fd,
                       (struct sockaddr *)&a,
@@ -143,7 +210,6 @@ status nfs4_connect(client c, char *hostname)
 
 void push_resolution(rpc r, vector path)
 {
-    // xxx use a cached FH if its valid
     push_op(r, OP_PUTROOTFH);
     buffer i;
     vector_foreach(i, path) {
@@ -161,13 +227,16 @@ static status read_until(client c, buffer b, u32 which)
             return STATUS_OK;
         }
         u32 code = read_beu32(c, b);
-        if (code != 0) return allocate_status(c, nfs4_error_string(code));
-
+        if (code != 0) return allocate_status(c, codestring(nfsstatus, code));
         switch (op) {
         case OP_SEQUENCE:
-            b->start += 36;
+            b->start += NFS4_SESSIONID_SIZE; // 16
+            u32 seq = read_beu32(c, b);  // 20
+            b->start += 16; // 36
             break;
         case OP_PUTROOTFH:
+            break;
+        case OP_PUTFH:
             break;
         case OP_LOOKUP:
             break;
@@ -182,26 +251,107 @@ static status read_until(client c, buffer b, u32 which)
 
 static rpc file_rpc(file f)
 {
-    rpc r = allocate_rpc(f->c);
+    rpc r = allocate_rpc(f->c, f->c->forward);
     push_sequence(r);
-    push_resolution(r, f->path);
+
+    push_op(r, OP_PUTFH);
+    if (config_boolean("NFS_USE_FILEHANDLE", true)){
+        push_string(r->b, f->filehandle, NFS4_FHSIZE);
+    } else {
+        push_resolution(r, f->path);
+    }
     return (r);
 }
 
 
-status transact(rpc r, int op)
+status reclaim_complete(client c)
 {
-    rpc_send(r);
-    r->b->start = r->b->end = 0;
-    status s = read_response(r->c, r->b);
+    rpc r = allocate_rpc(c, c->forward);
+    push_sequence(r);
+    push_op(r, OP_RECLAIM_COMPLETE);
+    push_be32(r->b, 0);
+    status st = transact(r, OP_RECLAIM_COMPLETE, c->reverse);
+    deallocate_rpc(r);        
+    return st;
+}
+
+status exchange_id(client c)
+{
+    rpc r = allocate_rpc(c, c->reverse);
+    c->session_sequence = 1;
+    push_exchange_id(r);
+    buffer res = c->reverse;
+    status st = transact(r, OP_EXCHANGE_ID, res);
+    if (!is_ok(st)) {
+        deallocate_rpc(r);    
+        return st;
+    }
+
+    st = parse_exchange_id(c, res);
+    if (!is_ok(st)) return st;
+    deallocate_rpc(r);
+    return STATUS_OK;
+}
+
+                  
+status create_session(client c)
+{
+    rpc r = allocate_rpc(c, c->reverse);
+    // xxx - determine if we should officially start at 1 or if its part of some server exchange
+    r->c->sequence = 1;
+    printf("create session sequence: %d\n", r->c->session_sequence);
+    push_create_session(r);
+    buffer res = c->reverse;
+    status st = transact(r, OP_CREATE_SESSION, res);
+    if (!is_ok(st)) {
+        deallocate_rpc(r);    
+        return st;
+    }    
+    st = parse_create_session(c, res);
+    if (!is_ok(st)) return st;
+    r->c->session_sequence++;
+    deallocate_rpc(r);
+    return STATUS_OK;
+}
+
+static status replay_rpc(rpc r)
+{
+    // ok sad, framer + xid + call + rpc + program + version + proc + auth + authbody + verf + verf2
+    // tag + minor + opcount + sequence op
+    // verify that we're starting with a sequence, which should always be the case
+    // except for exchangeid and create session
+    u32 offset = 4 * 15;
+    memcpy(r->b->contents + offset, r->c->session, NFS4_SESSIONID_SIZE);
+    u32 nseq = htonl(r->c->sequence);
+    memcpy(r->b->contents + offset + NFS4_SESSIONID_SIZE, &nseq, 4);
+}
+
+status transact(rpc r, int op, buffer result)
+{
+    int tries = 0;
+    boolean badsession = true;
+    status s;
+    
+    while ((tries < 2 ) && (badsession == true)) {
+        rpc_send(r);
+        result->start = result->end = 0;
+        s = read_response(r->c, result);
+        if (!is_ok(s)) return s;
+        // should instead keep session alive
+        s = parse_rpc(r->c, result, &badsession);
+        if (badsession) {
+            s = exchange_id(r->c);
+            if (!is_ok(s)) return s;
+            s = create_session(r->c);
+            if (!is_ok(s)) return s;
+        }
+    }
     if (!is_ok(s)) return s;
-    s = parse_rpc(r->c, r->b);
+    s = read_until(r->c, result, op);
     if (!is_ok(s)) return s;
-    s = read_until(r->c, r->b, op);
-    if (!is_ok(s)) return s;
-    u32 code = read_beu32(r->c, r->b);
+    u32 code = read_beu32(r->c, result);
     if (code == 0) return STATUS_OK;
-    return allocate_status(r->c, nfs4_error_string(code));
+    return allocate_status(r->c, codestring(nfsstatus, code));
 }
 
 status file_size(file f, u64 *dest)
@@ -211,12 +361,13 @@ status file_size(file f, u64 *dest)
     push_be32(r->b, 1); 
     u32 mask = 1<<FATTR4_SIZE;
     push_be32(r->b, mask);
-    status s = transact(r, OP_GETATTR);
+    buffer res =f->c->reverse;
+    status s = transact(r, OP_GETATTR, res);
     if (!is_ok(s)) return s;
     // demux attr more better
-    r->b->start = r->b->end - 8;
+    res->start = res->end - 8;
     u64 x = 0;
-    *dest = read_beu64(f->c, r->b);  
+    *dest = read_beu64(f->c, res);  
     return STATUS_OK;
 }
 
@@ -230,29 +381,30 @@ status read_chunk(file f, void *dest, u64 offset, u32 length)
     push_stateid(r);
     push_be64(r->b, offset);
     push_be32(r->b, length);
-    status s = transact(r, OP_READ);
+    buffer res = f->c->reverse;
+    status s = transact(r, OP_READ, res);
     if (!is_ok(s)) return s;
     // we dont care if its the end of file -- we might for a single round trip read entire
-    r->b->start += 4; 
-    u32 len = read_beu32(r->c, r->b);
+    res->start += 4; 
+    u32 len = read_beu32(r->c, res);
     // guard against len != length
-    memcpy(dest, r->b->contents+r->b->start, len);
+    memcpy(dest, res->contents+res->start, len);
     return STATUS_OK;
 }
 
 // if we break transact, can writev with the header and 
 // source buffer as two fragments
+// add synch
 status write_chunk(file f, void *source, u64 offset, u32 length)
 {
     rpc r = file_rpc(f);
     push_op(r, OP_WRITE);
     push_stateid(r);
     push_be64(r->b, offset);
-    // xxx - parameterize the file by its synchronization properties? expose flush?
     push_be32(r->b, FILE_SYNC4);
     push_string(r->b, source, length);
-    buffer b;
-    return transact(r, OP_WRITE);
+    buffer b = f->c->reverse;
+    return transact(r, OP_WRITE, b);
 }
 
 buffer push_initial_path(rpc r, vector path)
