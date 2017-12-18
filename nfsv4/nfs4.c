@@ -46,7 +46,7 @@ static void buffer_wrap_string(buffer b, char *x)
 static inline int translate_status(appd ad, status s)
 {
     if (ad->trace) {
-        printf ("status %s\n", status_string(s));
+        eprintf ("status %s\n", status_string(s));
     }
     if (!is_ok(s)) return SQLITE_ERROR;
     return SQLITE_OK;
@@ -55,7 +55,7 @@ static inline int translate_status(appd ad, status s)
 static int nfs4Close(sqlite3_file *pFile){
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace)
-        printf ("close %s\n", f->filename);
+        eprintf ("close %s\n", f->filename);
     file_close(f->f);
     return SQLITE_OK;
 }
@@ -67,7 +67,7 @@ static int nfs4Read(sqlite3_file *pFile,
 {
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) {
-        printf ("read %s offset:%lld bytes:%d ", f->filename, iOfst, iAmt);
+        eprintf ("read %s offset:%lld bytes:%d ", f->filename, iOfst, iAmt);
     }
     translate_status(f->ad, readfile(f->f, zBuf, iOfst, iAmt));
 }
@@ -79,7 +79,7 @@ static int nfs4Write(sqlite3_file *pFile,
 {
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
-        printf ("write %s offset:%lld bytes:%d ", f->filename, iOfst, iAmt);
+        eprintf ("write %s offset:%lld bytes:%d ", f->filename, iOfst, iAmt);
     translate_status(f->ad, writefile(f->f, (void *)z, iOfst, iAmt, SYNCH_REMOTE));
 }
 
@@ -88,7 +88,7 @@ static int nfs4Truncate(sqlite3_file *pFile,
 {
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
-        printf ("truncate %s - WARNING NOT IMPLEMENTED\n", f->filename);
+        eprintf ("truncate %s - WARNING NOT IMPLEMENTED\n", f->filename);
     return SQLITE_ERROR;
 
 }
@@ -97,7 +97,7 @@ static int nfs4Sync(sqlite3_file *pFile, int flags)
 { 
    sqlfile f = (sqlfile)pFile;
    if (f->ad->trace) 
-       printf ("sync %s\n", f->filename);
+       eprintf ("sync %s\n", f->filename);
     return SQLITE_OK;
 }
 
@@ -105,7 +105,7 @@ static int nfs4FileSize(sqlite3_file *pFile, sqlite_int64 *pSize)
 {
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
-        printf ("filesize %s ", f->filename);
+        eprintf ("filesize %s ", f->filename);
     u64 size;
     status s =file_size(f->f, &size);
     *pSize = size;
@@ -126,7 +126,7 @@ static int nfs4Lock(sqlite3_file *pFile, int eLock)
 {
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
-        printf ("lock %s %s\n", f->filename, codestring(locktypes, eLock));
+        eprintf ("lock %s %s\n", f->filename, codestring(locktypes, eLock));
     return SQLITE_OK;
 }
 
@@ -134,7 +134,7 @@ static int nfs4Unlock(sqlite3_file *pFile, int eLock)
 {
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
-        printf ("unlock %s %s\n", ((sqlfile)pFile)->filename, codestring(locktypes, eLock));
+        eprintf ("unlock %s %s\n", ((sqlfile)pFile)->filename, codestring(locktypes, eLock));
 
     return SQLITE_OK;
 }
@@ -143,7 +143,7 @@ static int nfs4CheckReservedLock(sqlite3_file *pFile, int *pResOut)
 {
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
-        printf ("check lock %s\n", ((sqlfile)pFile)->filename);
+        eprintf ("check lock %s\n", ((sqlfile)pFile)->filename);
     *pResOut = 0;
     return SQLITE_OK;
 }
@@ -198,10 +198,10 @@ static int nfs4FileControl(sqlite3_file *pFile, int op, void *pArg)
     sqlfile f = (sqlfile)pFile;
 
     if (f->ad->trace) {
-        printf ("control %s %s\n", f->filename, codestring(fcntl, op));
+        eprintf ("control %s %s\n", f->filename, codestring(fcntl, op));
         if (op == SQLITE_FCNTL_PRAGMA) {
             char **z = pArg;
-            printf ("pragma %s\n", z[1]);
+            eprintf ("pragma %s\n", z[1]);
         }
     }
 
@@ -250,7 +250,7 @@ static int nfs4ShmMap(sqlite3_file *pFile, int iPg, int pgsz, int bExtend, void 
     // jss - probably ok to leave this as a noop rather than forwarding to the
     // parent VFS since there is no shared memory support.
     if (f->ad->trace) 
-        printf ("shmap %s\n", f->filename);
+        eprintf ("shmap %s\n", f->filename);
     return SQLITE_READONLY;
 }
 
@@ -258,14 +258,14 @@ static int nfs4ShmMap(sqlite3_file *pFile, int iPg, int pgsz, int bExtend, void 
 static int nfs4ShmLock(sqlite3_file *pFile, int offset, int n, int flags){
     sqlfile f = (sqlfile)(void *)pFile;
     if (f->ad->trace) 
-        printf ("shm lock %s\n", ((sqlfile)pFile)->filename);
+        eprintf ("shm lock %s\n", ((sqlfile)pFile)->filename);
     return SQLITE_READONLY;
 }
 
 static void nfs4ShmBarrier(sqlite3_file *pFile){
     sqlfile f = (sqlfile)(void *)pFile;
     if (f->ad->trace) 
-        printf ("shm barrier %s\n", f->filename);
+        eprintf ("shm barrier %s\n", f->filename);
     return;
 }
 
@@ -273,7 +273,7 @@ static void nfs4ShmBarrier(sqlite3_file *pFile){
 static int nfs4ShmUnmap(sqlite3_file *pFile, int deleteFlag){
     sqlfile f = (sqlfile)(void *)pFile;
     if (f->ad->trace) 
-        printf ("shm unmap %s\n", f->filename);
+        eprintf ("shm unmap %s\n", f->filename);
     return SQLITE_OK;
 }
 
@@ -281,7 +281,7 @@ static int nfs4Fetch(sqlite3_file *pFile,  sqlite3_int64 iOfst, int iAmt, void *
 {
     sqlfile f = (sqlfile)(void *)pFile;
     if (f->ad->trace) 
-        printf ("fetch %s\n", f->filename);
+        eprintf ("fetch %s\n", f->filename);
     translate_status(f->ad, readfile(f->f, *pp, iOfst, iAmt));
 }
  
@@ -289,7 +289,7 @@ static int nfs4Unfetch(sqlite3_file *pFile, sqlite3_int64 iOfst, void *pPage)
 {
     sqlfile f = (sqlfile)(void *)pFile;
     if (f->ad->trace) 
-        printf ("unfetch %s\n", f->filename);
+        eprintf ("unfetch %s\n", f->filename);
     return SQLITE_OK;
 }
 
@@ -332,7 +332,7 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     f->readonly = false;
 
     if (ad->trace) {
-        printf ("open %s %s ", zName, codepoint_set_string(openflags, flags));
+        eprintf ("open %s %s ", zName, codepoint_set_string(openflags, flags));
         memcpy(f->filename, zName, strlen(zName));
     }
 
@@ -372,7 +372,7 @@ static int nfs4Delete(sqlite3_vfs *pVfs, const char *zPath, int dirSync)
 {
     appd ad = pVfs->pAppData;
     if (ad->trace)
-        printf ("delete %s\n", zPath);
+        eprintf ("delete %s\n", zPath);
     
     // note - its not clear if there is an appropriate nfs4 implmentation of 
     // dirSync, and it might affect consistency at least probibalistically
@@ -393,7 +393,7 @@ static int nfs4Access(sqlite3_vfs *pVfs,
 {
     appd ad = pVfs->pAppData;
     if (ad->trace)
-        printf ("access %s %d\n", zPath, flags);
+        eprintf ("access %s %d\n", zPath, flags);
     
     /* The spec says there are three possible values for flags.  But only
     ** two of them are actually used */

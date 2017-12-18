@@ -141,10 +141,10 @@ buffer print_path(heap h, vector v);
 
 static void print_buffer(char *tag, buffer b)
 {
-    printf("%s:\n", tag);
+    eprintf("%s:\n", tag);
     buffer temp = print_buffer_u32(0, b);
     write(1, temp->contents + temp->start, length(temp));
-    printf("----------\n");
+    eprintf("----------\n");
     deallocate_buffer(temp);
 }
 
