@@ -278,7 +278,6 @@ status reclaim_complete(client c)
 status exchange_id(client c)
 {
     rpc r = allocate_rpc(c, c->reverse);
-    c->session_sequence = 1;
     push_exchange_id(r);
     buffer res = c->reverse;
     status st = transact(r, OP_EXCHANGE_ID, res);
@@ -290,6 +289,7 @@ status exchange_id(client c)
     st = parse_exchange_id(c, res);
     if (!is_ok(st)) return st;
     deallocate_rpc(r);
+    c->session_sequence = 1;
     return STATUS_OK;
 }
 
@@ -309,7 +309,7 @@ status create_session(client c)
     }    
     st = parse_create_session(c, res);
     if (!is_ok(st)) return st;
-    r->c->session_sequence++;
+    //    r->c->session_sequence++;
     deallocate_rpc(r);
     return STATUS_OK;
 }
@@ -340,8 +340,12 @@ status transact(rpc r, int op, buffer result)
         // should instead keep session alive
         s = parse_rpc(r->c, result, &badsession);
         if (badsession) {
-            s = exchange_id(r->c);
-            if (!is_ok(s)) return s;
+            rpc r2 = allocate_rpc(r->c, r->c->reverse);
+            push_op(r2, OP_DESTROY_SESSION);
+            push_session_id(r2, r->c->session);
+            transact(r2, OP_DESTROY_SESSION, r->c->reverse);
+            //            s = exchange_id(r->c);
+            //            if (!is_ok(s)) return s;
             s = create_session(r->c);
             if (!is_ok(s)) return s;
         }

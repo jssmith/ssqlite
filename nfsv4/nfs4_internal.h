@@ -160,3 +160,4 @@ static inline status read_buffer(client c, buffer b, void *dest, u32 len)
 status create_session(client c);
 status exchange_id(client c);
 status reclaim_complete(client c);
+void push_session_id(rpc r, u8 *session);

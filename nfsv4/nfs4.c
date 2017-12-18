@@ -517,7 +517,7 @@ int sqlite3_nfs_init(sqlite3 *db,
     nfs4_vfs.pAppData = ad;
     ad->parent = sqlite3_vfs_find(0);
     ad->c = 0;
-    ad->trace = config_boolean("NFS_TRACE");
+    ad->trace = config_boolean("NFS_TRACE", false);
     nfs4_vfs.pNext = sqlite3_vfs_find(0);
     nfs4_vfs.szOsFile = sizeof(struct sqlfile);
     methods = &nfs4_io_methods;

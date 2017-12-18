@@ -44,7 +44,7 @@ void push_create_session(rpc r)
 {
     push_op(r, OP_CREATE_SESSION);
     push_client_id(r);
-    push_be32(r->b, r->c->session_sequence++);
+    push_be32(r->b, r->c->session_sequence);
     push_be32(r->b, CREATE_SESSION4_FLAG_PERSIST);
     push_channel_attrs(r); //forward
     push_channel_attrs(r); //return
@@ -63,9 +63,10 @@ status parse_create_session(client c, buffer b)
     // check length - maybe do that generically in transact (parse callback, empty buffer)
     memcpy(c->session, b->contents + b->start, sizeof(c->session));
     b->start +=sizeof(c->session);
-    c->sequence = read_beu32(c, b);
+    read_beu32(c, b); // ?
     read_beu32(c, b); // flags
 
+    c->sequence = 1; // xxx - exp
     // forward direction
     read_beu32(c, b); // headerpadsize
     u32 maxreq = read_beu32(c, b); // maxreqsize

@@ -69,7 +69,7 @@ static status file_open_internal(file f, vector path, boolean create)
     rpc r = allocate_rpc(f->c, f->c->forward);
     push_sequence(r);
     buffer final = push_initial_path(r, path);
-    push_open(r, final, false);
+    push_open(r, final, create);
     push_op(r, OP_GETFH);
     buffer res = f->c->reverse;    
     status st = transact(r, OP_OPEN, res);
@@ -169,6 +169,8 @@ status create_client(char *hostname, client *dest)
     struct timeval p;
     gettimeofday(&p, 0);
     memcpy(c->instance_verifier, &p.tv_usec, NFS4_VERIFIER_SIZE);
+    // move to exchange id?
+    c->session_sequence = 1;
     
     status st = exchange_id(c);
     if (!is_ok(st)) return st;
