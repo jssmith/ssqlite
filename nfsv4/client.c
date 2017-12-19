@@ -157,7 +157,11 @@ status mkdir(client c, vector path)
 status create_client(char *hostname, client *dest)
 {
     client c = allocate(0, sizeof(struct client));
-    nfs4_connect(c, hostname);     
+    
+    c->hostname = allocate_buffer(0, strlen(hostname) + 1);
+    push_bytes(c->hostname, hostname, strlen(hostname));
+    push_char(c->hostname, 0);
+
     c->xid = 0xb956bea4;
     c->maxops = config_u64("NFS_OPS_LIMIT", 16);
     c->maxreqs = config_u64("NFS_REQUESTSx_LIMIT", 32);
@@ -169,20 +173,11 @@ status create_client(char *hostname, client *dest)
     struct timeval p;
     gettimeofday(&p, 0);
     memcpy(c->instance_verifier, &p.tv_usec, NFS4_VERIFIER_SIZE);
-    // move to exchange id?
-    c->session_sequence = 1;
-    
-    status st = exchange_id(c);
-    if (!is_ok(st)) return st;
 
     c->maxresp = config_u64("NFS_READ_LIMIT", 1024*1024);
     c->maxreq = config_u64("NFS_WRITE_LIMIT", 1024*1024);
 
-    st = create_session(c);
-    if (!is_ok(st)) return st;
-    st = reclaim_complete(c);
-    if (!is_ok(st)) return st;
     *dest = c;
-    return STATUS_OK;
+    return rpc_connection(c);
 }
  

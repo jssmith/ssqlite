@@ -15,7 +15,6 @@ struct client {
     u8 session[NFS4_SESSIONID_SIZE];
     u32 sequence;
     u32 server_sequence;
-    u32 session_sequence;    
     u8 instance_verifier[NFS4_VERIFIER_SIZE];
     buffer forward;
     buffer reverse; 
@@ -23,6 +22,7 @@ struct client {
     bytes maxresp;
     u32 maxops;
     u32 maxreqs;
+    buffer hostname;
 };
 
 typedef struct  stateid {
@@ -96,7 +96,7 @@ void push_sequence(rpc r);
 
 
 // pull in printf - "%x not equal to %x!\n", v, v2"
-#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__c, __b); if (__v != v2) {printf ("%d %d\n", __v, v2); return allocate_status(__c, "encoding mismatch");}}
+#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__c, __b); if (__v != v2) {printf ("%x %x\n", __v, v2); return allocate_status(__c, "encoding mismatch");}}
 
 
 typedef u64 clientid;
@@ -121,7 +121,7 @@ status transact(rpc r, int op, buffer b);
 status write_chunk(file f, void *source, u64 offset, u32 length);
 status read_chunk(file f, void *source, u64 offset, u32 length);
 void push_resolution(rpc r, vector path);
-status nfs4_connect(client s, char *hostname);
+status nfs4_connect(client s);
 
 // statusses should have a different allocation policy entirely
 static inline status allocate_status(client c, char *cause)
@@ -161,3 +161,4 @@ status create_session(client c);
 status exchange_id(client c);
 status reclaim_complete(client c);
 void push_session_id(rpc r, u8 *session);
+status rpc_connection(client c);

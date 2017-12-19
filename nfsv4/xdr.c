@@ -44,7 +44,7 @@ void push_create_session(rpc r)
 {
     push_op(r, OP_CREATE_SESSION);
     push_client_id(r);
-    push_be32(r->b, r->c->session_sequence);
+    push_be32(r->b, r->c->server_sequence);
     push_be32(r->b, CREATE_SESSION4_FLAG_PERSIST);
     push_channel_attrs(r); //forward
     push_channel_attrs(r); //return
@@ -60,13 +60,14 @@ void push_create_session(rpc r)
 
 status parse_create_session(client c, buffer b)
 {
+    c->sequence = 1; // spec says that we always start at 1 on a new session, reference
     // check length - maybe do that generically in transact (parse callback, empty buffer)
+
     memcpy(c->session, b->contents + b->start, sizeof(c->session));
     b->start +=sizeof(c->session);
     read_beu32(c, b); // ?
     read_beu32(c, b); // flags
 
-    c->sequence = 1; // xxx - exp
     // forward direction
     read_beu32(c, b); // headerpadsize
     u32 maxreq = read_beu32(c, b); // maxreqsize
@@ -234,10 +235,7 @@ void push_exchange_id(rpc r)
     push_bytes(r->b, r->c->instance_verifier, NFS4_VERIFIER_SIZE);
     push_string(r->b, co_owner_id, sizeof(co_owner_id) - 1);
 
-    // xxx - recive flag usage, this is just copied from the kernel
-    push_be32(r->b, EXCHGID4_FLAG_SUPP_MOVED_REFER |
-              EXCHGID4_FLAG_SUPP_MOVED_MIGR  |
-              EXCHGID4_FLAG_BIND_PRINC_STATEID);
+    push_be32(r->b, 0); // flags
 
     push_be32(r->b, SP4_NONE); // state protect how
     push_be32(r->b, 1); // i guess a single impl id?
@@ -253,12 +251,7 @@ status parse_exchange_id(client c, buffer b)
     memcpy(&c->clientid, b->contents + b->start, sizeof(c->clientid));
     b->start += sizeof(c->clientid);
     c->server_sequence = read_beu32(c, b);
-    read_beu32(c, b); // client id
-    // xxx record the server sequence id for recovery
-    read_beu32(c, b); // sequence id
-    read_beu32(c, b); // flags
-    
-
+    u32 flags = read_beu32(c, b); // flags
     //    state_protect4_r eir_state_protect;
     //    server_owner4    eir_server_owner;
     //    opaque           eir_server_scope<NFS4_OPAQUE_LIMIT>;
