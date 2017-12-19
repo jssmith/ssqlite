@@ -332,9 +332,6 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     if (ad->trace) {
         printf ("open %s %s ", zName, codepoint_set_string(openflags, flags));
         memcpy(f->filename, zName, strlen(zName));
-        if (flags & SQLITE_OPEN_DELETEONCLOSE) {
-            printf ("delete on close\n");
-        }
     }
 
     struct buffer znb;
@@ -343,7 +340,7 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     buffer servername = vector_pop(path);
     buffer zeg =  vector_get(path, 0);
     push_char(servername, 0);
-    
+
     if (ad->c == 0) {
         // change interface to tuple in order to parameterize
         status st = create_client((char *)servername->contents, &ad->c);
@@ -353,7 +350,7 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     }
     
     f->base.pMethods = methods;
-    
+
     if (flags & SQLITE_OPEN_READONLY) {
         return translate_status(ad, file_open_read(ad->c, path, &f->f));
     }

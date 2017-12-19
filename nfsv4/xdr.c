@@ -60,7 +60,6 @@ void push_create_session(rpc r)
 
 status parse_create_session(client c, buffer b)
 {
-    c->sequence = 1; // spec says that we always start at 1 on a new session, reference
     // check length - maybe do that generically in transact (parse callback, empty buffer)
 
     memcpy(c->session, b->contents + b->start, sizeof(c->session));
@@ -131,7 +130,7 @@ status parse_ace(client c, buffer b)
     return read_buffer(c, b, 0, namelen);
 }
 
-// should be file? also there is some directory change id goodness in there
+// directory has a stateid update in here
 status parse_open(file f, buffer b)
 {
     struct stateid delegation_sid;

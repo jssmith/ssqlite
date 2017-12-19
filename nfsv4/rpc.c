@@ -324,7 +324,7 @@ status exchange_id(client c)
 status create_session(client c)
 {
     rpc r = allocate_rpc(c, c->reverse);
-    //r->c->sequence = 1;  // 18.36.4 says that a new session starts at 1 implicitly
+    r->c->sequence = 1;  // 18.36.4 says that a new session starts at 1 implicitly
     push_create_session(r);
     r->c->server_sequence++;    
     buffer res = c->reverse;

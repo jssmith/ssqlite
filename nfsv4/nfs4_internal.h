@@ -96,7 +96,7 @@ void push_sequence(rpc r);
 
 
 // pull in printf - "%x not equal to %x!\n", v, v2"
-#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__c, __b); if (__v != v2) {printf ("%x %x\n", __v, v2); return allocate_status(__c, "encoding mismatch");}}
+#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__c, __b); if (__v != v2) return allocate_status(__c, "encoding mismatch");}
 
 
 typedef u64 clientid;

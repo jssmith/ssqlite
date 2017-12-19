@@ -87,7 +87,6 @@ enum nfs_opnum4 {
     
 
 
-
 /*
  * REQUIRED attributes
  */

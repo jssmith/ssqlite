@@ -2,7 +2,7 @@
 
 all: nfs4.so
 
-OBJ = rpc.o xdr.o client.o 
+OBJ = rpc.o xdr.o client.o
 SQLITE_OBJ = nfs4.o $(OBJ)
 
 nfs4.o: nfs4.c
