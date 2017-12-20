@@ -40,7 +40,7 @@ cp $PATH_TO_SQLITE_SOURCE/sqlite3.h \
 
 Build the project
 ```
-./configure
+./configure --enable-loadable-sqlite-extensions
 make
 ```
 
