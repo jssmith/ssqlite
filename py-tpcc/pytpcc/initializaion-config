@@ -1,0 +1,14 @@
+# Initialization SQLite configuration file
+#
+# Notes:
+#  - Used to populate an initial database ahead of a parameter sweep.
+#  - You may need to update sqlite_exe below
+
+[sqlite]
+
+journal_mode = delete
+locking_mode = exclusive
+sqlite_exe = /home/ec2-user/sqlite-build/sqlite3
+database = /tmp/tpcc-initial
+cache_size = 2000
+vfs = unix
