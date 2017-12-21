@@ -19,8 +19,21 @@ esac
 shift
 done
 
+rm -rf build-dist
+mkdir build-dist
+cp -R dist build-dist
+
+TPCC=py-tpcc/pytpcc
+cp $TPCC/tpcc.py build-dist
+cp $TPCC/constants.py build-dist
+cp $TPCC/tpcc.sql build-dist
+mkdir build-dist/drivers
+cp $TPCC/drivers/sqlitedriver.py build-dist/drivers/
+cp -R $TPCC/runtime build-dist/tpccrt
+cp -vR $TPCC/util build-dist
+
 pushd .
-cd dist
+cd build-dist
 rm -f ../ssqlite-fn.zip
 zip -r ../ssqlite-fn.zip ./*
 popd # dist directory

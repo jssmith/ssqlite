@@ -1,14 +1,16 @@
 import os
+import socket
 import sys
 import sqlite3
 
 
-import tpcc as mtpcc
+import tpcc
 import logging
 from util import *
 import tpccrt as rt
 
-database_location = "192.168.1.57/tpcc-nfs"
+efs_location = "%s.efs.us-west-2.amazonaws.com" % os.environ["EFS_IP"]
+database_location = "%s/tpcc-nfs" % socket.gethostbyname(efs_location)
 
 def test_open():
     init_conn = sqlite3.connect(":memory:")
@@ -33,7 +35,7 @@ def do_tpcc():
         "debug": True
     }
     if args['debug']: logging.getLogger().setLevel(logging.DEBUG)
-    driverClass = mtpcc.createDriverClass(system)
+    driverClass = tpcc.createDriverClass(system)
     assert driverClass != None, "Failed to find '%s' class" % system
     driver = driverClass("tpcc.sql")
 
@@ -49,7 +51,7 @@ def do_tpcc():
     config['load'] = False
     config['execute'] = False
     driver.loadConfig(config)
-    mtpcc.logging.info("Initializing TPC-C benchmark using %s" % driver)
+    tpcc.logging.info("Initializing TPC-C benchmark using %s" % driver)
 
     ## Create ScaleParameters
     scaleParameters = scaleparameters.makeWithScaleFactor(args['warehouses'], args['scalefactor'])
