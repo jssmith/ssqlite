@@ -207,7 +207,9 @@ static int nfs4FileControl(sqlite3_file *pFile, int op, void *pArg)
 
     int rc = SQLITE_OK;
 
-    // database_list pragma
+    // if you return SQLITE_OK for any pragma call, it assumes that
+    // you understood and processed it correctly. notfound punts
+    // to the generic code
     if (op == SQLITE_FCNTL_PRAGMA) {
         return SQLITE_NOTFOUND;
     }

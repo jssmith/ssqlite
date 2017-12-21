@@ -164,7 +164,7 @@ status create_client(char *hostname, client *dest)
 
     c->xid = 0xb956bea4;
     c->maxops = config_u64("NFS_OPS_LIMIT", 16);
-    c->maxreqs = config_u64("NFS_REQUESTSx_LIMIT", 32);
+    c->maxreqs = config_u64("NFS_REQUESTS_LIMIT", 32);
     c->forward = allocate_buffer(0, 16384);
     c->reverse = allocate_buffer(0, 16384);
 
