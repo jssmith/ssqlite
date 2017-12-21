@@ -32,11 +32,11 @@ static inline void buffer_extend(buffer b, bytes len)
 {
     if (b->capacity < (b->end + len)) {
         bytes oldcap = b->capacity;
-        b->capacity = MAX(2 * oldcap, len);
+        b->capacity = MAX(2 * oldcap, oldcap+len);
         void *new =  allocate(b->h, b->capacity);
 
-        memcpy(new, b->contents + b->start, length(b));        
-        deallocate(b->h, b->contents, oldlen);
+        memcpy(new, b->contents, length(b));        
+        deallocate(b->h, b->contents, oldcap);
         b->end = b->end - b->start;
         b->start = 0;
         b->contents = new;

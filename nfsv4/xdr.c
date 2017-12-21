@@ -1,6 +1,5 @@
 #include <nfs4_internal.h>
 
-
 void push_string(buffer b, char *x, u32 length) {
     u32 plen = pad(length, 4) - length;
     buffer_extend(b, length + plen + 4);
@@ -16,11 +15,11 @@ void push_string(buffer b, char *x, u32 length) {
 void push_channel_attrs(rpc r)
 {
     push_be32(r->b, 0); // headerpadsize
-    push_be32(r->b, 1024*1024); // maxreqsize
-    push_be32(r->b, 1024*1024); // maxresponsesize
+    push_be32(r->b, r->c->maxreq); // maxreqsize
+    push_be32(r->b, r->c->maxresp); // maxresponsesize
     push_be32(r->b, 1024*1024); // maxresponsesize_cached
-    push_be32(r->b, 32); // ca_maxoperations
-    push_be32(r->b, 10); // ca_maxrequests
+    push_be32(r->b, r->c->maxops); // ca_maxoperations
+    push_be32(r->b, r->c->maxreqs); // ca_maxrequests
     push_be32(r->b, 0); // ca_rdma_id
 }
 
@@ -45,8 +44,7 @@ void push_create_session(rpc r)
 {
     push_op(r, OP_CREATE_SESSION);
     push_client_id(r);
-
-    push_be32(r->b, r->c->sequence);
+    push_be32(r->b, r->c->server_sequence);
     push_be32(r->b, CREATE_SESSION4_FLAG_PERSIST);
     push_channel_attrs(r); //forward
     push_channel_attrs(r); //return
@@ -54,12 +52,34 @@ void push_create_session(rpc r)
     push_be32(r->b, 0); // auth params null
 }
 
+#define normalize(__c, __x) \
+   if (__c->__x > __x) {\
+       if (config_boolean("NFS_TRACE", false)) printf ("nfs server downgraded "#__x" from %d to %d\n", __c->__x, __x); \
+           __c->__x = __x;                                              \
+   }
+
 status parse_create_session(client c, buffer b)
 {
-    // check length
+    // check length - maybe do that generically in transact (parse callback, empty buffer)
+
     memcpy(c->session, b->contents + b->start, sizeof(c->session));
     b->start +=sizeof(c->session);
-    c->sequence = read_beu32(c, b);
+    read_beu32(c, b); // ?
+    read_beu32(c, b); // flags
+
+    // forward direction
+    read_beu32(c, b); // headerpadsize
+    u32 maxreq = read_beu32(c, b); // maxreqsize
+    normalize(c, maxreq);
+    u32 maxresp = read_beu32(c, b); // maxresponsesize
+    normalize(c, maxresp);
+    read_beu32(c, b); // maxresponsesize_cached
+    u32 maxops = read_beu32(c, b); // ca_maxoperations
+    normalize(c, maxops);    
+    u32 maxreqs = read_beu32(c, b); // ca_maxrequests
+    normalize(c, maxreqs);        
+    read_beu32(c, b); // ca_rdma_id
+    
     return STATUS_OK;
 }
 
@@ -92,6 +112,77 @@ void push_claim_deleg_cur(buffer b, buffer name)
 {
     push_be32(b, CLAIM_DELEGATE_CUR);
     // state id 4 
+}
+
+status parse_stateid(client c, buffer b, struct stateid *sid)
+{
+    read_beu32(c, b); // seq
+    return read_buffer(c, b, &sid->opaque, NFS4_OTHER_SIZE);
+    return STATUS_OK;
+}
+
+status parse_ace(client c, buffer b)
+{
+    read_beu32(c, b); // type
+    read_beu32(c, b); // flag
+    read_beu32(c, b); // mask
+    u32 namelen = read_beu32(c, b); 
+    return read_buffer(c, b, 0, namelen);
+}
+
+// directory has a stateid update in here
+status parse_open(file f, buffer b)
+{
+    struct stateid delegation_sid;
+
+    parse_stateid(f->c, b, &f->sid);
+    // change info
+    read_beu32(f->c, b); // atomic
+    u32 before = read_beu64(f->c, b); // before
+    u32 after = read_beu64(f->c, b); // after
+    read_beu32(f->c, b); // rflags
+    read_beu32(f->c, b); // bitmap4 attr
+    read_beu32(f->c, b); // xxx - no -idea
+    read_beu32(f->c, b); // xxx - no -idea
+    u32 delegation_type = read_beu32(f->c, b);
+
+    switch (delegation_type) {
+    case OPEN_DELEGATE_NONE:
+        break;
+    case OPEN_DELEGATE_READ:
+        parse_stateid(f->c, b, &delegation_sid);
+        read_beu32(f->c, b); // recall
+        parse_ace(f->c, b);
+        break;
+    case OPEN_DELEGATE_WRITE:
+        parse_stateid(f->c, b, &delegation_sid);
+        read_beu32(f->c, b); // recall
+        u32 lt = read_beu32(f->c, b); // space limit - this is pretty ridiculous
+        switch (lt) {
+        case NFS_LIMIT_SIZE:
+            read_beu64(f->c, b); // space bytes
+        case NFS_LIMIT_BLOCKS:
+            read_beu32(f->c, b); // nblocks
+            read_beu64(f->c, b); // bytes per
+        default:
+            return allocate_status(f->c, "bad limit size");
+        }
+        parse_ace(f->c, b);
+        break;
+    case OPEN_DELEGATE_NONE_EXT: /* New to NFSv4.1 */
+        {
+            u32 why = read_beu32(f->c, b);
+            switch (why) {
+            case WND4_CONTENTION:
+                read_beu32(f->c, b); // ond_server_will_push_deleg;
+            case WND4_RESOURCE:
+                read_beu32(f->c, b); // server_will_signal avail
+            }
+        }
+        break;
+    default:
+        return allocate_status(f->c, "bad delegation return");
+    }
 }
 
 void push_open(rpc r, buffer name, boolean create)
@@ -143,10 +234,7 @@ void push_exchange_id(rpc r)
     push_bytes(r->b, r->c->instance_verifier, NFS4_VERIFIER_SIZE);
     push_string(r->b, co_owner_id, sizeof(co_owner_id) - 1);
 
-    // xxx - recive flag usage, this is just copied from the kernel
-    push_be32(r->b, EXCHGID4_FLAG_SUPP_MOVED_REFER |
-              EXCHGID4_FLAG_SUPP_MOVED_MIGR  |
-              EXCHGID4_FLAG_BIND_PRINC_STATEID);
+    push_be32(r->b, 0); // flags
 
     push_be32(r->b, SP4_NONE); // state protect how
     push_be32(r->b, 1); // i guess a single impl id?
@@ -162,10 +250,7 @@ status parse_exchange_id(client c, buffer b)
     memcpy(&c->clientid, b->contents + b->start, sizeof(c->clientid));
     b->start += sizeof(c->clientid);
     c->server_sequence = read_beu32(c, b);
-    // xxx record the server sequence id for recovery, and stash the negotiated transfer limits
-    //    clientid4        eir_clientid;
-    //    sequenceid4      eir_sequenceid;
-    //    uint32_t         eir_flags;
+    u32 flags = read_beu32(c, b); // flags
     //    state_protect4_r eir_state_protect;
     //    server_owner4    eir_server_owner;
     //    opaque           eir_server_scope<NFS4_OPAQUE_LIMIT>;

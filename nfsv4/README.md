@@ -24,8 +24,13 @@ steps to test:
     * .load ./nfs4.so
     * .open file:172.31.24.76/db
     * select * from foo;
-
-    
   
-  
-   
+  * environment variables
+     * NFS_PACKET_TRACE - show the byte contents of each request/response
+     * NFS_TCP_NODELAY - set nodelay on the nfs socket
+     * NFS_USE_FILEHANDLE - use cached filehandle instead of path for post-open operations
+     * NFS_TRACE - additional logging information for NFS
+     * NFS_READ_LIMIT - maximum size of rpc frame from server, default 1MB
+     * NFS_WRITE_LIMIT - maximum size of rpc frame to server, default 1MB
+     * NFS_OPS_LIMIT - maximum number of operations per rpc request, efs negotiates down to 16
+     * NFS_REQUESTS_LIMIT - number of concurrent requests, default 32

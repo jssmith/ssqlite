@@ -12,11 +12,6 @@ typedef unsigned long u64;
 typedef u32 bytes;
 typedef void *heap;
 
-typedef void *heap;
-#define allocate(__h, __b) (malloc(__b))
-#define deallocate(__h, __x, __len) (free(__x))
-
-
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a):(b))
 #endif
@@ -25,6 +20,10 @@ typedef void *heap;
 #define MAX(a, b) ((a) > (b) ? (a):(b))
 #endif
 
+#define allocate(__h, __b) (malloc(__b))
+#define deallocate(__h, __x, __len) (free(__x))
+
+
 
 static inline void panic (char *cause)
 {
@@ -32,3 +31,30 @@ static inline void panic (char *cause)
     abort();
 }
 
+#include <buffer.h>
+#include <vector.h>
+#include <status.h>
+
+static status parse_u64(buffer s, u64 *target)
+{
+    u64 result = 0;
+    forchar (i, s) result = result * 10 + (i - '0');
+    *target = result;
+    return STATUS_OK;
+}
+
+// '4' prints as '004'?
+static void print_u64(buffer d, u64 s)
+{
+    if (s == 0) {
+        push_char(d, '0');
+    } else {
+        u32 log= 1;
+        for (u64 b = s; b; b/= log, log*=10);
+        for (u64 b = s; b; b -= b/log, log/=10)
+            push_char(d, '0' + b/log);
+    }
+}
+
+
+#include <ticks.h>
