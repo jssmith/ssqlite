@@ -20,7 +20,6 @@ shift
 done
 
 rm -rf build-dist
-mkdir build-dist
 cp -R dist build-dist
 
 TPCC=py-tpcc/pytpcc
@@ -38,8 +37,10 @@ rm -f ../ssqlite-fn.zip
 zip -r ../ssqlite-fn.zip ./*
 popd # dist directory
 
+echo "uploading to S3"
 aws s3 cp ssqlite-fn.zip s3://$SSQL_CODE_BUCKET/ssqlite-fn.zip
 
+echo "updating Lambda"
 if [ ! $S3_ONLY ]; then
     : ${SSQL_STACK_NAME?"Must set SSQL_STACK_NAME"}
     aws lambda update-function-code \
