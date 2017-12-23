@@ -19,6 +19,8 @@ esac
 shift
 done
 
+git subtree pull --prefix py-tpcc https://github.com/jssmith/py-tpcc.git master --squash
+
 rm -rf build-dist
 cp -R dist build-dist
 
@@ -28,8 +30,16 @@ cp $TPCC/constants.py build-dist
 cp $TPCC/tpcc.sql build-dist
 mkdir build-dist/drivers
 cp $TPCC/drivers/sqlitedriver.py build-dist/drivers/
+cp $TPCC/drivers/abstractdriver.py build-dist/drivers/
 cp -R $TPCC/runtime build-dist/tpccrt
 cp -vR $TPCC/util build-dist
+
+pushd .
+cd nfsv4
+make clean
+make
+popd
+cp nfsv4/nfs4.so build-dist
 
 pushd .
 cd build-dist
@@ -40,9 +50,9 @@ popd # dist directory
 echo "uploading to S3"
 aws s3 cp ssqlite-fn.zip s3://$SSQL_CODE_BUCKET/ssqlite-fn.zip
 
-echo "updating Lambda"
 if [ ! $S3_ONLY ]; then
     : ${SSQL_STACK_NAME?"Must set SSQL_STACK_NAME"}
+    echo "updating Lambda"
     aws lambda update-function-code \
         --function-name SQLiteDemo-$SSQL_STACK_NAME \
         --s3-bucket "$SSQL_CODE_BUCKET" \
