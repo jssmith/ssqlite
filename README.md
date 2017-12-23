@@ -90,21 +90,6 @@ aws cloudformation delete-stack \
 
 replacing `{ MY STACK NAME }` with the name of your stack, e.g., `$SSQL_STACK_NAME`.
 
-## Invoke the Lambda function
-
-```
-aws lambda invoke \
-    --invocation-type RequestResponse \
-    --function-name SQLiteDemo-$SSQL_STACK_NAME \
-    --payload '{}' \
-    out.txt \
-```
-
-view the output
-```
-cat out.txt
-```
-
 
 ## Mount the EFS on the control server
 
@@ -117,7 +102,7 @@ replacing `{ EC2 INSTANCE IP }` with the public IP address of the instance, as f
 
 ```
 sudo mkdir /efs
-sudo chown ec2-user.ec2-user /efs
+sudo chown nfsnobody.nfsnobody /efs
 ```
 
 TODO: Need to get the name of the EFS onto the EC2 instance, for now need to
@@ -129,6 +114,26 @@ sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retr
 ```
 
 replacing `{ EFS NAME }` with the file system ID of the EFS volume as found in the AWS console (it should look something like `fs-d795b69e`).
+
+## Generate a test database
+
+
+
+## Invoke the Lambda function
+
+```
+aws lambda invoke \
+    --invocation-type RequestResponse \
+    --function-name SQLiteDemo-$SSQL_STACK_NAME \
+    --payload '{}' \
+    out.txt
+```
+
+view the output
+```
+cat out.txt
+```
+
 
 Building SQLite and Python
 ==========================

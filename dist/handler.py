@@ -7,9 +7,9 @@ import sqlite3
 import tpcc
 import logging
 from util import *
-import tpccrt as rt
+from tpccrt import *
 
-efs_location = "%s.efs.us-west-2.amazonaws.com" % os.environ["EFS_IP"]
+efs_location = "%s.efs.%s.amazonaws.com" % (os.environ["EFS_IP"], os.environ["AWS_REGION"])
 database_location = "%s/tpcc-nfs" % socket.gethostbyname(efs_location)
 
 def test_open():
@@ -57,7 +57,7 @@ def do_tpcc():
     scaleParameters = scaleparameters.makeWithScaleFactor(args['warehouses'], args['scalefactor'])
     nurandx = rand.setNURand(nurand.makeForLoad())
 
-    e = rt.executor.Executor(driver, scaleParameters, stop_on_error=args['stop_on_error'])
+    e = executor.Executor(driver, scaleParameters, stop_on_error=args['stop_on_error'])
     driver.executeStart()
     results = e.execute(args['duration'])
     driver.executeFinish()
@@ -65,6 +65,7 @@ def do_tpcc():
 
 
 def lambda_handler(event, context):
-    # test_open()
-    print(do_tpcc().show())
+    print("database location", database_location)
+    test_open()
+    #print(do_tpcc().show())
     return "done"
