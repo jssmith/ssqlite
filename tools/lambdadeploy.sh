@@ -12,6 +12,9 @@ case $key in
     --s3-only)
     S3_ONLY=YES
     ;;
+    --devmode)
+    DEV_MODE=YES
+    ;;
     *)
     echo "Usage: lambdadeploy.sh [ --s3-only ]"
     exit 1
@@ -19,7 +22,9 @@ esac
 shift
 done
 
-git subtree pull --prefix py-tpcc https://github.com/jssmith/py-tpcc.git master --squash
+if [ ! $DEV_MODE ]; then
+    git subtree pull --prefix py-tpcc https://github.com/jssmith/py-tpcc.git master --squash
+fi
 
 rm -rf build-dist
 cp -R dist build-dist
@@ -34,11 +39,13 @@ cp $TPCC/drivers/abstractdriver.py build-dist/drivers/
 cp -R $TPCC/runtime build-dist/tpccrt
 cp -vR $TPCC/util build-dist
 
-pushd .
-cd nfsv4
-make clean
-make
-popd
+if [ ! $DEV_MODE ]; then
+    pushd .
+    cd nfsv4
+    make clean
+    make
+    popd
+fi
 cp nfsv4/nfs4.so build-dist
 
 pushd .
