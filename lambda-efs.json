@@ -180,7 +180,7 @@
           "FunctionName" : { "Fn::Join" : [ "-", [ "SQLiteDemo", { "Ref" : "AWS::StackName" } ]] },
           "Handler" : "handler.lambda_handler",
           "Runtime" : "python3.6",
-          "Timeout" : 5,
+          "Timeout" : 30,
           "VpcConfig" : {
             "SecurityGroupIds" : [ { "Ref" : "LambdaVPCSecurityGroup" } ],
             "SubnetIds" : [
