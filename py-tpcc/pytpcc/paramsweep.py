@@ -85,7 +85,6 @@ if __name__ == "__main__":
             for journal_mode in journal_modes:
                 for cache_size in cache_sizes:
                     config = {
-                        "sqlite_exe": "/home/ec2-user/sqlite-build/sqlite3",
                         "database": database["path"],
                         "vfs": database["vfs"],
                         "journal_mode": journal_mode,

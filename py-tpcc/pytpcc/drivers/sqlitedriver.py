@@ -140,14 +140,6 @@ class SqliteDriver(abstractdriver.AbstractDriver):
         #     logging.debug("Deleting database '%s'" % self.database)
         #     os.unlink(self.database)
 
-        # if os.path.exists(self.database) == False:
-        #     logging.debug("Loading DDL file '%s'" % (self.ddl))
-        #     ## HACK
-        #     cmd = "%s %s < %s" % (self.sqlite_exe, self.database, self.ddl)
-        #     (result, output) = commands.getstatusoutput(cmd)
-        #     assert result == 0, cmd + "\n" + output
-        ## IF
-
         if self.vfs == 'nfs4':
             init_conn = sqlite3.connect(":memory:")
             init_conn.enable_load_extension(True)

@@ -8,7 +8,6 @@
 
 journal_mode = delete
 locking_mode = exclusive
-sqlite_exe = /home/ec2-user/sqlite-build/sqlite3
 database = /tmp/tpcc-initial
 cache_size = 2000
 vfs = unix

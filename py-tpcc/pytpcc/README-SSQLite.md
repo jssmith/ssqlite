@@ -40,7 +40,6 @@ Example content of `my-config`:
 [sqlite]
 journal_mode = delete
 locking_mode = exclusive
-sqlite_exe = /home/ec2-user/sqlite-build/sqlite3
 database = /tmp/tpcc
 cache_size = 2000
 vfs = unix
@@ -68,7 +67,6 @@ Example content of `my-config`:
 [sqlite]
 journal_mode = delete
 locking_mode = exclusive
-sqlite_exe = /home/ec2-user/sqlite-build/sqlite3
 database = 192.168.1.57/tpcc
 cache_size = 2000
 vfs = nfs4
