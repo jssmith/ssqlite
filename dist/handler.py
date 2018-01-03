@@ -113,7 +113,7 @@ def do_tpcc():
     driver.executeStart()
     results = e.execute(args["duration"])
     driver.executeFinish()
-    return results.show()
+    return results.data()
 
 
 def lambda_handler(event, context):

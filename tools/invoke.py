@@ -1,3 +1,4 @@
+import base64
 import boto3
 import json
 import sys
@@ -16,6 +17,7 @@ def invoke_lambda(test):
     status_code = response["StatusCode"]
     function_error = "FunctionError" in response
     print(response["Payload"].read())
+    print(base64.b64decode(response["LogResult"]).decode("utf-8"))
     return bool(status_code == 200) and not bool(function_error)
 
 def usage():
