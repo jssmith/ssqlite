@@ -98,6 +98,7 @@ TXN_QUERIES = {
     },
 }
 
+is_nfs4_ext_loaded = False
 
 ## ==============================================
 ## SqliteDriver
@@ -141,10 +142,13 @@ class SqliteDriver(abstractdriver.AbstractDriver):
         #     os.unlink(self.database)
 
         if self.vfs == 'nfs4':
-            init_conn = sqlite3.connect(":memory:")
-            init_conn.enable_load_extension(True)
-            init_conn.load_extension("./nfs4.so")
-            init_conn.close()
+            global is_nfs4_ext_loaded
+            if not is_nfs4_ext_loaded:
+                init_conn = sqlite3.connect(":memory:")
+                init_conn.enable_load_extension(True)
+                init_conn.load_extension("./nfs4.so")
+                init_conn.close()
+                is_nfs4_ext_loaded = True
         else:
             assert self.vfs == "unix", "unsupported vfs"
 
