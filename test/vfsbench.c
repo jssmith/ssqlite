@@ -176,7 +176,7 @@ int main(int argc, char* argv[])
         if( n_reads > n_reads_limit ){
             n_reads = n_reads_limit;
         }
-        if( file_size/block_size > n_reads ){
+        if( n_reads > file_size/block_size ){
             n_reads = file_size/block_size;
         }
         for(int i=0; i<2; i++){
