@@ -185,11 +185,11 @@ status parse_open(file f, buffer b)
     }
 }
 
-void push_open(rpc r, buffer name, boolean create)
+void push_open(rpc r, buffer name, u32 share_access, boolean create)
 {
     push_op(r, OP_OPEN);
     push_be32(r->b, 0); // seqid
-    push_be32(r->b, 2); // share access
+    push_be32(r->b, share_access); // share access
     push_be32(r->b, 0); // share deny
     push_owner(r);
     if (create) {
