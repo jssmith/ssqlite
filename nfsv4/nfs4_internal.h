@@ -109,7 +109,7 @@ status parse_create_session(client, buffer);
 void push_lookup(rpc r, buffer i);
 buffer filename(file f);
 status parse_rpc(client s, buffer b, boolean *badsession);
-void push_open(rpc r, buffer name, boolean create);
+void push_open(rpc r, buffer name, u32 share_access, boolean create);
 status parse_open(file f, buffer b);
 void push_string(buffer b, char *x, u32 length);
 
