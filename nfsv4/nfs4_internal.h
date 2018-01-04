@@ -15,6 +15,7 @@ struct client {
     u8 session[NFS4_SESSIONID_SIZE];
     u32 sequence;
     u32 server_sequence;
+    u32 lock_sequence;
     u8 instance_verifier[NFS4_VERIFIER_SIZE];
     buffer forward;
     buffer reverse; 
@@ -34,8 +35,16 @@ struct file {
     client c;
     vector path;
     u8 filehandle[NFS4_FHSIZE];
-    struct stateid sid;
+    struct stateid latest_sid;
+    struct stateid open_sid;
 };
+
+static inline void push_boolean(buffer b, boolean x)
+{
+    buffer_extend(b, 4);
+    *(u32 *)(b->contents + b->end) = x ? htonl(1) : 0;
+    b->end += 4;
+}
 
 static inline void push_be32(buffer b, u32 w) {
     buffer_extend(b, 4);
@@ -93,6 +102,8 @@ static inline void push_op(rpc r, u32 op)
 }
 
 void push_sequence(rpc r);
+void push_bare_sequence(rpc r);
+void push_lock_sequence(rpc r);
 
 
 // pull in printf - "%x not equal to %x!\n", v, v2"
@@ -101,7 +112,7 @@ void push_sequence(rpc r);
 
 typedef u64 clientid;
 
-void push_stateid(rpc r);
+void push_stateid(rpc r, stateid s);
 void push_exchange_id(rpc r);
 status parse_exchange_id(client, buffer);
 void push_create_session(rpc r);
@@ -111,6 +122,7 @@ buffer filename(file f);
 status parse_rpc(client s, buffer b, boolean *badsession);
 void push_open(rpc r, buffer name, u32 share_access, boolean create);
 status parse_open(file f, buffer b);
+status parse_stateid(client c, buffer b, stateid sid);
 void push_string(buffer b, char *x, u32 length);
 
 
@@ -156,9 +168,9 @@ static inline status read_buffer(client c, buffer b, void *dest, u32 len)
     return STATUS_OK;
 }
 
-
 status create_session(client c);
 status exchange_id(client c);
 status reclaim_complete(client c);
 void push_session_id(rpc r, u8 *session);
 status rpc_connection(client c);
+void push_owner(rpc r);
