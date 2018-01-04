@@ -1,15 +1,19 @@
 CC=gcc
-CFLAGS=-g -std=gnu99 -I. -I$(SQLITE) -L$(SQLITE)/.libs -lsqlite3
+CFLAGS=-g -std=gnu99 -I.
+CFLAGS_SQLITE = -I$(SQLITE) -L$(SQLITE)/.libs -lsqlite3
 
 .PHONY: check-env
 
-all: vfsbench testnfsvfs
+all: vfsbench testnfsvfs nfsoptest
 
 vfsbench: vfsbench.c check-env
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $(CFLAGS_SQLITE) $< -o $@
 
 testnfsvfs: testnfsvfs.c check-env
-	$(CC) $(CFLAGS) $< -o $@
+	$(CC) $(CFLAGS) $(CFLAGS_SQLITE) $< -o $@
+
+nfsoptest: nfsoptest.c check-env
+	$(CC) $(CFLAGS) -I../nfsv4 -L../nfsv4 -lnfs4 $< -o $@
 
 clean:
 	rm -f vfsbench testnfsvfs *~
