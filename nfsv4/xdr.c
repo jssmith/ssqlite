@@ -12,6 +12,17 @@ void push_string(buffer b, char *x, u32 length) {
     }
 }
 
+void push_fixed_string(buffer b, char *x, u32 length) {
+    u32 plen = pad(length, 4) - length;
+    buffer_extend(b, length + plen + 4);
+    memcpy(b->contents + b->end, x, length);
+    b->end += length;
+    if (plen) {
+        memset(b->contents + b->end, 0, plen);
+        b->end += plen;
+    }
+}
+
 void push_channel_attrs(rpc r)
 {
     push_be32(r->b, 0); // headerpadsize
@@ -87,20 +98,33 @@ void push_sequence(rpc r)
 {
     push_op(r, OP_SEQUENCE);
     push_session_id(r, r->c->session);
-    push_be32(r->b, r->c->sequence); 
+    push_be32(r->b, r->c->sequence);
     push_be32(r->b, 0x00000000);  // slotid
     push_be32(r->b, 0x00000000);  // highest slotid
     push_be32(r->b, 0x00000000);  // sa_cachethis
     r->c->sequence++;
 }
 
+void push_bare_sequence(rpc r)
+{
+    // xxx not sure what this sequence should be but seems ok as 0
+    push_be32(r->b, 0);
+}
+
+void push_lock_sequence(rpc r)
+{
+    // xxx not sure what this sequence should be but seems ok as 0
+    push_be32(r->b, 0);
+}
+
 void push_owner(rpc r)
 {
-    char own[12];
+    char own[1024];
     push_client_id(r); // 5661 18.16.3 says server must ignore clientid
     sprintf(own, "open id:%lx", *(unsigned long *)r->c->instance_verifier);
-    push_string(r->b, own, 12);
+    push_string(r->b, own, strlen(own) - 1);
 }
+
 
 void push_claim_null(buffer b, buffer name)
 {
@@ -114,11 +138,20 @@ void push_claim_deleg_cur(buffer b, buffer name)
     // state id 4 
 }
 
-status parse_stateid(client c, buffer b, struct stateid *sid)
+void print_stateid(stateid sid)
 {
-    read_beu32(c, b); // seq
-    return read_buffer(c, b, &sid->opaque, NFS4_OTHER_SIZE);
-    return STATUS_OK;
+    printf("stateid:%08x:", sid->sequence);
+    for (int i = 0; i < NFS4_OTHER_SIZE; i++) {
+        printf("%02x", sid->opaque[i]);
+    }
+}
+
+status parse_stateid(client c, buffer b, stateid sid)
+{
+    sid->sequence = read_beu32(c, b); // seq
+    status s = read_buffer(c, b, &sid->opaque, NFS4_OTHER_SIZE);
+    // print_stateid(sid);
+    return s;
 }
 
 status parse_ace(client c, buffer b)
@@ -208,13 +241,12 @@ void push_open(rpc r, buffer name, u32 share_access, boolean create)
     push_claim_null(r->b, name);
 }
 
-void push_stateid(rpc r)
+void push_stateid(rpc r, stateid s)
 {
-    // where do we get one of these?
-    push_be32(r->b, 0); // seq
-    push_be32(r->b, 0); // opaque
-    push_be32(r->b, 0); 
-    push_be32(r->b, 0);
+    // printf("pushing state id ");
+    // print_stateid(s);
+    push_be32(r->b, s->sequence);
+    push_fixed_string(r->b, s->opaque, NFS4_OTHER_SIZE);
 }
 
 // section 18.35, page 494, rfc 5661.txt

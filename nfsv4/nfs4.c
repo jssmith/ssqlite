@@ -127,7 +127,8 @@ static int nfs4Lock(sqlite3_file *pFile, int eLock)
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
         eprintf ("lock %s %s\n", f->filename, codestring(locktypes, eLock));
-    return SQLITE_OK;
+    
+    return translate_status(f->ad, lock_range(f->f, WRITE_LT, 0x40000000, 512));
 }
 
 static int nfs4Unlock(sqlite3_file *pFile, int eLock)
@@ -135,8 +136,7 @@ static int nfs4Unlock(sqlite3_file *pFile, int eLock)
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
         eprintf ("unlock %s %s\n", ((sqlfile)pFile)->filename, codestring(locktypes, eLock));
-
-    return SQLITE_OK;
+    return translate_status(f->ad, unlock_range(f->f, WRITE_LT, 0x40000000, 512));
 }
 
 static int nfs4CheckReservedLock(sqlite3_file *pFile, int *pResOut)
