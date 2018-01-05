@@ -4,6 +4,7 @@ SQLITE_EXTENSION_INIT1
 #include <codepoint.h>
 #include <config.h>
 #include <stdio.h>
+#include <assert.h>
 
 #define ORIGVFS(p) (((appd)(p)->pAppData)->parent)
 
@@ -20,6 +21,7 @@ typedef struct sqlfile {
     appd ad;
     client c;
     file f;
+    int eFileLock;
     boolean powersafe;
     boolean readonly;
     char filename[255];
@@ -122,21 +124,160 @@ static struct codepoint locktypes[] = {
     {"EXCLUSIVE",     4},
     {"", 0}};
 
-static int nfs4Lock(sqlite3_file *pFile, int eLock)
+#define PENDING_BYTE      (0x40000000)
+#define RESERVED_BYTE     (PENDING_BYTE+1)
+#define SHARED_FIRST      (PENDING_BYTE+2)
+#define SHARED_SIZE       510
+
+#define NO_LOCK         0
+#define SHARED_LOCK     1
+#define RESERVED_LOCK   2
+#define PENDING_LOCK    3
+#define EXCLUSIVE_LOCK  4
+
+/*
+** Adapted from SQLite's locking implementation in os_unix.c
+*/
+static int nfs4Lock(sqlite3_file *pFile, int eFileLock)
 {
     sqlfile f = (sqlfile)pFile;
-    if (f->ad->trace) 
-        eprintf ("lock %s %s\n", f->filename, codestring(locktypes, eLock));
-    
-    return translate_status(f->ad, lock_range(f->f, WRITE_LT, 0x40000000, 512));
+
+    u64 l_start;
+    u64 l_len = 1L;
+    u32 l_type;
+    status st;
+
+    assert(f);
+
+    if (f->ad->trace)
+        eprintf ("lock %s %s\n", f->filename, codestring(locktypes, eFileLock));
+
+    /* If there is already a lock of this type or more restrictive on the
+    ** unixFile, do nothing.
+    */
+    if(f->eFileLock>=eFileLock){
+        return SQLITE_OK;
+    }
+
+    /* Make sure the locking sequence is correct.
+    **  (1) We never move from unlocked to anything higher than shared lock.
+    **  (2) SQLite never explicitly requests a pendig lock.
+    **  (3) A shared lock is always held when a reserve lock is requested.
+    */
+    assert( f->eFileLock!=NO_LOCK || eFileLock==SHARED_LOCK );
+    assert( eFileLock!=PENDING_LOCK );
+    assert( eFileLock!=RESERVED_LOCK || f->eFileLock==SHARED_LOCK );
+
+
+    /* A PENDING lock is needed before acquiring a SHARED lock and before
+    ** acquiring an EXCLUSIVE lock.  For the SHARED lock, the PENDING will
+    ** be released.
+    */
+    if(eFileLock==SHARED_LOCK
+            || (eFileLock==EXCLUSIVE_LOCK && f->eFileLock<PENDING_LOCK)){
+        l_type = (eFileLock==SHARED_LOCK?READ_LT:WRITE_LT);
+        l_start = PENDING_BYTE;
+        st = lock_range(f->f, l_type, l_start, l_len);
+        if (!is_ok(st)) {
+            return translate_status(f->ad, st);
+        }
+    }
+
+  /* If control gets to this point, then actually go ahead and make
+  ** operating system calls for the specified lock.
+  */
+    if (eFileLock==SHARED_LOCK){
+        /* Now get the read-lock */
+        l_start = SHARED_FIRST;
+        l_len = SHARED_SIZE;
+        st = lock_range(f->f, l_type, l_start, l_len);
+        if (!is_ok(st)) {
+            return translate_status(f->ad, st);
+        }
+        /* Drop the temporary PENDING lock */
+        l_start = PENDING_BYTE;
+        l_len = 1L;
+        st = unlock_range(f->f, l_type, l_start, l_len);
+        if (!is_ok(st)) {
+            return translate_status(f->ad, st);
+        }
+    } else {
+        /* The request was for a RESERVED or EXCLUSIVE lock.  It is
+        ** assumed that there is a SHARED or greater lock on the file
+        ** already.
+        */
+        l_type = WRITE_LT;
+        assert(0 != f->eFileLock);
+        assert(eFileLock==RESERVED_LOCK || eFileLock==EXCLUSIVE_LOCK);
+        if (eFileLock==RESERVED_LOCK) {
+            l_start = RESERVED_BYTE;
+            l_len = 1L;
+        } else {
+            l_start = SHARED_FIRST;
+            l_len = SHARED_SIZE;
+        }
+
+        st = lock_range(f->f, l_type, l_start, l_len);
+        if (!is_ok(st)) {
+            return translate_status(f->ad, st);
+        }
+    }
+    f->eFileLock = eFileLock;
+    return SQLITE_OK;
+    // return translate_status(f->ad, lock_range(f->f, WRITE_LT, 0x40000000, 512));
 }
 
-static int nfs4Unlock(sqlite3_file *pFile, int eLock)
+/*
+** Adapted from SQLite's locking implementation in os_unix.c
+*/
+static int nfs4Unlock(sqlite3_file *pFile, int eFileLock)
 {
     sqlfile f = (sqlfile)pFile;
-    if (f->ad->trace) 
-        eprintf ("unlock %s %s\n", ((sqlfile)pFile)->filename, codestring(locktypes, eLock));
-    return translate_status(f->ad, unlock_range(f->f, WRITE_LT, 0x40000000, 512));
+
+    u64 l_start;
+    u64 l_len = 1L;
+    u32 l_type;
+    status st;
+
+    if (f->ad->trace)
+        eprintf ("unlock %s %s\n", ((sqlfile)pFile)->filename, codestring(locktypes, eFileLock));
+
+    assert(f);
+
+    assert( eFileLock<=SHARED_LOCK );
+    if( f->eFileLock<=eFileLock ){
+        return SQLITE_OK;
+    }
+
+    if (f->eFileLock>SHARED_LOCK) {
+        if (eFileLock == SHARED_LOCK) {
+            l_type = READ_LT;
+            l_start = SHARED_FIRST;
+            l_len = SHARED_SIZE;
+            st = lock_range(f->f, l_type, l_start, l_len);
+            if (!is_ok(st)) {
+                return translate_status(f->ad, st);
+            }
+        }
+
+        l_type = READ_LT;
+        l_start = PENDING_BYTE;
+        l_len = 2L;  assert( PENDING_BYTE+1==RESERVED_BYTE );
+        st = unlock_range(f->f, l_type, l_start, l_len);
+        if (!is_ok(st)) {
+            return translate_status(f->ad, st);
+        }
+    }
+    if (eFileLock == NO_LOCK) {
+        l_start = SHARED_FIRST;
+        l_len = SHARED_SIZE;
+        st = unlock_range(f->f, l_type, l_start, l_len);
+        if (!is_ok(st)) {
+            return translate_status(f->ad, st);
+        }
+    }
+    f->eFileLock = eFileLock;
+    return SQLITE_OK;
 }
 
 static int nfs4CheckReservedLock(sqlite3_file *pFile, int *pResOut)
@@ -144,6 +285,7 @@ static int nfs4CheckReservedLock(sqlite3_file *pFile, int *pResOut)
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
         eprintf ("check lock %s\n", ((sqlfile)pFile)->filename);
+
     *pResOut = 0;
     return SQLITE_OK;
 }
@@ -328,6 +470,7 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     appd ad = pVfs->pAppData;
     
     f->ad = ad;
+    f->eFileLock = NO_LOCK;
     f->powersafe = true;
     f->readonly = false;
 

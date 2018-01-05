@@ -35,7 +35,8 @@ struct file {
     client c;
     vector path;
     u8 filehandle[NFS4_FHSIZE];
-    struct stateid sid;
+    struct stateid latest_sid;
+    struct stateid open_sid;
 };
 
 static inline void push_boolean(buffer b, boolean x)

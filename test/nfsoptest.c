@@ -163,13 +163,13 @@ void test_double_locking()
     s = lock_range(f, READ_LT, 0, 1000);
 
     printf("lock again\n");
-    s = lock_range(f, READ_LT, 0, 1000);
+    s = lock_range(f, READ_LT, 2000, 1000);
 
-    printf("unlock\n");
-    s = unlock_range(f, READ_LT, 0, 1000);
+    printf("unlock second\n");
+    s = unlock_range(f, READ_LT, 2000, 1000);
 
 
-    printf("unlock again\n");
+    printf("unlock first\n");
     s = unlock_range(f, READ_LT, 0, 1000);
 
     file_close(f);

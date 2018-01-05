@@ -168,7 +168,8 @@ status parse_open(file f, buffer b)
 {
     struct stateid delegation_sid;
 
-    parse_stateid(f->c, b, &f->sid);
+    parse_stateid(f->c, b, &f->open_sid);
+    memcpy(&f->latest_sid, &f->open_sid, sizeof(struct stateid));
     // change info
     read_beu32(f->c, b); // atomic
     u32 before = read_beu64(f->c, b); // before

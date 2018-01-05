@@ -406,7 +406,7 @@ status read_chunk(file f, void *dest, u64 offset, u32 length)
 {
     rpc r = file_rpc(f);
     push_op(r, OP_READ);
-    push_stateid(r, &f->sid);
+    push_stateid(r, &f->latest_sid);
     push_be64(r->b, offset);
     push_be32(r->b, length);
     buffer res = f->c->reverse;
@@ -427,7 +427,7 @@ status write_chunk(file f, void *source, u64 offset, u32 length)
 {
     rpc r = file_rpc(f);
     push_op(r, OP_WRITE);
-    push_stateid(r, &f->sid);
+    push_stateid(r, &f->latest_sid);
     push_be64(r->b, offset);
     push_be32(r->b, FILE_SYNC4);
     push_string(r->b, source, length);
@@ -490,14 +490,14 @@ status lock_range(file f, u32 locktype, u64 offset, u64 length)
 
     push_boolean(r->b, true); // new lock owner
     push_bare_sequence(r);
-    push_stateid(r, &f->sid);
+    push_stateid(r, &f->open_sid);
     push_lock_sequence(r);
     push_owner(r);
 
     buffer res = f->c->reverse;
     status s = transact(r, OP_LOCK, res);
     if (!is_ok(s)) return s;
-    parse_stateid(f->c, res, &f->sid);
+    parse_stateid(f->c, res, &f->latest_sid);
     return STATUS_OK;
 }
 
@@ -507,12 +507,12 @@ status unlock_range(file f, u32 locktype, u64 offset, u64 length)
     push_op(r, OP_LOCKU);
     push_be32(r->b, locktype);
     push_bare_sequence(r);
-    push_stateid(r, &f->sid);
+    push_stateid(r, &f->latest_sid);
     push_be64(r->b, offset);
     push_be64(r->b, length);
     buffer res = f->c->reverse;
     status s = transact(r, OP_LOCKU, res);
     if (!is_ok(s)) return s;
-    parse_stateid(f->c, res, &f->sid);
+    parse_stateid(f->c, res, &f->latest_sid);
     return STATUS_OK;
 }
