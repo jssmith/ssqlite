@@ -54,7 +54,7 @@ void push_create_session(rpc r)
 
 #define normalize(__c, __x) \
    if (__c->__x > __x) {\
-       if (config_boolean("NFS_TRACE", false)) printf ("nfs server downgraded "#__x" from %d to %d\n", __c->__x, __x); \
+       if (config_boolean("NFS_TRACE", false)) eprintf ("nfs server downgraded "#__x" from %d to %d\n", __c->__x, __x); \
            __c->__x = __x;                                              \
    }
 

@@ -23,11 +23,14 @@ typedef void *heap;
 #define allocate(__h, __b) (malloc(__b))
 #define deallocate(__h, __x, __len) (free(__x))
 
+#ifndef eprintf
+#define eprintf(format, ...) fprintf (stdout, format, ## __VA_ARGS__); fflush(stdout)
+#endif
 
 
 static inline void panic (char *cause)
 {
-    printf ("nfs4 runtime error: %s\n", cause);
+    eprintf ("nfs4 runtime error: %s\n", cause);
     abort();
 }
 

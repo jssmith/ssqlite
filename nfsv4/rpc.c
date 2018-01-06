@@ -132,7 +132,7 @@ status parse_rpc(client c, buffer b, boolean *badsession)
     u32 nstatus = read_beu32(c, b);
     if (nstatus != NFS4_OK) {
         if (config_boolean("NFS_TRACE", false))
-            printf("nfs rpc error %s\n", codestring(nfsstatus, nstatus));
+            eprintf("nfs rpc error %s\n", codestring(nfsstatus, nstatus));
 
         if (nstatus == NFS4ERR_BADSESSION) {
             *badsession = true;
@@ -151,7 +151,7 @@ static int read_fully(int fd, void* buf, size_t nbyte)
     while (sz_read < nbyte) {
         ssize_t bread = read(fd, ptr, nbyte);
         if (bread == -1) {
-            printf("socket read error %s\n", strerror(errno));
+            eprintf("socket read error %s\n", strerror(errno));
             return -1;
         } else {
             sz_read += bread;

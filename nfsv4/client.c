@@ -25,7 +25,7 @@ static void pf(char *header, file f)
 {
     buffer b = print_path(0, f->path);
     push_char(b, 0);
-    printf ("%s %s\n", header, (char *)b->contents);
+    eprintf ("%s %s\n", header, (char *)b->contents);
 }
 
 // should return the number of bytes read, can be short
