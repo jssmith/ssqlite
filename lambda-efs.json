@@ -158,7 +158,7 @@
              "Statement": [ {
                 "Effect": "Allow",
                 "Principal": {
-                   "Service": [ "lambda.amazonaws.com", "ec2.amazonaws.com" ]
+                   "Service": [ "lambda.amazonaws.com" ]
                 },
                 "Action": [ "sts:AssumeRole" ]
              } ]
@@ -180,7 +180,7 @@
           "FunctionName" : { "Fn::Join" : [ "-", [ "SQLiteDemo", { "Ref" : "AWS::StackName" } ]] },
           "Handler" : "handler.lambda_handler",
           "Runtime" : "python3.6",
-          "Timeout" : 5,
+          "Timeout" : 30,
           "VpcConfig" : {
             "SecurityGroupIds" : [ { "Ref" : "LambdaVPCSecurityGroup" } ],
             "SubnetIds" : [
@@ -256,7 +256,7 @@
           "FileSystemTags": [
             {
               "Key": "Name",
-              "Value": "sqlite-fs"
+              "Value": { "Fn::Join" : [ "-", [ "sqlite-fs", { "Ref" : "AWS::StackName" } ]] }
             }
           ]
         }
@@ -285,7 +285,30 @@
           "SecurityGroups": [ { "Ref": "MountTargetSecurityGroup" } ]
         }
       },
-
+      "ControlServerRole" : {
+        "Type": "AWS::IAM::Role",
+        "Properties": {
+          "AssumeRolePolicyDocument": {
+             "Version" : "2012-10-17",
+             "Statement": [ {
+                "Effect": "Allow",
+                "Principal": {
+                   "Service": [ "ec2.amazonaws.com" ]
+                },
+                "Action": [ "sts:AssumeRole" ]
+             } ]
+           },
+          "ManagedPolicyArns": [
+            "arn:aws:iam::aws:policy/AWSLambdaFullAccess",
+            "arn:aws:iam::aws:policy/AmazonElasticFileSystemReadOnlyAccess" ]
+        }
+      },
+      "ControlServerIamInstanceProfile": {
+        "Type": "AWS::IAM::InstanceProfile",
+        "Properties": {
+          "Roles": [ { "Ref" : "ControlServerRole" } ]
+        }
+      },
       "ControlServer": {
         "Type": "AWS::EC2::Instance",
         "Properties": {
@@ -301,6 +324,7 @@
               ]},
             "InstanceType": "t2.micro",
             "KeyName": { "Ref" : "KeyName" },
+            "IamInstanceProfile": { "Ref" : "ControlServerIamInstanceProfile" },
             "NetworkInterfaces": [ {
               "AssociatePublicIpAddress": "true",
               "DeviceIndex": "0",

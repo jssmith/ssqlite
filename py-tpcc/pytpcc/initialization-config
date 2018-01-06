@@ -1,0 +1,13 @@
+# Initialization SQLite configuration file
+#
+# Notes:
+#  - Used to populate an initial database ahead of a parameter sweep.
+#  - You may need to update sqlite_exe below
+
+[sqlite]
+
+journal_mode = delete
+locking_mode = exclusive
+database = /tmp/tpcc-initial
+cache_size = 2000
+vfs = unix

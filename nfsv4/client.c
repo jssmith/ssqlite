@@ -41,35 +41,16 @@ status writefile(file f, void *dest, u64 offset, u32 length, u32 synch)
     return segment(write_chunk, f->c->maxreq, f, dest, offset, length);
 }
 
-status file_open_read(client c, vector path, file *dest)
+static status file_open_internal(file f, vector path, boolean writable, boolean create)
 {
-    file f = allocate(s->h, sizeof(struct file));
-    f->path = path;
-    f->c = c;
-    *dest = f;
-    rpc r = allocate_rpc(f->c, c->forward);
-    push_sequence(r);
-    push_resolution(r, path);
-    push_op(r, OP_GETFH);
-    buffer res = c->reverse;
-    status st = transact(r, OP_GETFH, res);
-    if (!is_ok(st)) {
-        deallocate_rpc(r);
-        return st;
+    if (create && !writable) {
+        allocate_status(f->c, "file opened with create must be writable");
     }
-    st = read_buffer(f->c, res, &f->filehandle, NFS4_FHSIZE);
-    deallocate_rpc(r);    
-    if (!is_ok(st)) return st;
-    return STATUS_OK;
-}
-
-
-static status file_open_internal(file f, vector path, boolean create)
-{
     rpc r = allocate_rpc(f->c, f->c->forward);
     push_sequence(r);
     buffer final = push_initial_path(r, path);
-    push_open(r, final, create);
+    u32 share_access = writable ? OPEN4_SHARE_ACCESS_BOTH : OPEN4_SHARE_ACCESS_READ;
+    push_open(r, final, share_access, create);
     push_op(r, OP_GETFH);
     buffer res = f->c->reverse;    
     status st = transact(r, OP_OPEN, res);
@@ -92,13 +73,22 @@ static status file_open_internal(file f, vector path, boolean create)
     return STATUS_OK;
 }
 
+status file_open_read(client c, vector path, file *dest)
+{
+    file f = allocate(s->h, sizeof(struct file));
+    f->path = path;
+    f->c = c;
+    *dest = f;
+    return file_open_internal(f, path, false, false);
+}
+
 status file_open_write(client c, vector path, file *dest)
 {
     file f = allocate(s->h, sizeof(struct file));
     f->path = path;
     f->c = c;
     *dest = f;
-    return file_open_internal(f, path, false) ;
+    return file_open_internal(f, path, true, false);
 }
 
 void file_close(file f)
@@ -113,7 +103,7 @@ status file_create(client c, vector path, file *dest)
     f->path = path;
     f->c = c;
     *dest = f;
-    return file_open_internal(f, path, true) ;
+    return file_open_internal(f, path, true, true);
 }
 
 status exists(client c, vector path)
