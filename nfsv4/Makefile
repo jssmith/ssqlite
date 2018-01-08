@@ -3,9 +3,9 @@
 all: nfs4.so
 
 OBJ = rpc.o xdr.o client.o
-SQLITE_OBJ = nfs4.o $(OBJ)
+SQLITE_OBJ = sqllite_nfs4.o $(OBJ)
 
-nfs4.o: nfs4.c
+sqllite_nfs4.o: sqllite_nfs4.c
 ifndef SQLITE
 	echo 'SQLITE is undefined'
 else

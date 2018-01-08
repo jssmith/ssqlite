@@ -9,7 +9,6 @@ typedef int boolean;
 typedef unsigned char u8;
 typedef unsigned int u32;
 typedef unsigned long u64;
-typedef u32 bytes;
 typedef void *heap;
 
 #ifndef MIN
@@ -23,11 +22,6 @@ typedef void *heap;
 #define allocate(__h, __b) (malloc(__b))
 #define deallocate(__h, __x, __len) (free(__x))
 
-#ifndef eprintf
-#define eprintf(format, ...) fprintf (stdout, format, ## __VA_ARGS__); fflush(stdout)
-#endif
-
-
 static inline void panic (char *cause)
 {
     eprintf ("nfs4 runtime error: %s\n", cause);
@@ -36,14 +30,13 @@ static inline void panic (char *cause)
 
 #include <buffer.h>
 #include <vector.h>
-#include <status.h>
 
-static status parse_u64(buffer s, u64 *target)
+static int parse_u64(buffer s, u64 *target)
 {
     u64 result = 0;
     forchar (i, s) result = result * 10 + (i - '0');
     *target = result;
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
 // '4' prints as '004'?

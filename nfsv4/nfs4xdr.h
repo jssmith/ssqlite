@@ -209,8 +209,8 @@ enum exchange_id_flags {
 };
     
 
+// NFS4_OK defined in nfs4.h
 enum nfsstat4 {
- NFS4_OK                = 0,     /* everything is okay        */
  NFS4ERR_PERM           = 1,     /* caller not privileged     */
  NFS4ERR_NOENT          = 2,     /* no such file/directory    */
  NFS4ERR_IO             = 5,     /* hard I/O error            */

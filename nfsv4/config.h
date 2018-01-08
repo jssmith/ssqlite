@@ -1,12 +1,14 @@
-static inline boolean config_boolean(char *name, boolean def)
+#include <stdlib.h>
+
+static inline int config_boolean(char *name, int def)
 {
     // xxx parse this! so we can turn off default true
-    return getenv(name)?true:def;
+    return getenv(name)?1:def;
 }
 
-static inline u64 config_u64(char *name, u64 def)
+static inline unsigned long config_u64(char *name, unsigned long def)
 {
-    u64 result = 0;
+    bytes result = 0;
     char *x = getenv(name);
     if (!x) return def;
     for (char *i = x; *i; i++) result = result + 10 * (*i - '0');

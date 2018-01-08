@@ -4,59 +4,48 @@ SQLITE_EXTENSION_INIT1
 #include <codepoint.h>
 #include <config.h>
 #include <stdio.h>
+#include <assert.h>
 
 #define ORIGVFS(p) (((appd)(p)->pAppData)->parent)
 
 typedef struct appd {
     sqlite3_vfs *parent;
-    client c; // xxx - single server assumption
+    nfs4 c; // xxx - single server assumption
     char *current_error;
-    boolean trace;
+    int trace;
 } *appd;
      
 
 typedef struct sqlfile {
     sqlite3_file base;              /* IO methods */
     appd ad;
-    client c;
-    file f;
-    boolean powersafe;
-    boolean readonly;
+    nfs4_file f;
+    int eFileLock;
+    int powersafe;
+    int readonly;
     char filename[255];
 } *sqlfile;
 
-// maybe a macro that allocates b 
-static void buffer_wrap_string(buffer b, char *x)
+static inline int translate_status(appd ad, int x)
 {
-    b->contents = (void *)x;
-    b->end = strlen(x);
-    b->start = 0;
-}
-
-// try to translate if we can...maybe use unix errno in status as a translation bridge
-// SQLITE_BUSY
-// SQLITE_LOCKED
-// SQLITE_NOMEM
-// SQLITE_READONLY
-// SQLITE_NOTFOUND
-// SQLITE_CANTOPEN
-// SQLITE_IOERR
-// SQLITE_AUTH
-
-static inline int translate_status(appd ad, status s)
-{
+    if (!x) return(SQLITE_OK); 
     if (ad->trace) {
-        eprintf ("status %s\n", status_string(s));
+        eprintf ("status %s\n", nfs4_error_string(ad->c));
     }
-    if (!is_ok(s)) return SQLITE_ERROR;
-    return SQLITE_OK;
+    switch(x) {
+    case NFS4_EBUSY: return SQLITE_BUSY;
+    case NFS4_ETXTBSY: return SQLITE_LOCKED;
+    case NFS4_ENOMEM: return SQLITE_NOMEM;
+    case NFS4_EROFS: return SQLITE_READONLY;
+    default:  return SQLITE_ERROR;
+    }
 }
     
 static int nfs4Close(sqlite3_file *pFile){
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace)
         eprintf ("close %s\n", f->filename);
-    file_close(f->f);
+    nfs4_close(f->f);
     return SQLITE_OK;
 }
 
@@ -69,7 +58,7 @@ static int nfs4Read(sqlite3_file *pFile,
     if (f->ad->trace) {
         eprintf ("read %s offset:%lld bytes:%d ", f->filename, iOfst, iAmt);
     }
-    translate_status(f->ad, readfile(f->f, zBuf, iOfst, iAmt));
+    translate_status(f->ad, nfs4_pread(f->f, zBuf, iOfst, iAmt));
 }
 
 static int nfs4Write(sqlite3_file *pFile,
@@ -80,7 +69,7 @@ static int nfs4Write(sqlite3_file *pFile,
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
         eprintf ("write %s offset:%lld bytes:%d ", f->filename, iOfst, iAmt);
-    translate_status(f->ad, writefile(f->f, (void *)z, iOfst, iAmt, SYNCH_REMOTE));
+    translate_status(f->ad, nfs4_pwrite(f->f, (void *)z, iOfst, iAmt));
 }
 
 static int nfs4Truncate(sqlite3_file *pFile,
@@ -106,9 +95,9 @@ static int nfs4FileSize(sqlite3_file *pFile, sqlite_int64 *pSize)
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
         eprintf ("filesize %s ", f->filename);
-    u64 size;
-    status s =file_size(f->f, &size);
-    *pSize = size;
+    struct nfs4_properties p;
+    int s = nfs4_stat(f->ad->c, f->filename, &p);
+    *pSize = p.size;
     return translate_status(f->ad, s);
 }
 
@@ -122,20 +111,160 @@ static struct codepoint locktypes[] = {
     {"EXCLUSIVE",     4},
     {"", 0}};
 
-static int nfs4Lock(sqlite3_file *pFile, int eLock)
+
+#define PENDING_BYTE      (0x40000000)
+#define RESERVED_BYTE     (PENDING_BYTE+1)
+#define SHARED_FIRST      (PENDING_BYTE+2)
+#define SHARED_SIZE       510
+
+#define NO_LOCK         0
+#define SHARED_LOCK     1
+#define RESERVED_LOCK   2
+#define PENDING_LOCK    3
+#define EXCLUSIVE_LOCK  4
+
+/*
+** Adapted from SQLite's locking implementation in os_unix.c
+*/
+static int nfs4Lock(sqlite3_file *pFile, int eFileLock)
 {
     sqlfile f = (sqlfile)pFile;
-    if (f->ad->trace) 
-        eprintf ("lock %s %s\n", f->filename, codestring(locktypes, eLock));
+
+    bytes l_start;
+    bytes l_len = 1L;
+    int l_type;
+    int st;
+
+    assert(f);
+
+    if (f->ad->trace)
+        eprintf ("lock %s %s\n", f->filename, codestring(locktypes, eFileLock));
+
+    /* If there is already a lock of this type or more restrictive on the
+    ** unixFile, do nothing.
+    */
+    if(f->eFileLock>=eFileLock){
+        return SQLITE_OK;
+    }
+
+    /* Make sure the locking sequence is correct.
+    **  (1) We never move from unlocked to anything higher than shared lock.
+    **  (2) SQLite never explicitly requests a pendig lock.
+    **  (3) A shared lock is always held when a reserve lock is requested.
+    */
+    assert( f->eFileLock!=NO_LOCK || eFileLock==SHARED_LOCK );
+    assert( eFileLock!=PENDING_LOCK );
+    assert( eFileLock!=RESERVED_LOCK || f->eFileLock==SHARED_LOCK );
+
+
+    /* A PENDING lock is needed before acquiring a SHARED lock and before
+    ** acquiring an EXCLUSIVE lock.  For the SHARED lock, the PENDING will
+    ** be released.
+    */
+    if(eFileLock==SHARED_LOCK
+            || (eFileLock==EXCLUSIVE_LOCK && f->eFileLock<PENDING_LOCK)){
+        l_type = (eFileLock==SHARED_LOCK?READ_LT:WRITE_LT);
+        l_start = PENDING_BYTE;
+        st = lock_range(f->f, l_type, l_start, l_len);
+        if (st) {
+            return translate_status(f->ad, st);
+        }
+    }
+
+  /* If control gets to this point, then actually go ahead and make
+  ** operating system calls for the specified lock.
+  */
+    if (eFileLock==SHARED_LOCK){
+        /* Now get the read-lock */
+        l_start = SHARED_FIRST;
+        l_len = SHARED_SIZE;
+        st = lock_range(f->f, l_type, l_start, l_len);
+        if (st) {
+            return translate_status(f->ad, st);
+        }
+        /* Drop the temporary PENDING lock */
+        l_start = PENDING_BYTE;
+        l_len = 1L;
+        st = unlock_range(f->f, l_type, l_start, l_len);
+        if (st) {
+            return translate_status(f->ad, st);
+        }
+    } else {
+        /* The request was for a RESERVED or EXCLUSIVE lock.  It is
+        ** assumed that there is a SHARED or greater lock on the file
+        ** already.
+        */
+        l_type = WRITE_LT;
+        assert(0 != f->eFileLock);
+        assert(eFileLock==RESERVED_LOCK || eFileLock==EXCLUSIVE_LOCK);
+        if (eFileLock==RESERVED_LOCK) {
+            l_start = RESERVED_BYTE;
+            l_len = 1L;
+        } else {
+            l_start = SHARED_FIRST;
+            l_len = SHARED_SIZE;
+        }
+
+        st = lock_range(f->f, l_type, l_start, l_len);
+        if (st) {
+            return translate_status(f->ad, st);
+        }
+    }
+    f->eFileLock = eFileLock;
     return SQLITE_OK;
+    // return translate_status(f->ad, lock_range(f->f, WRITE_LT, 0x40000000, 512));
 }
 
-static int nfs4Unlock(sqlite3_file *pFile, int eLock)
+/*
+** Adapted from SQLite's locking implementation in os_unix.c
+*/
+static int nfs4Unlock(sqlite3_file *pFile, int eFileLock)
 {
     sqlfile f = (sqlfile)pFile;
-    if (f->ad->trace) 
-        eprintf ("unlock %s %s\n", ((sqlfile)pFile)->filename, codestring(locktypes, eLock));
 
+    bytes l_start;
+    bytes l_len = 1L;
+    int l_type;
+    int st;
+
+    if (f->ad->trace)
+        eprintf ("unlock %s %s\n", ((sqlfile)pFile)->filename, codestring(locktypes, eFileLock));
+
+    assert(f);
+
+    assert( eFileLock<=SHARED_LOCK );
+    if( f->eFileLock<=eFileLock ){
+        return SQLITE_OK;
+    }
+
+    if (f->eFileLock>SHARED_LOCK) {
+        if (eFileLock == SHARED_LOCK) {
+            l_type = READ_LT;
+            l_start = SHARED_FIRST;
+            l_len = SHARED_SIZE;
+            st = lock_range(f->f, l_type, l_start, l_len);
+            if (st) {
+                return translate_status(f->ad, st);
+            }
+        }
+
+        l_type = READ_LT;
+        l_start = PENDING_BYTE;
+        l_len = 2L;  assert( PENDING_BYTE+1==RESERVED_BYTE );
+        st = unlock_range(f->f, l_type, l_start, l_len);
+        if (st) {
+            return translate_status(f->ad, st);
+        }
+    }
+    if (eFileLock == NO_LOCK) {
+        l_start = SHARED_FIRST;
+        l_len = SHARED_SIZE;
+        st = unlock_range(f->f, l_type, l_start, l_len);
+        if (st) {
+            return translate_status(f->ad, st);
+        }
+    }
+    f->eFileLock = eFileLock;
     return SQLITE_OK;
 }
 
@@ -215,12 +344,13 @@ static int nfs4FileControl(sqlite3_file *pFile, int op, void *pArg)
     }
     
     if (op == SQLITE_FCNTL_MMAP_SIZE) {
-        *(u64 *) pArg = 0;
+        *(unsigned long *) pArg = 0;
     }
     
     if( op==SQLITE_FCNTL_VFSNAME ){
-        buffer z = filename(f->f);
-        *(char**)pArg = sqlite3_mprintf("nfs4(%s)", z->contents + z->start);
+        // ?
+        //        buffer z = filename(f->f);
+        //        *(char**)pArg = sqlite3_mprintf("nfs4(%s)", z->contents + z->start);
     }
     
     return rc;
@@ -282,7 +412,7 @@ static int nfs4Fetch(sqlite3_file *pFile,  sqlite3_int64 iOfst, int iAmt, void *
     sqlfile f = (sqlfile)(void *)pFile;
     if (f->ad->trace) 
         eprintf ("fetch %s\n", f->filename);
-    translate_status(f->ad, readfile(f->f, *pp, iOfst, iAmt));
+    translate_status(f->ad, nfs4_pread(f->f, *pp, iOfst, iAmt));
 }
  
 static int nfs4Unfetch(sqlite3_file *pFile, sqlite3_int64 iOfst, void *pPage)
@@ -318,6 +448,10 @@ static struct codepoint openflags[] = {
     {"WAL",              0x00080000  },
     {"", 0}};
 
+static char *path_split(const char *file, char *server)
+{
+}
+
 static int nfs4Open(sqlite3_vfs *pVfs,
                     const char *zName,
                     sqlite3_file *pFile,
@@ -326,63 +460,47 @@ static int nfs4Open(sqlite3_vfs *pVfs,
 {
     sqlfile f = (sqlfile)(void *)pFile;
     appd ad = pVfs->pAppData;
+    char server[256];
     
     f->ad = ad;
-    f->powersafe = true;
-    f->readonly = false;
+    f->powersafe = 1;
+    f->readonly = 0;
 
     if (ad->trace) {
         eprintf ("open %s %s ", zName, codepoint_set_string(openflags, flags));
         memcpy(f->filename, zName, strlen(zName));
     }
 
-    struct buffer znb;
-    buffer_wrap_string(&znb, (char *)zName);
-    vector path = split(0, &znb, '/');
-    buffer servername = vector_pop(path);
-    buffer zeg =  vector_get(path, 0);
-    push_char(servername, 0);
-
+    // do we need to make a copy?
+    char *x = path_split(zName, server);
+    memcpy(f->filename, x, strlen(x) + 1);
+    
     if (ad->c == 0) {
-        // change interface to tuple in order to parameterize
-        status st = create_client((char *)servername->contents, &ad->c);
-        if (!is_ok(st)) {
+        int st = nfs4_create(server, &ad->c);
+        if (st) {
             return translate_status(ad, st);
         }
     }
     
     f->base.pMethods = methods;
 
-    if (flags & SQLITE_OPEN_READONLY) {
-        return translate_status(ad, file_open_read(ad->c, path, &f->f));
-    }
+    int oflags = 0;
+    if (flags & SQLITE_OPEN_READONLY) oflags |= NFS4_RDONLY;
+    if (flags & SQLITE_OPEN_CREATE)   oflags |= NFS4_CREAT;
+    if (flags & SQLITE_OPEN_READWRITE) oflags |= NFS4_RDWRITE;
     
-    if (flags & SQLITE_OPEN_CREATE) {
-        return translate_status(ad, file_create(ad->c, path, &f->f));
-    }
+    nfs4_open(ad->c, f->filename, oflags, 0666, &f->f);
     
-    if (flags & SQLITE_OPEN_READWRITE) {
-        return translate_status(ad, file_open_write(ad->c, path, &f->f));
-    }
-
     return SQLITE_CANTOPEN;
 }
 
 static int nfs4Delete(sqlite3_vfs *pVfs, const char *zPath, int dirSync)
 {
     appd ad = pVfs->pAppData;
-    if (ad->trace)
-        eprintf ("delete %s\n", zPath);
-    
-    // note - its not clear if there is an appropriate nfs4 implmentation of 
-    // dirSync, and it might affect consistency at least probibalistically
-    struct buffer znb;
-    buffer_wrap_string(&znb, (char *)zPath);
-    vector path = split(0, &znb, '/');
-    vector_pop(path);
-    delete(ad->c, path);
-        
-    return SQLITE_OK;
+    if (ad->trace)  eprintf ("delete %s\n", zPath);
+
+    char *fn = path_split(zPath, 0);
+    return translate_status(ad, nfs4_unlink(ad->c, fn));
 }
 
 
@@ -398,12 +516,10 @@ static int nfs4Access(sqlite3_vfs *pVfs,
     /* The spec says there are three possible values for flags.  But only
     ** two of them are actually used */
     if( flags==SQLITE_ACCESS_EXISTS ){
-        struct buffer znb;
-        buffer_wrap_string(&znb, (char *)zPath);
-        vector path = split(0, &znb, '/');
-        vector_pop(path);
-        status s = exists(ad->c, path);
-        *pResOut = is_ok(s)?1:0;
+        // this includes the fs..right, thats the problem
+        struct nfs4_properties p;
+        int s = nfs4_stat(ad->c, path_split(zPath, 0), &p);
+        *pResOut = s?1:0;
     }
     if( flags==SQLITE_ACCESS_READWRITE ){
         *pResOut = 1;
@@ -512,11 +628,11 @@ int sqlite3_nfs_init(sqlite3 *db,
                      const sqlite3_api_routines *pApi)
 {
     SQLITE_EXTENSION_INIT2(pApi);
-    appd ad = allocate(0, sizeof(struct appd));
+    appd ad = malloc(sizeof(struct appd));
     nfs4_vfs.pAppData = ad;
     ad->parent = sqlite3_vfs_find(0);
     ad->c = 0;
-    ad->trace = config_boolean("NFS_TRACE", false);
+    ad->trace = config_boolean("NFS_TRACE", 0);
     nfs4_vfs.pNext = sqlite3_vfs_find(0);
     nfs4_vfs.szOsFile = sizeof(struct sqlfile);
     methods = &nfs4_io_methods;

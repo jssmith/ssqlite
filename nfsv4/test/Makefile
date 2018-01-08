@@ -10,7 +10,7 @@ OBJ = rpc.o xdr.o client.o
 %.o : ../%.c
 	gcc -g -I. -I.. -std=gnu99 $< -c
 
-SHELLOBJ= shell.o gk.o svg.o
+SHELLOBJ= shell.o 
 
 shell: $(OBJ) $(SHELLOBJ)
 	cc -g $^ -lm -o shell

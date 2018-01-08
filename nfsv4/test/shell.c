@@ -1,8 +1,7 @@
 #include <nfs4.h>
+#include <runtime.h>
 #include <unistd.h>
 #include <stdio.h>
-
-client c;
 
 static boolean generator(buffer b, int len)
 {
@@ -19,115 +18,115 @@ static boolean generator(buffer b, int len)
     }
 }
     
-static status create(vector path, vector args)
+static int create(nfs4 c, char *path, vector args)
 {
-    file f;
-    status st = file_create(c, path, &f);
-    file_close(f);
+    // parse optionl mode arguments
+    nfs4_file f;
+    int st = nfs4_open(c, path, NFS4_CREAT, 0666, &f);
+    nfs4_close(f);
     return st;
 }
 
-static status sizec(vector path, vector args)
+static int deletec(nfs4 c, char *path, vector args)
 {
-    file f;
-    status st = file_open_read(c, path, &f);
-    if (!is_ok(st)) return st;
-    u64 dest;
-    st = file_size(f, &dest);
-    if (!is_ok(st)) return st;
-    printf ("%ld", dest);
-    return STATUS_OK;
+    return nfs4_unlink(c, path);
 }
 
-static status deletec(vector path, vector args)
-{
-    return delete(c, path);
-}
-
-static status readc(vector path, vector args)
+static int readc(nfs4 c, char *path, vector args)
 {
     u64 length; 
-    file f;
-    status s = file_open_read(c, path, &f);
-    if (!is_ok(s)) return s;
-    s = file_size(f, &length);
-    if (!is_ok(s)) return s;
+    nfs4_file f;
+    struct nfs4_properties n;
+    int s = nfs4_open(c, path, NFS4_RDONLY, 0, &f);
+    if (s) return s;
+    s = nfs4_stat(c, path, &n);
+    if (s) return s;
     buffer b = allocate_buffer(0, length);
-    s = readfile(f, b->contents, 0, length);
+    s = nfs4_pread(f, b->contents, 0, length);
     write(1, b->contents, length);
     return s;
 }
 
-static status writec(vector path, vector args)
+static int writec(nfs4 c, char *path, vector args)
 {
-    file f;
-    status st = file_open_write(c, path, &f);
-    if (is_ok(st)) {
+    nfs4_file f;
+    int st = nfs4_open(c, path, NFS4_WRONLY, 0, &f);
+    if (st) {
         buffer c = vector_pop(args);
-        st = writefile(f, c->contents + c->start, 0, length(c), SYNCH_COMMIT);
-        file_close(f);
+        st = nfs4_pwrite(f, c->contents + c->start, 0, length(c));
+        nfs4_close(f);
     }
     return st;
 }
 
-static status readd(vector path, vector args)
+static int readd(nfs4 c, char *path, vector args)
 {
     u64 length; 
-    file f;
+    nfs4_file f;
     parse_u64(vector_pop(args), &length);
     buffer b = allocate_buffer(0, length);
-    status s = file_open_read(c, path, &f);
-    if (!is_ok(s)) return s;
-    s = readfile(f, b->contents, 0, length);
+    int s = nfs4_open(c, path, NFS4_RDONLY, 0, &f);
+    if (s) return s;
+    s = nfs4_pread(f, b->contents, 0, length);
     // check contents
     return s;
 }
 
 
-static status writed(vector path, vector args)
+static int writed(nfs4 c, char *path, vector args)
 {
-    file f;
-    status s = file_create(c, path, &f);
-    if (!is_ok(s)) return s;
+    nfs4_file f;
+    int s = nfs4_open(c, path, NFS4_CREAT, 0666, &f);
+    if (s) return s;
     u64 length;
     s = parse_u64(vector_pop(args), &length);
-    if (!is_ok(s)) return s;    
+    if (s) return s;    
     buffer b = allocate_buffer(0, length);
     generator(b, length);
     b->end = length;
-    s = writefile(f, b->contents, 0, length, SYNCH_REMOTE);
-    if (!is_ok(s)) return s;    
-    file_close(f);
+    s = nfs4_pwrite(f, b->contents, 0, length);
+    if (s) return s;    
+    nfs4_close(f);
     return s;
 }
 
 
-static status lsc(vector path, vector args)
+static int lsc(nfs4 c, char *path, vector args)
 {
     vector v = allocate_vector(0, 10);
-    status s = readdir(c, path, v);
-    if (!is_ok(s)) return s;    
-    buffer i;
-    vector_foreach(i, v) {
-        push_char(i, 0);
-        printf ("%s\n", (char *)i->contents);
+    nfs4_dir d;
+    int s = nfs4_opendir(c, path, &d);
+    if (s) return s;
+    nfs4_properties k;
+    s = nfs4_readdir(d, &k);
+    if (s < 0) return s;
+    for (int i = 0; i< s ; i++) {
+        printf ("%s\n", k->name);
     }
 }
 
-static status mkdirc(vector path, vector args)
+static int mkdirc(nfs4 c, char *path, vector args)
 {
 }
 
+static void format_mode(nfs4_mode_t x, buffer b)
+{
+    for (int i = 8; i >= 0; i--) {
+        char m[] ="rwx";
+        if ((1<<i) & x) 
+            push_char(b, m[i%3]);
+            else push_char(b,'-');
+    }
+}
 
 // directories
-static struct {char *name; status (*f)(vector, vector);} commands[] = {
+static struct {char *name; int (*f)(nfs4, char*, vector);} commands[] = {
     {"create", create},
     {"writed", writed},
     {"readd", readd},
     {"write", writec},
     {"read", readc},    
     {"delete", deletec},    
-    {"size", sizec},
     {"ls", lsc},
     {"mkdir", mkdirc},
     {"", 0}
@@ -135,11 +134,12 @@ static struct {char *name; status (*f)(vector, vector);} commands[] = {
 
 int main(int argc, char **argv)
 {
-    status s = create_client(argv[1], &c);
+    nfs4 c;
+    int s = nfs4_create(argv[1], &c);
     buffer z = allocate_buffer(0, 100);
 
-    if (!is_ok(s)) {
-        printf ("open client failed %s\n", status_string(s));
+    if (s) {
+        printf ("open client failed\n");
         exit(-1);
     }
     
@@ -153,19 +153,21 @@ int main(int argc, char **argv)
             if (length(z)){
                 vector v = split(0, z, ' ');
                 buffer command = vector_pop(v);
-                
+                char *path;
                 vector fn = 0;
                 if (vector_length(v)) {
-                    fn = split(0, vector_pop(v), '/');
+                    buffer p = vector_pop(v);
+                    push_char(p, 0);
+                    path = p->contents;
                 }
                 
                 int i;
                 for (i = 0; commands[i].name[0] ; i++ ){
                     if (strncmp(commands[i].name, command->contents, length(command)) == 0) {
                         ticks start = ktime();
-                        status s = commands[i].f(fn, v);
-                        if (!is_ok(s)) {
-                            printf("%s\n", status_string(s));
+                        int s = commands[i].f(c, path, v);
+                        if (s) {
+                            printf("%s\n", nfs4_error_string(c));
                         } else {
                             ticks total = ktime()- start;
                             buffer b = allocate_buffer(0, 100);

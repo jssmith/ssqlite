@@ -1,15 +1,21 @@
 #include <nfs4_internal.h>
 
-void push_string(buffer b, char *x, u32 length) {
+void push_fixed_string(buffer b, char *x, u32 length) {
     u32 plen = pad(length, 4) - length;
     buffer_extend(b, length + plen + 4);
-    push_be32(b, length);
     memcpy(b->contents + b->end, x, length);
     b->end += length;
     if (plen) {
         memset(b->contents + b->end, 0, plen);
         b->end += plen;
     }
+}
+
+void push_string(buffer b, char *x, u32 length) {
+    u32 plen = pad(length, 4) - length;
+    buffer_extend(b, 4);
+    push_be32(b, length);
+    push_fixed_string(b, x, length);
 }
 
 void push_channel_attrs(rpc r)
@@ -54,11 +60,11 @@ void push_create_session(rpc r)
 
 #define normalize(__c, __x) \
    if (__c->__x > __x) {\
-       if (config_boolean("NFS_TRACE", false)) eprintf ("nfs server downgraded "#__x" from %d to %d\n", __c->__x, __x); \
+       if (config_boolean("NFS_TRACE", false)) eprintf ("nfs server downgraded "#__x" from %ld to %ld\n", (u64)__c->__x, (u64)__x); \
            __c->__x = __x;                                              \
    }
 
-status parse_create_session(client c, buffer b)
+status parse_create_session(nfs4 c, buffer b)
 {
     // check length - maybe do that generically in transact (parse callback, empty buffer)
 
@@ -80,32 +86,45 @@ status parse_create_session(client c, buffer b)
     normalize(c, maxreqs);        
     read_beu32(c, b); // ca_rdma_id
     
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
 void push_sequence(rpc r)
 {
     push_op(r, OP_SEQUENCE);
     push_session_id(r, r->c->session);
-    push_be32(r->b, r->c->sequence); 
+    push_be32(r->b, r->c->sequence);
     push_be32(r->b, 0x00000000);  // slotid
     push_be32(r->b, 0x00000000);  // highest slotid
     push_be32(r->b, 0x00000000);  // sa_cachethis
     r->c->sequence++;
 }
 
-void push_owner(rpc r)
+void push_bare_sequence(rpc r)
 {
-    char own[12];
-    push_client_id(r); // 5661 18.16.3 says server must ignore clientid
-    sprintf(own, "open id:%lx", *(unsigned long *)r->c->instance_verifier);
-    push_string(r->b, own, 12);
+    // xxx not sure what this sequence should be but seems ok as 0
+    push_be32(r->b, 0);
 }
 
-void push_claim_null(buffer b, buffer name)
+void push_lock_sequence(rpc r)
+{
+    // xxx not sure what this sequence should be but seems ok as 0
+    push_be32(r->b, 0);
+}
+
+void push_owner(rpc r)
+{
+    char own[64];
+    push_client_id(r); // 5661 18.16.3 says server must ignore clientid
+    int len = sprintf(own, "open id:%lx", *(unsigned long *)r->c->instance_verifier);
+    push_string(r->b, own, len);
+}
+
+
+void push_claim_null(buffer b, char *name)
 {
     push_be32(b, CLAIM_NULL);
-    push_string(b, name->contents + name->start, length(name));
+    push_string(b, name, strlen(name));
 }
 
 void push_claim_deleg_cur(buffer b, buffer name)
@@ -114,14 +133,23 @@ void push_claim_deleg_cur(buffer b, buffer name)
     // state id 4 
 }
 
-status parse_stateid(client c, buffer b, struct stateid *sid)
+void print_stateid(stateid sid )
 {
-    read_beu32(c, b); // seq
-    return read_buffer(c, b, &sid->opaque, NFS4_OTHER_SIZE);
-    return STATUS_OK;
+    printf("stateid:%08x:", sid->sequence);
+    for (int i = 0; i < NFS4_OTHER_SIZE; i++) {
+        printf("%02x", sid->opaque[i]);
+    }
 }
 
-status parse_ace(client c, buffer b)
+status parse_stateid(nfs4 c, buffer b, stateid sid)
+{
+    sid->sequence = read_beu32(c, b); // seq
+    status s = read_buffer(c, b, &sid->opaque, NFS4_OTHER_SIZE);
+    // print_stateid(sid);
+    return s;
+}
+
+status parse_ace(nfs4 c, buffer b)
 {
     read_beu32(c, b); // type
     read_beu32(c, b); // flag
@@ -131,11 +159,12 @@ status parse_ace(client c, buffer b)
 }
 
 // directory has a stateid update in here
-status parse_open(file f, buffer b)
+status parse_open(nfs4_file f, buffer b)
 {
     struct stateid delegation_sid;
 
-    parse_stateid(f->c, b, &f->sid);
+    parse_stateid(f->c, b, &f->open_sid);
+    memcpy(&f->latest_sid, &f->open_sid, sizeof(struct stateid));
     // change info
     read_beu32(f->c, b); // atomic
     u32 before = read_beu64(f->c, b); // before
@@ -165,7 +194,7 @@ status parse_open(file f, buffer b)
             read_beu32(f->c, b); // nblocks
             read_beu64(f->c, b); // bytes per
         default:
-            return allocate_status(f->c, "bad limit size");
+            return error(f->c, NFS4_PROTOCOL, "bad limit size");
         }
         parse_ace(f->c, b);
         break;
@@ -181,23 +210,24 @@ status parse_open(file f, buffer b)
         }
         break;
     default:
-        return allocate_status(f->c, "bad delegation return");
+        return error(f->c, NFS4_PROTOCOL, "bad delegation return");
     }
 }
 
-void push_open(rpc r, buffer name, boolean create)
+void push_open(rpc r, char *name, int flags)
 {
     push_op(r, OP_OPEN);
     push_be32(r->b, 0); // seqid
-    push_be32(r->b, 2); // share access
+    u32 share_access = (flags & NFS4_WRONLY)? OPEN4_SHARE_ACCESS_BOTH : OPEN4_SHARE_ACCESS_READ;
+    push_be32(r->b, share_access); // share access
     push_be32(r->b, 0); // share deny
     push_owner(r);
-    if (create) {
+    if (flags & NFS4_CREAT) {
         push_be32(r->b, OPEN4_CREATE);
         push_be32(r->b, UNCHECKED4);
         // xxx - encode this properly, this is the fattr for
         // the newly created file
-        push_be32(r->b, 0x00000002);
+        push_be32(r->b, 0x00000002); // mask length
         push_be32(r->b, 0x00000000);
         push_be32(r->b, 0x00000002);
         push_be32(r->b, 0x00000004);
@@ -208,13 +238,10 @@ void push_open(rpc r, buffer name, boolean create)
     push_claim_null(r->b, name);
 }
 
-void push_stateid(rpc r)
+void push_stateid(rpc r, stateid s)
 {
-    // where do we get one of these?
-    push_be32(r->b, 0); // seq
-    push_be32(r->b, 0); // opaque
-    push_be32(r->b, 0); 
-    push_be32(r->b, 0);
+    push_be32(r->b, s->sequence);
+    push_fixed_string(r->b, s->opaque, NFS4_OTHER_SIZE);
 }
 
 // section 18.35, page 494, rfc 5661.txt
@@ -245,7 +272,7 @@ void push_exchange_id(rpc r)
     push_be32(r->b, 0);
 }
 
-status parse_exchange_id(client c, buffer b)
+status parse_exchange_id(nfs4 c, buffer b)
 {
     memcpy(&c->clientid, b->contents + b->start, sizeof(c->clientid));
     b->start += sizeof(c->clientid);
@@ -255,5 +282,5 @@ status parse_exchange_id(client c, buffer b)
     //    server_owner4    eir_server_owner;
     //    opaque           eir_server_scope<NFS4_OPAQUE_LIMIT>;
     //    nfs_impl_id4     eir_server_impl_id<1>;
-    return STATUS_OK;
+    return NFS4_OK;
 }

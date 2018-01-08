@@ -77,13 +77,7 @@ static struct codepoint nfsops[] = {
 {"CLONE"                , 71},
 {"ILLEGAL"              , 10044}};
 
-char *status_string(status s)
-{
-    if (s == 0) return "ok";
-    return s->cause;
-}
-
-rpc allocate_rpc(client c, buffer b) 
+rpc allocate_rpc(nfs4 c, buffer b) 
 {
     // can use a single entity or a freelist
     rpc r = allocate(s->h, sizeof(struct rpc));
@@ -116,7 +110,7 @@ rpc allocate_rpc(client c, buffer b)
     return r;
 }
 
-status parse_rpc(client c, buffer b, boolean *badsession)
+status parse_rpc(nfs4 c, buffer b, boolean *badsession)
 {
     *badsession = false;
     verify_and_adv(c, b, c->xid);
@@ -124,7 +118,7 @@ status parse_rpc(client c, buffer b, boolean *badsession)
     
     u32 rpcstatus = read_beu32(c, b);
     if (rpcstatus != NFS4_OK) 
-        return allocate_status(c, codestring(nfsstatus, rpcstatus));
+        return error(c, NFS4_EINVAL, codestring(nfsstatus, rpcstatus));
 
     verify_and_adv(c, b, 0); // eh?
     verify_and_adv(c, b, 0); // verf
@@ -137,11 +131,11 @@ status parse_rpc(client c, buffer b, boolean *badsession)
         if (nstatus == NFS4ERR_BADSESSION) {
             *badsession = true;
         }
-        return allocate_status(c, codestring(nfsstatus, nstatus));
+        return error(c, NFS4_EINVAL, codestring(nfsstatus, nstatus));
     }
 
     verify_and_adv(c, b, 0); // tag
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
 static int read_fully(int fd, void* buf, size_t nbyte)
@@ -163,24 +157,24 @@ static int read_fully(int fd, void* buf, size_t nbyte)
 }
  
  
-static status read_response(client c, buffer b)
+int read_response(nfs4 c, buffer b)
 {
     char framing[4];
     int chars = read_fully(c->fd, framing, 4);
     if (chars != 4) 
-        return (allocate_status(c, "server socket read error"));
+        return error(c, NFS4_EIO, "server socket read error");
     
     int frame = ntohl(*(u32 *)framing) & 0x07fffffff;
     buffer_extend(b, frame);
     chars = read_fully(c->fd, b->contents + b->start, frame);
     if (chars != frame ) 
-        return (allocate_status(c, "server socket read error"));        
+        return error(c,  NFS4_EIO, "server socket read error");        
 
     b->end = chars;
     if (config_boolean("NFS_PACKET_TRACE", false)) {
         print_buffer("resp", b);
     }
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
 
@@ -194,13 +188,13 @@ static status rpc_send(rpc r)
     
     int res = write(r->c->fd, r->b->contents + r->b->start, length(r->b));
     if (res != length(r->b)) {
-        return allocate_status(r->c, "failed rpc write");
+        return error(r->c, NFS4_EIO, "failed rpc write");
     }
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
     
-status nfs4_connect(client c)
+status nfs4_connect(nfs4 c)
 {
     int temp;
     struct sockaddr_in a;
@@ -225,31 +219,41 @@ status nfs4_connect(client c)
                       sizeof(struct sockaddr_in));
     if (res != 0) {
         // make printf status variant
-        return allocate_status(c, "connect failure");
+        return error(c, NFS4_ENXIO, "connect failure");
     }
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
-void push_resolution(rpc r, vector path)
+void push_resolution(rpc r, char *path)
 {
     push_op(r, OP_PUTROOTFH);
-    buffer i;
-    vector_foreach(i, path) {
+    int start = 0, end = 0;
+    for (char *i = path; *i; i++) {
+        if (*i == '/')  {
+            push_op(r, OP_LOOKUP);
+            push_string(r->b, path+start, end-start);
+        } else {
+            end += 1;
+        }
+    }
+    // it doesnt ever really make sense to have a path with
+    // an empty last element?
+    if (end != start) {
         push_op(r, OP_LOOKUP);
-        push_string(r->b, i->contents + i->start, length(i));
+        push_string(r->b, path+start, end-start);
     }
 }
 
-static status read_until(client c, buffer b, u32 which)
+static status read_until(nfs4 c, buffer b, u32 which)
 {
     int opcount = read_beu32(c, b);
     while (1) {
         int op =  read_beu32(c, b);
         if (op == which) {
-            return STATUS_OK;
+            return NFS4_OK;
         }
         u32 code = read_beu32(c, b);
-        if (code != 0) return allocate_status(c, codestring(nfsstatus, code));
+        if (code != 0) return error(c, NFS4_EINVAL, codestring(nfsstatus, code));
         switch (op) {
         case OP_SEQUENCE:
             b->start += NFS4_SESSIONID_SIZE; // 16
@@ -263,25 +267,20 @@ static status read_until(client c, buffer b, u32 which)
         case OP_LOOKUP:
             break;
         default:
-            // printf style with code
-            return allocate_status(c, "unhandled scan code");
+            return error(c, NFS4_PROTOCOL, "unhandled scan code");
         }
     }
     // fix
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
-static rpc file_rpc(file f)
+static rpc file_rpc(nfs4_file f)
 {
     rpc r = allocate_rpc(f->c, f->c->forward);
     push_sequence(r);
 
     push_op(r, OP_PUTFH);
-    if (config_boolean("NFS_USE_FILEHANDLE", true)){
-        push_string(r->b, f->filehandle, NFS4_FHSIZE);
-    } else {
-        push_resolution(r, f->path);
-    }
+    push_string(r->b, f->filehandle, NFS4_FHSIZE);
     return (r);
 }
 
@@ -289,54 +288,55 @@ static rpc file_rpc(file f)
 status base_transact(rpc r, int op, buffer result, boolean *badsession)
 {
     status s = rpc_send(r);
-    if (!is_ok(s)) return s;
+    if (s) return s;
     result->start = result->end = 0;
     s = read_response(r->c, result);
-    if (!is_ok(s)) return s;
+    if (s) return s;
     // should instead keep session alive
     s = parse_rpc(r->c, result, badsession);
-    if (!is_ok(s)) return s;
+    if (s) return s;
     s = read_until(r->c, result, op);
-    if (!is_ok(s)) return s;
+    if (s) return s;
     u32 code = read_beu32(r->c, result);
-    if (code == 0) return STATUS_OK;
-    return allocate_status(r->c, codestring(nfsstatus, code));    
+    if (code == 0) return NFS4_OK;
+    return error(r->c, NFS4_EINVAL, codestring(nfsstatus, code));    
 }
 
-status exchange_id(client c)
+status exchange_id(nfs4 c)
 {
     rpc r = allocate_rpc(c, c->reverse);
     push_exchange_id(r);
     buffer res = c->reverse;
     boolean bs;
     status st = base_transact(r, OP_EXCHANGE_ID, res, &bs);
-    if (!is_ok(st)) {
+    if (st) {
         deallocate_rpc(r);    
         return st;
     }
     st = parse_exchange_id(c, res);
-    if (!is_ok(st)) return st;
+    if (st) return st;
     deallocate_rpc(r);
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
                   
-status create_session(client c)
+status create_session(nfs4 c)
 {
     rpc r = allocate_rpc(c, c->reverse);
     r->c->sequence = 1;  // 18.36.4 says that a new session starts at 1 implicitly
+    r->c->lock_sequence = 1;
     push_create_session(r);
     r->c->server_sequence++;    
     buffer res = c->reverse;
     status st = transact(r, OP_CREATE_SESSION, res);
-    if (!is_ok(st)) {
+    if (st) {
         deallocate_rpc(r);    
         return st;
     }    
     st = parse_create_session(c, res);
-    if (!is_ok(st)) return st;
+    if (st) return st;
     deallocate_rpc(r);
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
 static status replay_rpc(rpc r)
@@ -354,7 +354,7 @@ static status replay_rpc(rpc r)
     memcpy(r->b->contents + 4, &nxid, 4);    
 }
 
-static status destroy_session(client c)
+static status destroy_session(nfs4 c)
 {
     rpc r = allocate_rpc(c, c->reverse);
     push_op(r, OP_DESTROY_SESSION);
@@ -373,7 +373,7 @@ status transact(rpc r, int op, buffer result)
         s = base_transact(r, op, result, &badsession);
         if (badsession) {
             status s2 = rpc_connection(r->c);
-            if (!is_ok(s2)) return s2;
+            if (s2) return s2;
             replay_rpc(r);
             tries++;
         }
@@ -381,7 +381,7 @@ status transact(rpc r, int op, buffer result)
     return s;
 }
 
-status file_size(file f, u64 *dest)
+status file_size(nfs4_file f, u64 *dest)
 {
     rpc r = file_rpc(f);
     push_op(r, OP_GETATTR);
@@ -390,43 +390,43 @@ status file_size(file f, u64 *dest)
     push_be32(r->b, mask);
     buffer res =f->c->reverse;
     status s = transact(r, OP_GETATTR, res);
-    if (!is_ok(s)) return s;
+    if (s) return s;
     // demux attr more better
     res->start = res->end - 8;
     u64 x = 0;
     *dest = read_beu64(f->c, res);  
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
 // we can actually use the framing length to delineate 
 // header and data, and read directly into the dest buffer
 // because the data is always at the end
-status read_chunk(file f, void *dest, u64 offset, u32 length)
+status read_chunk(nfs4_file f, void *dest, u64 offset, u32 length)
 {
     rpc r = file_rpc(f);
     push_op(r, OP_READ);
-    push_stateid(r);
+    push_stateid(r, &f->latest_sid);
     push_be64(r->b, offset);
     push_be32(r->b, length);
     buffer res = f->c->reverse;
     status s = transact(r, OP_READ, res);
-    if (!is_ok(s)) return s;
+    if (s) return s;
     // we dont care if its the end of file -- we might for a single round trip read entire
     res->start += 4; 
     u32 len = read_beu32(r->c, res);
     // guard against len != length
     memcpy(dest, res->contents+res->start, len);
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
 // if we break transact, can writev with the header and 
 // source buffer as two fragments
 // add synch
-status write_chunk(file f, void *source, u64 offset, u32 length)
+status write_chunk(nfs4_file f, void *source, u64 offset, u32 length)
 {
     rpc r = file_rpc(f);
     push_op(r, OP_WRITE);
-    push_stateid(r);
+    push_stateid(r, &f->latest_sid);
     push_be64(r->b, offset);
     push_be32(r->b, FILE_SYNC4);
     push_string(r->b, source, length);
@@ -434,27 +434,35 @@ status write_chunk(file f, void *source, u64 offset, u32 length)
     return transact(r, OP_WRITE, b);
 }
 
-buffer push_initial_path(rpc r, vector path)
+char *push_initial_path(rpc r, char *path)
 {
-    struct buffer initial;
-    memcpy(&initial, path, sizeof(struct buffer));
-    initial.end  -= sizeof(void *);
-    push_resolution(r, &initial);
-    return vector_get(path, vector_length(path)-1);
+    int offset = 0;
+    for (int i = 0; path[i]; i++) if (path[i] == '/') offset = i;
+    // just to avoid mutating path
+    char *initial = alloca(offset+1);
+    memcpy(initial, path, offset);
+    initial[offset]= 0;
+    push_resolution(r, initial);
+    return path + offset;
 }
 
-status segment(status (*each)(file, void *, u64, u32), int chunksize, file f, void *x, u64 offset, u32 length)
+int segment(int (*each)(nfs4_file, void *, u64, u32),
+            int chunksize,
+            nfs4_file f,
+            void *x,
+            u64 offset,
+            u32 length)
 {
     for (u32 done = 0; done < length;) {
         u32 xfer = MIN(length - done, chunksize);
         status s = each(f, x + done, offset+done, xfer);
-        if (!is_ok(s)) return s;
+        if (s) return s;
         done += xfer;
     }
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
-status reclaim_complete(client c)
+status reclaim_complete(nfs4 c)
 {
     rpc r = allocate_rpc(c, c->reverse);
     push_sequence(r);
@@ -467,13 +475,60 @@ status reclaim_complete(client c)
 }
 
 
-status rpc_connection(client c)
+int rpc_connection(nfs4 c)
 {
-    status s = nfs4_connect(c);
-    if (!is_ok(s)) return s;
+    int s = nfs4_connect(c);
+    if (s) return s;
     s = exchange_id(c);
-    if (!is_ok(s)) return s;
+    if (s) return s;
     s = create_session(c);
-    if (!is_ok(s)) return s;
+    if (s) return s;
     return reclaim_complete(c);
+}
+
+int lock_range(nfs4_file f, int locktype, bytes offset, bytes length)
+{
+    rpc r = file_rpc(f);
+    push_op(r, OP_LOCK);
+    push_be32(r->b, locktype);
+    push_boolean(r->b, false); // reclaim
+    push_be64(r->b, offset);
+    push_be64(r->b, length);
+
+    push_boolean(r->b, true); // new lock owner
+    push_bare_sequence(r);
+    push_stateid(r, &f->open_sid);
+    push_lock_sequence(r);
+    push_owner(r);
+
+    buffer res = f->c->reverse;
+    status s = transact(r, OP_LOCK, res);
+    if (s) return s;
+    parse_stateid(f->c, res, &f->latest_sid);
+    return NFS4_OK;
+}
+
+int unlock_range(nfs4_file f, int locktype, bytes offset, bytes length)
+{
+    rpc r = file_rpc(f);
+    push_op(r, OP_LOCKU);
+    push_be32(r->b, locktype);
+    push_bare_sequence(r);
+    push_stateid(r, &f->latest_sid);
+    push_be64(r->b, offset);
+    push_be64(r->b, length);
+    buffer res = f->c->reverse;
+    status s = transact(r, OP_LOCKU, res);
+    if (s) return s;
+    parse_stateid(f->c, res, &f->latest_sid);
+    return NFS4_OK;
+}
+
+void readdir()
+{
+    //           nfs_cookie4     cookie;
+    //           verifier4       cookieverf;
+    //           count4          dircount;
+    //           count4          maxcount;
+    //           bitmap4         attr_request;
 }

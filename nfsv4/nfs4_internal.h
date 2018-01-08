@@ -1,4 +1,5 @@
 #include <nfs4.h>
+#include <runtime.h>
 #include <stdio.h>
 #include <arpa/inet.h>
 #include <codepoint.h>
@@ -6,7 +7,9 @@
 #include <config.h>
 #include <unistd.h>
 
-struct client {
+typedef int status;
+
+struct nfs4 {
     int fd;
     heap h;
     u32 xid;
@@ -15,6 +18,7 @@ struct client {
     u8 session[NFS4_SESSIONID_SIZE];
     u32 sequence;
     u32 server_sequence;
+    u32 lock_sequence;    
     u8 instance_verifier[NFS4_VERIFIER_SIZE];
     buffer forward;
     buffer reverse; 
@@ -23,6 +27,8 @@ struct client {
     u32 maxops;
     u32 maxreqs;
     buffer hostname;
+    vector outstanding; // should be a map
+    buffer error_string;
 };
 
 typedef struct  stateid {
@@ -30,12 +36,25 @@ typedef struct  stateid {
     u8 opaque [NFS4_OTHER_SIZE];
 } *stateid;
 
-struct file {
-    client c;
-    vector path;
+struct nfs4_file {
+    nfs4 c;
+    char *path;  // should be used for diagnostics only
     u8 filehandle[NFS4_FHSIZE];
-    struct stateid sid;
+    struct stateid latest_sid;
+    struct stateid open_sid;
 };
+
+static inline int error(nfs4 c, int code, char* format, ...)
+{
+}
+
+                        
+static inline void push_boolean(buffer b, boolean x)
+{
+      buffer_extend(b, 4);
+      *(u32 *)(b->contents + b->end) = x ? htonl(1) : 0;
+       b->end += 4;
+}
 
 static inline void push_be32(buffer b, u32 w) {
     buffer_extend(b, 4);
@@ -51,39 +70,29 @@ static inline void push_be64(buffer b, u64 w) {
 }
 
 #define read_beu32(__c, __b) ({\
-    if ((__b->end - __b->start) < 4 ) return allocate_status(__c, "out of data"); \
+    if ((__b->end - __b->start) < 4 ) return error(__c, NFS4_PROTOCOL, "out of data"); \
     u32 v = ntohl(*(u32*)(__b->contents + __b->start));\
     __b->start += 4;\
     v;})
 
 #define read_beu64(__c, __b) ({\
-    if ((__b->end - __b->start) < 8 ) return allocate_status(__c, "out of data");\
+    if ((__b->end - __b->start) < 8 ) return error(__c, NFS4_PROTOCOL, "out of data"); \
     u64 v = ntohl(*(u32*)(__b->contents + __b->start));\
     u64 v2 = ntohl(*(u32*)(__b->contents + __b->start + 4));    \
     __b->start += 8;                                        \
     v<<32 | v2;})
 
 typedef struct rpc *rpc;
-rpc allocate_rpc(client s, buffer b);
+rpc allocate_rpc(nfs4 s, buffer b);
 
-struct status {
-    char *cause;
-    file f;
-};
-    
+
 struct rpc {
-    client c;
+    nfs4 c;
     bytes opcountloc;
     int opcount;
     buffer b;
     vector completions;
 };
-
-// consider pulling in proper closures 
-typedef struct callback {
-    void (*f)(void *a);
-    void *a;
-} *callback;
 
 // should check client maxops and throw status
 static inline void push_op(rpc r, u32 op)
@@ -93,43 +102,36 @@ static inline void push_op(rpc r, u32 op)
 }
 
 void push_sequence(rpc r);
-
+void push_bare_sequence(rpc r);
+void push_lock_sequence(rpc r);
 
 // pull in printf - "%x not equal to %x!\n", v, v2"
-#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__c, __b); if (__v != v2) return allocate_status(__c, "encoding mismatch");}
+#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__c, __b); if (__v != v2) return error(__c, NFS4_PROTOCOL, "encoding mismatch");}
 
 
 typedef u64 clientid;
 
-void push_stateid(rpc r);
+void push_stateid(rpc r, stateid s);
 void push_exchange_id(rpc r);
-status parse_exchange_id(client, buffer);
+status parse_exchange_id(nfs4, buffer);
 void push_create_session(rpc r);
-status parse_create_session(client, buffer);
+status parse_create_session(nfs4, buffer);
 void push_lookup(rpc r, buffer i);
-buffer filename(file f);
-status parse_rpc(client s, buffer b, boolean *badsession);
-void push_open(rpc r, buffer name, boolean create);
-status parse_open(file f, buffer b);
+status parse_rpc(nfs4 s, buffer b, boolean *badsession);
+void push_open(rpc r, char *name, int flags);
+status parse_open(nfs4_file f, buffer b);
+status parse_stateid(nfs4 c, buffer b, stateid sid);
 void push_string(buffer b, char *x, u32 length);
 
 
-status segment(status (*each)(file, void *, u64, u32), int chunksize, file f, void *x, u64 offset, u32 length);
-buffer push_initial_path(rpc r, vector path);
+status segment(status (*each)(nfs4_file, void *, u64, u32), int chunksize, nfs4_file f, void *x, u64 offset, u32 length);
+char *push_initial_path(rpc r, char *path);
 status transact(rpc r, int op, buffer b);
 
-status write_chunk(file f, void *source, u64 offset, u32 length);
-status read_chunk(file f, void *source, u64 offset, u32 length);
-void push_resolution(rpc r, vector path);
-status nfs4_connect(client s);
-
-// statusses should have a different allocation policy entirely
-static inline status allocate_status(client c, char *cause)
-{
-    status s = allocate(0, sizeof(struct status));
-    s->cause = cause;
-    return s;
-}
+status write_chunk(nfs4_file f, void *source, u64 offset, u32 length);
+status read_chunk(nfs4_file f, void *source, u64 offset, u32 length);
+void push_resolution(rpc r, char *path);
+status nfs4_connect(nfs4 s);
 
 static void deallocate_rpc(rpc r)
 {
@@ -137,7 +139,6 @@ static void deallocate_rpc(rpc r)
 }
 
 buffer print_path(heap h, vector v);
-
 
 static void print_buffer(char *tag, buffer b)
 {
@@ -148,17 +149,19 @@ static void print_buffer(char *tag, buffer b)
     deallocate_buffer(temp);
 }
 
-static inline status read_buffer(client c, buffer b, void *dest, u32 len)
+static inline status read_buffer(nfs4 c, buffer b, void *dest, u32 len)
 {
-    if (length(b) < len) return allocate_status(c, "out of data");
+    if (length(b) < len) return error(c, NFS4_ESPIPE, "out of data");
     if (dest != (void *)0) memcpy(dest, b->contents + b->start, len);
     b->start += len;
-    return STATUS_OK;
+    return NFS4_OK;
 }
 
 
-status create_session(client c);
-status exchange_id(client c);
-status reclaim_complete(client c);
+int create_session(nfs4 c);
+int exchange_id(nfs4 c);
+int reclaim_complete(nfs4 c);
 void push_session_id(rpc r, u8 *session);
-status rpc_connection(client c);
+status rpc_connection(nfs4 c);
+void push_owner(rpc r);
+int read_response(nfs4 c, buffer b);
