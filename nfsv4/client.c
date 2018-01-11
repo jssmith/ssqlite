@@ -87,10 +87,19 @@ int nfs4_unlink(nfs4 c, char *path)
 
 int nfs4_opendir(nfs4 c, char *path, nfs4_dir *dest)
 {
+    nfs4_dir d = allocate(0, sizeof(struct nfs4_dir));
+    nfs4_file f;
+    int res = nfs4_open(c, path, NFS4_RDONLY, 0000, &f);
+    if (res != 0) {
+        return res;
+    }
+    *dest = d;
 }
 
-int nfs4_closedir(nfs4_dir dest)
+
+int nfs4_closedir(nfs4_dir d)
 {
+    nfs4_close(d->f);
 }
 
 int nfs4_readdir(nfs4_dir d, nfs4_properties *dest)
@@ -99,17 +108,66 @@ int nfs4_readdir(nfs4_dir d, nfs4_properties *dest)
 
 int nfs4_mkdir(nfs4 c, char *path)
 {
+    struct nfs4_properties p;
+    rpc r = allocate_rpc(c, c->forward);
+    push_sequence(r);
+    char *final = push_initial_path(r, path);
+    push_create(r, &p);
+    return transact(r, OP_CREATE, c->reverse);    
 }
+
 
 int nfs4_synch(nfs4 c)
 {
     while (vector_length(c->outstanding)) {
+        boolean bs;
         read_response(c, c->reverse);
-        // parse for errors
+        int k = parse_rpc(c, c->reverse, &bs);
+        // we stop after the first error - this is effectively fatal
+        // for the session
+        if (k) return k;
     }
     return NFS4_OK;
 }
 
+int nfs4_lock_range(nfs4_file f, int locktype, bytes offset, bytes length)
+{
+    rpc r = file_rpc(f);
+    push_op(r, OP_LOCK);
+    push_be32(r->b, locktype);
+    push_boolean(r->b, false); // reclaim
+    push_be64(r->b, offset);
+    push_be64(r->b, length);
+
+    push_boolean(r->b, true); // new lock owner
+    push_bare_sequence(r);
+    push_stateid(r, &f->open_sid);
+    push_lock_sequence(r);
+    push_owner(r);
+
+    buffer res = f->c->reverse;
+    status s = transact(r, OP_LOCK, res);
+    if (s) return s;
+    parse_stateid(f->c, res, &f->latest_sid);
+    return NFS4_OK;
+}
+
+
+int nfs4_unlock_range(nfs4_file f, int locktype, bytes offset, bytes length)
+{
+    rpc r = file_rpc(f);
+    push_op(r, OP_LOCKU);
+    push_be32(r->b, locktype);
+    push_bare_sequence(r);
+    push_stateid(r, &f->latest_sid);
+    push_be64(r->b, offset);
+    push_be64(r->b, length);
+    buffer res = f->c->reverse;
+    status s = transact(r, OP_LOCKU, res);
+    if (s) return s;
+    parse_stateid(f->c, res, &f->latest_sid);
+    return NFS4_OK;
+}
 
 int nfs4_create(char *hostname, nfs4 *dest)
 {
@@ -135,6 +193,7 @@ int nfs4_create(char *hostname, nfs4 *dest)
     c->maxresp = config_u64("NFS_READ_LIMIT", 1024*1024);
     c->maxreq = config_u64("NFS_WRITE_LIMIT", 1024*1024);
     c->error_string = allocate_buffer(c->h, 128);
+    c->outstanding = allocate_vector(c->h, 5);
 
     *dest = c;
     return rpc_connection(c);

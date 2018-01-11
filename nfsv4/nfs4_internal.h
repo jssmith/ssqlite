@@ -44,8 +44,24 @@ struct nfs4_file {
     struct stateid open_sid;
 };
 
+#define DIR_FILE_BATCH_SIZE 32
+struct nfs4_dir {
+    nfs4_file f;
+    u64 cookie;
+    u8 verifier[NFS4_VERIFIER_SIZE];
+    struct nfs4_properties props[DIR_FILE_BATCH_SIZE];
+};
+    
 static inline int error(nfs4 c, int code, char* format, ...)
 {
+    // pull in buffer-based printf
+    int len = strlen(format);
+    c->error_string->start =0;
+    c->error_string->end =0;
+    buffer_extend(c->error_string, len);
+    push_bytes(c->error_string, format, len);
+    push_char(c->error_string, 0);
+    return code;
 }
 
                         
@@ -88,10 +104,10 @@ rpc allocate_rpc(nfs4 s, buffer b);
 
 struct rpc {
     nfs4 c;
+    u32 xid;
     bytes opcountloc;
     int opcount;
     buffer b;
-    vector completions;
 };
 
 // should check client maxops and throw status
@@ -165,3 +181,5 @@ void push_session_id(rpc r, u8 *session);
 status rpc_connection(nfs4 c);
 void push_owner(rpc r);
 int read_response(nfs4 c, buffer b);
+rpc file_rpc(nfs4_file f);
+void push_create(rpc r, nfs4_properties p);

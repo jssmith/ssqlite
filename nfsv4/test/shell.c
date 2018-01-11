@@ -109,6 +109,9 @@ static int mkdirc(nfs4 c, char *path, vector args)
 {
 }
 
+
+static int help(nfs4 c, char *path, vector args);
+
 static void format_mode(nfs4_mode_t x, buffer b)
 {
     for (int i = 8; i >= 0; i--) {
@@ -120,17 +123,28 @@ static void format_mode(nfs4_mode_t x, buffer b)
 }
 
 // directories
-static struct {char *name; int (*f)(nfs4, char*, vector);} commands[] = {
-    {"create", create},
-    {"writed", writed},
-    {"readd", readd},
-    {"write", writec},
-    {"read", readc},    
-    {"delete", deletec},    
-    {"ls", lsc},
-    {"mkdir", mkdirc},
+static struct {char *name; int (*f)(nfs4, char*, vector); char *desc;} commands[] = {
+    {"create", create, ""},
+    {"writed", writed, ""},
+    {"readd", readd, ""},
+    {"write", writec, ""},
+    {"read", readc, ""},    
+    {"delete", deletec, ""},    
+    {"ls", lsc, ""},
+    {"mkdir", mkdirc, ""},
+    {"?", help, "help"},
+    {"help", help, "help"},    
     {"", 0}
 };
+
+
+static int help(nfs4 c, char *path, vector args)
+{
+    for (int i = 0; commands[i].name[0] ; i++) {
+        if (commands[i].f != help)
+            printf ("%s\n", commands[i].name);
+    }
+}
 
 int main(int argc, char **argv)
 {
@@ -144,6 +158,7 @@ int main(int argc, char **argv)
     }
     
     while (1) {
+        write(1, "> ", 2);
         char x;
         // secondary loop around input chunks
         if (read(0, &x, 1) != 1) {

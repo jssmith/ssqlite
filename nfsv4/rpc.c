@@ -77,18 +77,24 @@ static struct codepoint nfsops[] = {
 {"CLONE"                , 71},
 {"ILLEGAL"              , 10044}};
 
+static void toggle(void *a, buffer b)
+{
+    *(int *)a = 1;
+}
+
 rpc allocate_rpc(nfs4 c, buffer b) 
 {
     // can use a single entity or a freelist
     rpc r = allocate(s->h, sizeof(struct rpc));
     r->b = b;
     b->start = b->end = 0;
+    r->xid = ++c->xid;
     
     // tcp framer - to be filled on transmit
     push_be32(b, 0);
     
     // rpc layer 
-    push_be32(b, ++c->xid);
+    push_be32(b, r->xid);
     push_be32(b, 0); //call
     push_be32(b, 2); //rpcvers
     push_be32(b, NFS_PROGRAM);
@@ -110,10 +116,45 @@ rpc allocate_rpc(nfs4 c, buffer b)
     return r;
 }
 
+// sad, but low on memory pressure, and trying to avoid pulling in
+// more runtime (i.e. maps)
+static void enqueue_completion(nfs4 c, u32 xid, void (*f)(void *, buffer), void *a)
+{
+    int len = vector_length(c->outstanding);
+    int i;
+    for (i = 0; i < len; i+=3) 
+        if (vector_get(c->outstanding, i) == 0)
+            break;
+    vector_set(c->outstanding, i, (void *)(u64)xid);
+    vector_set(c->outstanding, i + 1, f);
+    vector_set(c->outstanding, i + 2, a);
+}
+
+static status completion_notify(nfs4 c, u32 xid)
+{
+    vector p = c->outstanding;
+    int len = vector_length(p);
+    for (int i = 0; i < len; i+=3) {
+        if ((u64)vector_get(p, i) == xid) {
+            void (*f)(void *) = vector_get(p, i +1);
+            if (f) f(vector_get(p, i+2));
+            vector_set(p, i, 0);
+            break;
+        }
+    }
+
+    // compaction
+    while (vector_length(p) && !vector_get(p, vector_length(p)-3))
+        p->end -= 3*sizeof (void *);
+}
+
 status parse_rpc(nfs4 c, buffer b, boolean *badsession)
 {
     *badsession = false;
-    verify_and_adv(c, b, c->xid);
+    u32 xid = read_beu32(c, b);
+    status s = completion_notify(c, xid);
+    if (s) return(s);
+        
     verify_and_adv(c, b, 1); // reply
     
     u32 rpcstatus = read_beu32(c, b);
@@ -274,7 +315,7 @@ static status read_until(nfs4 c, buffer b, u32 which)
     return NFS4_OK;
 }
 
-static rpc file_rpc(nfs4_file f)
+rpc file_rpc(nfs4_file f)
 {
     rpc r = allocate_rpc(f->c, f->c->forward);
     push_sequence(r);
@@ -287,14 +328,18 @@ static rpc file_rpc(nfs4_file f)
 
 status base_transact(rpc r, int op, buffer result, boolean *badsession)
 {
+    int myself = 0;
+    enqueue_completion(r->c, r->xid, toggle, &myself);
     status s = rpc_send(r);
     if (s) return s;
     result->start = result->end = 0;
     s = read_response(r->c, result);
     if (s) return s;
     // should instead keep session alive
-    s = parse_rpc(r->c, result, badsession);
-    if (s) return s;
+    while (!myself) {
+        s = parse_rpc(r->c, result, badsession);
+        if (s) return s;
+    }
     s = read_until(r->c, result, op);
     if (s) return s;
     u32 code = read_beu32(r->c, result);
@@ -370,6 +415,9 @@ status transact(rpc r, int op, buffer result)
     status s;
     
     while ((tries < 2 ) && (badsession == true)) {
+        // xxx - if there are outstanding operations on the
+        // old connection .. a late synch() will never
+        // complete
         s = base_transact(r, op, result, &badsession);
         if (badsession) {
             status s2 = rpc_connection(r->c);
@@ -475,7 +523,7 @@ status reclaim_complete(nfs4 c)
 }
 
 
-int rpc_connection(nfs4 c)
+status rpc_connection(nfs4 c)
 {
     int s = nfs4_connect(c);
     if (s) return s;
@@ -486,49 +534,19 @@ int rpc_connection(nfs4 c)
     return reclaim_complete(c);
 }
 
-int lock_range(nfs4_file f, int locktype, bytes offset, bytes length)
+void push_readdir(nfs4_dir d)
 {
-    rpc r = file_rpc(f);
-    push_op(r, OP_LOCK);
-    push_be32(r->b, locktype);
-    push_boolean(r->b, false); // reclaim
-    push_be64(r->b, offset);
-    push_be64(r->b, length);
-
-    push_boolean(r->b, true); // new lock owner
-    push_bare_sequence(r);
-    push_stateid(r, &f->open_sid);
-    push_lock_sequence(r);
-    push_owner(r);
-
-    buffer res = f->c->reverse;
-    status s = transact(r, OP_LOCK, res);
-    if (s) return s;
-    parse_stateid(f->c, res, &f->latest_sid);
-    return NFS4_OK;
-}
-
-int unlock_range(nfs4_file f, int locktype, bytes offset, bytes length)
-{
-    rpc r = file_rpc(f);
-    push_op(r, OP_LOCKU);
-    push_be32(r->b, locktype);
-    push_bare_sequence(r);
-    push_stateid(r, &f->latest_sid);
-    push_be64(r->b, offset);
-    push_be64(r->b, length);
-    buffer res = f->c->reverse;
-    status s = transact(r, OP_LOCKU, res);
-    if (s) return s;
-    parse_stateid(f->c, res, &f->latest_sid);
-    return NFS4_OK;
-}
-
-void readdir()
-{
-    //           nfs_cookie4     cookie;
-    //           verifier4       cookieverf;
-    //           count4          dircount;
-    //           count4          maxcount;
-    //           bitmap4         attr_request;
+    // ok, unforunately both of these fields, like
+    // the read and write limits are the total xdr encoded
+    // sizes for the return frame (max), and the directory information
+    // included therin (dir)...so...
+    u32 dircount;
+    u32 maxcount;
+    rpc r = file_rpc(d->f);
+    push_op(r, OP_READDIR);
+    push_be64(r->b, d->cookie);
+    push_bytes(r->b, d->verifier, NFS4_VERIFIER_SIZE);
+    push_be32(r->b, dircount);
+    push_be32(r->b, maxcount);
+    //    push_fattrmap_properties(r->b)
 }

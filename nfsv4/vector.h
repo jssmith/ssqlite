@@ -12,6 +12,21 @@ static inline void *vector_get(vector v, int offset)
     return res;
 }
 
+static void extend_total(buffer b, int offset)
+{
+    if (offset > b->end) {
+        buffer_extend(b, offset - b->end);
+        memset(b->contents + b->end, 0, offset - b->end);
+        b->end = offset;
+    }
+}
+
+static inline void vector_set(vector v, int offset, void *value)
+{
+    extend_total(v, (offset + 1) *sizeof(void *));
+    memcpy(v->contents + offset * sizeof(void*), &value, sizeof(void *));
+}
+
 static inline int vector_length(vector v)
 {
     return length(v)/sizeof(void *);
@@ -67,3 +82,9 @@ static buffer join(heap h, vector source, char between)
 }
 
 #define vector_foreach(__i, __v) for(u32 _i = 0, _len = vector_length(__v); _i< _len && (__i = vector_get(__v, _i), 1); _i++)
+
+static inline void bitvector_set(buffer b, int position)
+{
+    extend_total(b, pad(position, 8)>>3);
+    ((u8 *)b->contents)[position>>3] |= (1<<(position & 7));
+}

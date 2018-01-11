@@ -63,6 +63,19 @@ int nfs4_pread(nfs4_file f, void *buf, bytes, bytes offset);
 // nfs4 filehandle size;
 typedef unsigned char nfs4_ino_t[128];
 
+
+typedef enum nfs_ftype4 {
+        NF4REG       = 1,  /* Regular File */
+        NF4DIR       = 2,  /* Directory */
+        NF4BLK       = 3,  /* Special File -- block device */
+        NF4CHR       = 4,  /* Special File -- character device */
+        NF4LNK       = 5,  /* Symbolic Link */
+        NF4SOCK      = 6,  /* Special File -- socket */
+        NF4FIFO      = 7,  /* Special File -- fifo */
+        NF4ATTRDIR   = 8,  /* Attribute Directory */
+        NF4NAMEDATTR = 9   /* Named Attribute */
+} nfs_ftype4;
+
 typedef struct nfs4_properties {
     char           name[256];
     nfs4_ino_t     ino;
@@ -71,7 +84,7 @@ typedef struct nfs4_properties {
     nfs4_uid_t     uid;    /* user ID of owner */
     nfs4_gid_t     gid;    /* group ID of owner */
     bytes          size;        /* total size, in bytes */
-    unsigned char  type; // enumeration
+    nfs_ftype4     type; 
     nfs4_time st_atim;  /* time of last access */
     nfs4_time st_mtim;  /* time of last modification */
     nfs4_time st_ctim;  /* time of last status change */
@@ -90,7 +103,7 @@ int nfs4_stat(nfs4 n, char *path, nfs4_properties st);
 int nfs4_fstat(nfs4_file fd, nfs4_properties st);
 int nfs4_mkdir(nfs4 n, char *path);
 
-typedef void *nfs4_dir;
+typedef struct nfs4_dir *nfs4_dir;
 int nfs4_opendir(nfs4, char *path, nfs4_dir *);
 int nfs4_readdir(nfs4_dir, nfs4_properties *d);
 int nfs4_closedir(nfs4_dir);

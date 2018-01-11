@@ -229,9 +229,10 @@ void push_open(rpc r, char *name, int flags)
         // the newly created file
         push_be32(r->b, 0x00000002); // mask length
         push_be32(r->b, 0x00000000);
-        push_be32(r->b, 0x00000002);
+        push_be32(r->b, 0x00000006); // which means attribute 1 - type - was 2
         push_be32(r->b, 0x00000004);
         push_be32(r->b, 0x000001a4);
+        push_string(r->b, "4123", 4);
     } else {
         push_be32(r->b, OPEN4_NOCREATE);
     }
@@ -272,7 +273,7 @@ void push_exchange_id(rpc r)
     push_be32(r->b, 0);
 }
 
-status parse_exchange_id(nfs4 c, buffer b)
+int parse_exchange_id(nfs4 c, buffer b)
 {
     memcpy(&c->clientid, b->contents + b->start, sizeof(c->clientid));
     b->start += sizeof(c->clientid);
@@ -284,3 +285,25 @@ status parse_exchange_id(nfs4 c, buffer b)
     //    nfs_impl_id4     eir_server_impl_id<1>;
     return NFS4_OK;
 }
+
+void push_attr_bitmap(rpc r, buffer b)
+{
+    int len = length(b);
+    int p = pad(len, 4);
+    extend_total(b, p);
+    push_be32(r->b, p/4);
+    push_string(r->b, b->contents, p); 
+}
+
+void push_fattr(rpc r, nfs4_properties p)
+{
+}
+
+void push_create(rpc r, nfs4_properties p)
+{
+    push_op(r,OP_CREATE);
+    push_be32(r->b, NF4DIR);
+    push_string(r->b, p->name, strlen(p->name));
+    push_fattr(r, p);
+}
+
