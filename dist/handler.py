@@ -9,6 +9,8 @@ import logging
 from util import *
 from tpccrt import *
 
+import constants
+
 lambda_id = "%016x" % random.getrandbits(64)
 efs_location = "%s.efs.%s.amazonaws.com" % (os.environ["EFS_IP"], os.environ["AWS_REGION"])
 
@@ -75,7 +77,7 @@ def test_create(database_location):
     conn.close()
     return { "NumRows": num_rows }
 
-def do_tpcc(database_location, duration):
+def do_tpcc(database_location, duration, frac_read):
     # print(os.environ["NFS_TRACE"])
     system = "sqlite"
     args = {
@@ -102,6 +104,14 @@ def do_tpcc(database_location, duration):
     config["reset"] = False
     config["load"] = False
     config["execute"] = False
+    config['txn_weights'] = {
+        constants.TransactionTypes.STOCK_LEVEL: int(500 * frac_read),
+        constants.TransactionTypes.DELIVERY: int(44 * (1 - frac_read)),
+        constants.TransactionTypes.ORDER_STATUS: int(500 * frac_read),
+        constants.TransactionTypes.PAYMENT: int(467 * (1 - frac_read)),
+        constants.TransactionTypes.NEW_ORDER: int(489 * (1 - frac_read))
+    }
+
     driver.loadConfig(config)
     tpcc.logging.info("Initializing TPC-C benchmark using %s" % driver)
 
@@ -109,7 +119,7 @@ def do_tpcc(database_location, duration):
     scaleParameters = scaleparameters.makeWithScaleFactor(args["warehouses"], args["scalefactor"])
     nurandx = rand.setNURand(nurand.makeForLoad())
 
-    e = executor.Executor(driver, scaleParameters, stop_on_error=args["stop_on_error"])
+    e = executor.Executor(driver, scaleParameters, stop_on_error=args["stop_on_error"], weights=config['txn_weights'])
     driver.executeStart()
     results = e.execute(args["duration"], args["timing_details"])
     driver.executeFinish()
@@ -121,15 +131,21 @@ def lambda_handler(event, context):
     print("efs location", efs_location)
     database_name = event["dbname"] if "dbname" in event else "tpcc-nfs"
     test_duration = event["duration"] if "duration" in event else 10
+    frac_read = event["frac_read"] if "frac_read" in event else 0.08
     database_location = "%s/%s" % (socket.gethostbyname(efs_location), database_name)
     tests = {
         "local": lambda: test_local(),
         "open": lambda: test_open(database_location),
         "write": lambda: test_write(database_location),
         "create": lambda: test_create(database_location),
-        "tpcc": lambda: do_tpcc(database_location, test_duration) }
+        "tpcc": lambda: do_tpcc(database_location, test_duration, frac_read) }
     res = tests[event["test"]]()
     return {
         "LambdaId": lambda_id,
         "AwsRequestId": context.aws_request_id,
+        "Config": {
+            "dbname": database_name,
+            "frac_read": frac_read,
+            "duration": test_duration
+        },
         "Result": res }
