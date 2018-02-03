@@ -11,7 +11,6 @@ from tpccrt import *
 
 lambda_id = "%016x" % random.getrandbits(64)
 efs_location = "%s.efs.%s.amazonaws.com" % (os.environ["EFS_IP"], os.environ["AWS_REGION"])
-database_location = "%s/tpcc-nfs" % socket.gethostbyname(efs_location)
 
 is_ext_loaded = False
 
@@ -36,7 +35,7 @@ def test_local():
     conn.close()
     return { "NumRows": num_rows }
 
-def test_open():
+def test_open(database_location):
     load_nfs4_extension()
 
     conn = sqlite3.connect(database_location)
@@ -47,7 +46,7 @@ def test_open():
     conn.close()
     return { "NumWarehouses" : num_warehouses }
 
-def test_write():
+def test_write(database_location):
     load_nfs4_extension()
 
     conn = sqlite3.connect(database_location)
@@ -61,7 +60,7 @@ def test_write():
     conn.close()
     return { "NumRows": num_rows }
 
-def test_create():
+def test_create(database_location):
     load_nfs4_extension()
 
     create_database_location = "%s/test-%s" % (socket.gethostbyname(efs_location), lambda_id)
@@ -76,14 +75,15 @@ def test_create():
     conn.close()
     return { "NumRows": num_rows }
 
-def do_tpcc():
+def do_tpcc(database_location, duration):
     # print(os.environ["NFS_TRACE"])
     system = "sqlite"
     args = {
         "warehouses": 4,
         "scalefactor": 1,
-        "duration": 10,
+        "duration": duration,
         "stop_on_error": True,
+        "timing_details": True,
         "debug": True
     }
     if args['debug']: logging.getLogger().setLevel(logging.DEBUG)
@@ -111,20 +111,23 @@ def do_tpcc():
 
     e = executor.Executor(driver, scaleParameters, stop_on_error=args["stop_on_error"])
     driver.executeStart()
-    results = e.execute(args["duration"])
+    results = e.execute(args["duration"], args["timing_details"])
     driver.executeFinish()
     return results.data()
 
 
 def lambda_handler(event, context):
     print("lambda id", lambda_id)
-    print("database location", database_location)
+    print("efs location", efs_location)
+    database_name = event["dbname"] if "dbname" in event else "tpcc-nfs"
+    test_duration = event["duration"] if "duration" in event else 10
+    database_location = "%s/%s" % (socket.gethostbyname(efs_location), database_name)
     tests = {
-        "local": test_local,
-        "open": test_open,
-        "write": test_write,
-        "create": test_create,
-        "tpcc": do_tpcc }
+        "local": lambda: test_local(),
+        "open": lambda: test_open(database_location),
+        "write": lambda: test_write(database_location),
+        "create": lambda: test_create(database_location),
+        "tpcc": lambda: do_tpcc(database_location, test_duration) }
     res = tests[event["test"]]()
     return {
         "LambdaId": lambda_id,
