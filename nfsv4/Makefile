@@ -9,7 +9,7 @@ nfs4.o: nfs4.c
 ifndef SQLITE
 	echo 'SQLITE is undefined'
 else
-	gcc -g -fPIC -I. $(TRACING) -std=gnu99 -I$(SQLITE) $< -c
+	gcc -g -fPIC -I. $(TRACING) -std=gnu99 -I$(SQLITE) $(CFLAGS) $< -c
 endif
 
 # how to depend on buffer.h nfs.h 

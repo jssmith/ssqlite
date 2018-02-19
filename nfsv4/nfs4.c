@@ -486,9 +486,16 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     buffer zeg =  vector_get(path, 0);
     push_char(servername, 0);
 
-    if (ad->c == 0) {
+#ifndef NFS4_CLIENT_PER_FILEHANDLE
+    client *c = &ad->c;
+#else
+    client lc = 0;
+    client *c = &lc;
+#endif
+
+    if (*c == 0) {
         // change interface to tuple in order to parameterize
-        status st = create_client((char *)servername->contents, &ad->c);
+        status st = create_client((char *)servername->contents, c);
         if (!is_ok(st)) {
             return translate_status(ad, st);
         }
@@ -497,15 +504,15 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     f->base.pMethods = methods;
 
     if (flags & SQLITE_OPEN_READONLY) {
-        return translate_status(ad, file_open_read(ad->c, path, &f->f));
+        return translate_status(ad, file_open_read(*c, path, &f->f));
     }
     
     if (flags & SQLITE_OPEN_CREATE) {
-        return translate_status(ad, file_create(ad->c, path, &f->f));
+        return translate_status(ad, file_create(*c, path, &f->f));
     }
     
     if (flags & SQLITE_OPEN_READWRITE) {
-        return translate_status(ad, file_open_write(ad->c, path, &f->f));
+        return translate_status(ad, file_open_write(*c, path, &f->f));
     }
 
     return SQLITE_CANTOPEN;
@@ -523,7 +530,7 @@ static int nfs4Delete(sqlite3_vfs *pVfs, const char *zPath, int dirSync)
     buffer_wrap_string(&znb, (char *)zPath);
     vector path = split(0, &znb, '/');
     vector_pop(path);
-    delete(ad->c, path);
+    delete(ad->c, path);    // xxx ad->c may be unitialized
         
     return SQLITE_OK;
 }
@@ -545,7 +552,7 @@ static int nfs4Access(sqlite3_vfs *pVfs,
         buffer_wrap_string(&znb, (char *)zPath);
         vector path = split(0, &znb, '/');
         vector_pop(path);
-        status s = exists(ad->c, path);
+        status s = exists(ad->c, path);    // xxx ad->c may be unitialized
         *pResOut = is_ok(s)?1:0;
     }
     if( flags==SQLITE_ACCESS_READWRITE ){
