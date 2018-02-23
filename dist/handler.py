@@ -1,8 +1,12 @@
+import boto3
+import json
+import gzip
 import os
 import random
 import socket
 import sys
 import sqlite3
+import uuid
 
 import tpcc
 import logging
@@ -132,6 +136,7 @@ def lambda_handler(event, context):
     database_name = event["dbname"] if "dbname" in event else "tpcc-nfs"
     test_duration = event["duration"] if "duration" in event else 10
     frac_read = event["frac_read"] if "frac_read" in event else 0.08
+    s3_result_bucket = event["s3_result_bucket"] if "s3_result_bucket" in event else None
     database_location = "%s/%s" % (socket.gethostbyname(efs_location), database_name)
     tests = {
         "local": lambda: test_local(),
@@ -139,8 +144,8 @@ def lambda_handler(event, context):
         "write": lambda: test_write(database_location),
         "create": lambda: test_create(database_location),
         "tpcc": lambda: do_tpcc(database_location, test_duration, frac_read) }
-    res = tests[event["test"]]()
-    return {
+    test_result = tests[event["test"]]()
+    result = {
         "LambdaId": lambda_id,
         "AwsRequestId": context.aws_request_id,
         "Config": {
@@ -148,4 +153,12 @@ def lambda_handler(event, context):
             "frac_read": frac_read,
             "duration": test_duration
         },
-        "Result": res }
+        "Result": test_result }
+    if s3_result_bucket:
+        result_name = str(uuid.uuid4())
+        s3 = boto3.resource('s3')
+        s3_object = s3.Object(s3_result_bucket, result_name)
+        s3_object.put(Body=gzip.compress(json.dumps(result).encode("utf-8")))
+        return result_name
+    else:
+        return result
