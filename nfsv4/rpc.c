@@ -100,8 +100,13 @@ rpc allocate_rpc(client c, buffer b)
     push_be32(b, NFS_PROGRAM);
     push_be32(b, 4); //version
     push_be32(b, 1); //proc
-    push_be32(b, 0); //auth
-    push_be32(b, 0); //authbody
+    push_be32(b, 1); //AUTH_UNIX
+    push_be32(b, 36); //authbody - length
+    push_be32(b, 0x111ff274); // stamp - randomize this
+    push_string(b, "ip-192-168-1-40", 15);
+    push_be32(b, 0); //uid
+    push_be32(b, 0); //gid
+    push_be32(b, 0); //aux gids
     push_be32(b, 0); //verf
     push_be32(b, 0); //verf body kernel client passed the auth_sys structure
 
@@ -230,6 +235,17 @@ status nfs4_connect(client c)
     return STATUS_OK;
 }
 
+void push_resolution_rfh(rpc r, vector path)
+{
+    push_op(r, OP_PUTFH);
+    push_string(r->b, r->c->root_filehandle, NFS4_FHSIZE);
+    buffer i;
+    vector_foreach(i, path) {
+        push_op(r, OP_LOOKUP);
+        push_string(r->b, i->contents + i->start, length(i));
+    }
+}
+
 void push_resolution(rpc r, vector path)
 {
     push_op(r, OP_PUTROOTFH);
@@ -278,7 +294,7 @@ static rpc file_rpc(file f)
 
     push_op(r, OP_PUTFH);
     if (config_boolean("NFS_USE_FILEHANDLE", true)){
-        push_string(r->b, f->filehandle, NFS4_FHSIZE);
+        push_string(r->b, f->filehandle, f->filehandle_len);
     } else {
         push_resolution(r, f->path);
     }
@@ -315,7 +331,10 @@ status exchange_id(client c)
         return st;
     }
     st = parse_exchange_id(c, res);
-    if (!is_ok(st)) return st;
+    if (!is_ok(st)) {
+        deallocate_rpc(r);
+        return st;
+    }
     deallocate_rpc(r);
     return STATUS_OK;
 }
@@ -335,8 +354,36 @@ status create_session(client c)
         return st;
     }    
     st = parse_create_session(c, res);
-    if (!is_ok(st)) return st;
+    if (!is_ok(st)) {
+        deallocate_rpc(r);
+        return st;
+    }
     deallocate_rpc(r);
+    return STATUS_OK;
+}
+
+status get_root_fh(client c)
+{
+    rpc r = allocate_rpc(c, c->reverse);
+    push_sequence(r);
+    push_op(r, OP_PUTROOTFH);
+    push_op(r, OP_GETFH);
+    buffer res = c->reverse;
+    boolean bs2;
+    status st = base_transact(r, OP_GETFH, res, &bs2);
+    if (!is_ok(st)) {
+        deallocate_rpc(r);
+        return st;
+    }
+    u32 root_filehandle_len = read_beu32(c, res);
+    if (root_filehandle_len > NFS4_FHSIZE) {
+        return allocate_status(c, "encoding mismatch");
+    }
+    c->root_filehandle_len = root_filehandle_len;
+
+    st = read_buffer(c, res, &c->root_filehandle, c->root_filehandle_len);
+    deallocate_rpc(r);
+    if (!is_ok(st)) return st;
     return STATUS_OK;
 }
 
@@ -440,7 +487,7 @@ buffer push_initial_path(rpc r, vector path)
     struct buffer initial;
     memcpy(&initial, path, sizeof(struct buffer));
     initial.end  -= sizeof(void *);
-    push_resolution(r, &initial);
+    push_resolution_rfh(r, &initial);
     return vector_get(path, vector_length(path)-1);
 }
 
@@ -476,7 +523,10 @@ status rpc_connection(client c)
     if (!is_ok(s)) return s;
     s = create_session(c);
     if (!is_ok(s)) return s;
-    return reclaim_complete(c);
+    s = get_root_fh(c);
+    if (!is_ok(s)) return s;
+    s = reclaim_complete(c);
+    return s;
 }
 
 status lock_range(file f, u32 locktype, u64 offset, u64 length)

@@ -1,5 +1,6 @@
+#include <assert.h>
 #include <nfs4_internal.h>
-#include <sys/time.h>
+#include <time.h>
 
 // replace with dedicated printf
 buffer print_path(heap h, vector v)
@@ -66,8 +67,12 @@ static status file_open_internal(file f, vector path, boolean writable, boolean 
     }
     verify_and_adv(f->c, res, OP_GETFH);
     verify_and_adv(f->c, res, 0); // status
-    verify_and_adv(f->c, res, 0x80); // length
-    st = read_buffer(f->c, res, &f->filehandle, NFS4_FHSIZE);
+    u32 filehandle_len = read_beu32(f->c, res);
+    if (filehandle_len > NFS4_FHSIZE) {
+        return allocate_status(f->c, "encoding mismatch");
+    }
+    f->filehandle_len = filehandle_len;
+    st = read_buffer(f->c, res, &f->filehandle, f->filehandle_len);
     deallocate_rpc(r);
     if (!is_ok(st)) return st;
     return STATUS_OK;
@@ -160,9 +165,11 @@ status create_client(char *hostname, client *dest)
 
     // xxx - we're actually using very few bits from tv_usec, make a better
     // instance id
-    struct timeval p;
-    gettimeofday(&p, 0);
-    memcpy(c->instance_verifier, &p.tv_usec, NFS4_VERIFIER_SIZE);
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    u64 verifier = (u64) (t.tv_sec * 1000000000 + t.tv_nsec);
+    assert(NFS4_VERIFIER_SIZE == sizeof(u64));
+    memcpy(c->instance_verifier, &verifier, NFS4_VERIFIER_SIZE);
 
     c->maxresp = config_u64("NFS_READ_LIMIT", 1024*1024);
     c->maxreq = config_u64("NFS_WRITE_LIMIT", 1024*1024);

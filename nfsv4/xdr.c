@@ -59,7 +59,8 @@ void push_create_session(rpc r)
     push_be32(r->b, CREATE_SESSION4_FLAG_PERSIST);
     push_channel_attrs(r); //forward
     push_channel_attrs(r); //return
-    push_be32(r->b, NFS_PROGRAM);
+    push_be32(r->b, 0x7b);
+    push_be32(r->b, 0x01);
     push_be32(r->b, 0); // auth params null
 }
 
@@ -171,13 +172,12 @@ status parse_open(file f, buffer b)
     parse_stateid(f->c, b, &f->open_sid);
     memcpy(&f->latest_sid, &f->open_sid, sizeof(struct stateid));
     // change info
-    read_beu32(f->c, b); // atomic
-    u32 before = read_beu64(f->c, b); // before
-    u32 after = read_beu64(f->c, b); // after
-    read_beu32(f->c, b); // rflags
-    read_beu32(f->c, b); // bitmap4 attr
-    read_beu32(f->c, b); // xxx - no -idea
-    read_beu32(f->c, b); // xxx - no -idea
+    u32 atomic = read_beu32(f->c, b); // atomic
+    u64 before = read_beu64(f->c, b); // before
+    u64 after = read_beu64(f->c, b); // after
+    u32 rflags = read_beu32(f->c, b); // rflags
+    u32 bitmap_len = read_beu32(f->c, b); // bitmap4 attr
+    b->start += bitmap_len * sizeof(u32);
     u32 delegation_type = read_beu32(f->c, b);
 
     switch (delegation_type) {
@@ -253,19 +253,22 @@ void push_stateid(rpc r, stateid s)
 // section 18.35, page 494, rfc 5661.txt
 void push_exchange_id(rpc r)
 {
-    // this is supposed to be an instance descriptor that
+    // co_owner id is supposed to be an instance descriptor that
     // spans multiple invocations of the same logical instance...
     // either expose in create_client or assume we will never
-    // try to reclaim locks
-    char co_owner_id[] = "sqlite.ip-172-31-27-113";
-    // change this to something more appropriate
-    char author[] = "kernel.org";
-    char version[] = "Linux 4.4.0-1038-aws.#47-Ubuntu.SMP Thu Sep 28 20:05:35 UTC.2017 x86_64";
+    // try to reclaim locks.
+    //
+    // For now we are populating with random data
+    char co_owner_id[16];
+    fill_random(co_owner_id, sizeof(co_owner_id));
+
+    char author[] = "edu.berkeley";
+    char version[] = "NFS for Serverless v. 0.1-snapshot";
     push_op(r, OP_EXCHANGE_ID);
 
     // clientowner4
     push_bytes(r->b, r->c->instance_verifier, NFS4_VERIFIER_SIZE);
-    push_string(r->b, co_owner_id, sizeof(co_owner_id) - 1);
+    push_string(r->b, co_owner_id, sizeof(co_owner_id));
 
     push_be32(r->b, 0); // flags
 
@@ -273,9 +276,8 @@ void push_exchange_id(rpc r)
     push_be32(r->b, 1); // i guess a single impl id?
     push_string(r->b, author, sizeof(author) - 1); // authors domain name
     push_string(r->b, version, sizeof(version) - 1); // name
-    push_be32(r->b, 0); // build date... populate
-    push_be32(r->b, 0);
-    push_be32(r->b, 0);
+    push_be64(r->b, 0); // build date seconds... populate
+    push_be32(r->b, 0); // build date nanoseconds
 }
 
 status parse_exchange_id(client c, buffer b)

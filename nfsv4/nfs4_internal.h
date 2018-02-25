@@ -24,6 +24,8 @@ struct client {
     u32 maxops;
     u32 maxreqs;
     buffer hostname;
+    u8 root_filehandle_len;
+    u8 root_filehandle[NFS4_FHSIZE];
 };
 
 typedef struct  stateid {
@@ -34,6 +36,7 @@ typedef struct  stateid {
 struct file {
     client c;
     vector path;
+    u8 filehandle_len;
     u8 filehandle[NFS4_FHSIZE];
     struct stateid latest_sid;
     struct stateid open_sid;
@@ -166,6 +169,17 @@ static inline status read_buffer(client c, buffer b, void *dest, u32 len)
     if (dest != (void *)0) memcpy(dest, b->contents + b->start, len);
     b->start += len;
     return STATUS_OK;
+}
+
+static const char charset[] = "-_0123456789"
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+static void fill_random(char* buffer, size_t len)
+{
+    for (int i = 0; i < len; i++) {
+        buffer[i] = charset[rand() % len];
+    }
 }
 
 status create_session(client c);
