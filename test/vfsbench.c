@@ -4,6 +4,7 @@
 #include <string.h>
 #include <time.h>
 #include <stdbool.h>
+#include <unistd.h>
 
 #include "sqlite3.h"
 
@@ -132,7 +133,23 @@ int op_sequentially(sqlite3_file* pFile,
 #ifdef TIMING_DETAIL
         timing_start(&result->detail_timing[ct]);
 #endif
-        rc = (*op)(pFile, zBuf, block_size, pos);
+        int retry_ct = 0;
+        do {
+            rc = (*op)(pFile, zBuf, block_size, pos);
+            retry_ct++;
+            if (rc) {
+                if (retry_ct < 10) {
+                    usleep(5000);
+                } else if (retry_ct < 20) {
+                    usleep(50000);
+                } else if (retry_ct < 100) {
+                    usleep(500000);
+                } else {
+                    sqlite3_free(zBuf);
+                    return rc;
+                }
+            }
+        } while (rc);
 #ifdef TIMING_DETAIL
         timing_finish(&result->detail_timing[ct]);
 #endif
@@ -170,7 +187,27 @@ int op_randomly(sqlite3_file* pFile,
 #ifdef TIMING_DETAIL
         timing_start(&result->detail_timing[ct]);
 #endif
-        rc = (*op)(pFile, zBuf, block_size, pos);
+        int retry_ct = 0;
+        do {
+            rc = (*op)(pFile, zBuf, block_size, pos);
+            retry_ct++;
+            if (rc) {
+                if (retry_ct < 10) {
+                    usleep(5000);
+                } else if (retry_ct < 20) {
+                    usleep(50000);
+                } else if (retry_ct < 29) {
+                    usleep(500000);
+                } else {
+                    printf("failure at position %d\n", pos);
+                    sqlite3_free(zBuf);
+                    return rc;
+                }
+            }
+        } while (rc);
+        if (retry_ct > 1) {
+            printf("required %d tries\n", retry_ct);
+        }
 #ifdef TIMING_DETAIL
         timing_finish(&result->detail_timing[ct]);
 #endif
@@ -193,13 +230,24 @@ void run_test(test_config config)
 {
     char* zErrMsg = 0;
     int rc;
+    int retry_ct;
 
     sqlite3_vfs *vfs = sqlite3_vfs_find(config->vfs_name);
     printf("Loaded vfs %s\n", vfs->zName);
     printf("Opening file %s\n", config->data_path);
     sqlite3_file* pFile = sqlite3_malloc(vfs->szOsFile);
     int flags = SQLITE_OPEN_READWRITE;
-    rc = vfs->xOpen(vfs, config->data_path, pFile, flags, 0);
+    retry_ct = 0;
+    do {
+        rc = vfs->xOpen(vfs, config->data_path, pFile, flags, 0);
+        if (rc) {
+            if (retry_ct < 100) {
+                retry_ct++;
+            } else {
+                break;
+            }
+        }
+    } while (rc);
     if (rc) {
         fprintf(stderr, "Unable to open file %s\n", zErrMsg);
         sqlite3_free(zErrMsg);
@@ -208,7 +256,17 @@ void run_test(test_config config)
     }
 
     sqlite3_int64 file_size;
-    pFile->pMethods->xFileSize(pFile, &file_size);
+    retry_ct = 0;
+    do {
+        rc = pFile->pMethods->xFileSize(pFile, &file_size);
+        if (rc) {
+            if (retry_ct < 100) {
+                retry_ct++;
+            } else {
+                break;
+            }
+        }
+    } while (rc);
     if (rc) {
         fprintf(stderr, "Unable to get file size %s\n", zErrMsg);
         sqlite3_free(zErrMsg);
@@ -217,7 +275,7 @@ void run_test(test_config config)
     }
 
     if (strcmp(config->mode, "sr") == 0) {
-        op_sequentially(pFile,
+        rc = op_sequentially(pFile,
             pFile->pMethods->xRead,
             "read",
             config->block_size,
@@ -225,7 +283,7 @@ void run_test(test_config config)
             config->test_result,
 	    false);
     } else if (strcmp(config->mode, "rr") == 0) {
-        op_randomly(pFile,
+        rc = op_randomly(pFile,
             pFile->pMethods->xRead,
             "read",
             config->block_size,
@@ -234,14 +292,14 @@ void run_test(test_config config)
             config->test_result,
 	    false);
     } else if (strcmp(config->mode, "sw") == 0) {
-        op_sequentially(pFile,
+        rc = op_sequentially(pFile,
             (int (*)(struct sqlite3_file*,void*,int,sqlite_int64)) pFile->pMethods->xWrite,
             "write",
             config->block_size,
             config->blocks_per_thread,
             config->test_result, true);
     } else if (strcmp(config->mode, "rw") == 0) {
-        op_randomly(pFile,
+        rc = op_randomly(pFile,
             (int (*)(struct sqlite3_file*,void*,int,sqlite_int64)) pFile->pMethods->xWrite,
             "write",
             config->block_size,
@@ -255,6 +313,11 @@ void run_test(test_config config)
 
     sqlite3_free(zErrMsg);
     sqlite3_free(pFile);
+
+    if (rc) {
+        printf("Error during test\n");
+        exit(1);
+    }
 }
 
 void* run_test_thread(void* thread_data)
