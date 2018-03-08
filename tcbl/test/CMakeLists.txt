@@ -1,0 +1,5 @@
+include_directories ("${PROJECT_SOURCE_DIR}/src")
+add_executable(test_tcbl test_tcbl.c)
+add_dependencies(test_tcbl test_tcbl)
+add_test(test_tcbl test_tcbl)
+target_link_libraries(test_tcbl tcbl cmocka)
