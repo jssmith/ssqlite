@@ -7,7 +7,7 @@ SQLITE_OBJ = nfs4.o $(OBJ)
 
 nfs4.o: nfs4.c
 ifndef SQLITE
-	echo 'SQLITE is undefined'
+	gcc -g -fPIC -I. $(TRACING) -std=gnu99 $(CFLAGS) $< -c
 else
 	gcc -g -fPIC -I. $(TRACING) -std=gnu99 -I$(SQLITE) $(CFLAGS) $< -c
 endif

@@ -47,6 +47,19 @@ aws s3 mb s3://$SSQL_CODE_BUCKET
 ```
 
 
+## Build the SQLite NFS Extension
+
+There are two ways to do this. On Linux systems you can go run ahead with simple
+build commands:
+
+```
+cd nfsv4
+make
+cd ..
+```
+
+If you prefer to use Docker for the build, e.g., on OS X, follow the [docker build instructions](DOCKER_BUILD.md).
+
 ## Deploy using CloudFormation
 
 Copy the the configuration json file to S3:
@@ -55,12 +68,17 @@ Copy the the configuration json file to S3:
 aws s3 cp lambda-efs.json s3://$SSQL_CODE_BUCKET/lambda-efs.json
 ```
 
+Pull TPC-C submodule:
+```
+git submodule update --init
+```
 
 Build and package the code, upload it to S3:
 ```
-./tools/lambdadeploy.sh --s3-only
+./tools/lambdadeploy.sh --s3-only --devmode
 ```
 
+In the future if you want to update the function omit the `--s3-only` flag.
 
 Create the stack
 
@@ -116,27 +134,19 @@ export SSQL_CONTROL_SERVER=$(aws ec2 describe-instances \
 
 Ssh to the instance
 ```
-ssh -i ~/.ssh/$EC2_KEY_PAIR.pem ec2-user@$SSQL_CONTROL_SERVER
+ssh -t -i ~/.ssh/$EC2_KEY_PAIR.pem \
+    ec2-user@$SSQL_CONTROL_SERVER \
+    "export AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION; export SSQL_STACK_NAME=$SSQL_STACK_NAME; bash -l"
 ```
 
 ```
 sudo mkdir /efs
 ```
 
-
-```
-export AWS_DEFAULT_REGION=$(curl http://169.254.169.254/latest/dynamic/instance-identity/document | grep region | awk -F \" '{print $4}')
-```
-
-Check to make sure that the command succeeded
-```
-echo $AWS_DEFAULT_REGION
-```
-
 Query the name of the file system
 ```
 export SSQL_EFS_NAME=$(aws efs describe-file-systems \
-    --query "FileSystems[?Name=='sqlite-fs-ssqlite-test-2'][FileSystemId]" \
+    --query "FileSystems[?Name=='sqlite-fs-$SSQL_STACK_NAME'][FileSystemId]" \
     --output=text)
 ```
 
@@ -153,6 +163,7 @@ sudo mount -t nfs -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retr
     $SSQL_EFS_NAME.efs.$AWS_DEFAULT_REGION.amazonaws.com:/ /efs
 ```
 
+Note that it may sometimes take several minutes for the EFS volume to become usable.
 
 Configure permissions (TODO: not certain this is necessary)
 ```
@@ -165,7 +176,7 @@ Remaining on the control server
 
 ```
 sudo yum update -y
-sudo yum install -y git python35
+sudo yum install -y git python36
 git clone https://github.com/jssmith/py-tpcc
 cd py-tpcc/pytpcc
 python3 tpcc.py --config initialization-config --reset --no-execute sqlite
@@ -187,7 +198,7 @@ You can invoke the Lambda function either from the machine originally used for c
 aws lambda invoke \
     --invocation-type RequestResponse \
     --function-name SQLiteDemo-$SSQL_STACK_NAME \
-    --payload '{}' \
+    --payload '{"test":"tpcc"}' \
     out.txt
 ```
 

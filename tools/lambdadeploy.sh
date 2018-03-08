@@ -22,10 +22,6 @@ esac
 shift
 done
 
-if [ ! $DEV_MODE ]; then
-    git subtree pull --prefix py-tpcc https://github.com/jssmith/py-tpcc.git master --squash
-fi
-
 rm -rf build-dist
 cp -R dist build-dist
 

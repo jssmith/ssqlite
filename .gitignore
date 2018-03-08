@@ -1,3 +1,5 @@
 /sqlite*
 *.o
 *.so
+build-dist
+ssqlite-fn.zip
