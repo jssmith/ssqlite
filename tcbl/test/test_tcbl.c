@@ -386,7 +386,7 @@ static void test_memvfs_two_files()
     assert_int_equal(rc, TCBL_OK);
 }
 
-static void test_open_close()
+static void test_tcbl_open_close()
 {
     int rc;
     vfs memvfs;
@@ -414,7 +414,7 @@ static void test_open_close()
     assert_int_equal(rc, TCBL_OK);
 }
 
-static void test_write_read()
+static void test_tcbl_write_read()
 {
     int rc;
     vfs memvfs;
@@ -456,24 +456,112 @@ static void test_write_read()
     assert_int_equal(rc, TCBL_OK);
 }
 
-static void test_leak_memory()
+static void test_tcbl_txn_nothing_commit(void **state)
 {
-    int *tmp = tcbl_malloc(NULL, sizeof(int));
-    *tmp = 0;
+    tvfs tcbl = *state;
+    vfs_txn txn;
+    int rc;
+
+    rc = vfs_begin_txn(tcbl, &txn);
+    assert_int_equal(rc, TCBL_OK);
+    assert_ptr_equal(tcbl, txn->vfs);
+
+    rc = vfs_commit_txn(txn);
+    assert_int_equal(rc, TCBL_OK);
 }
+
+static void test_tcbl_txn_nothing_abort(void **state)
+{
+    tvfs tcbl = *state;
+    vfs_txn txn;
+    vfs_begin_txn(tcbl, &txn);
+    assert_int_equal(rc, TCBL_OK);
+    assert_ptr_equal(tcbl, txn->vfs);
+
+    vfs_abort_txn(txn);
+    assert_int_equal(rc, TCBL_OK);
+}
+
+static void test_tcbl_txn_write_read_commit(void **state)
+{
+    tvfs tcbl = *state;
+    vfs_txn txn;
+    vfs_begin_txn(tcbl, &txn);
+    assert_int_equal(rc, TCBL_OK);
+
+    // TODO
+
+    vfs_abort_txn(txn);
+    assert_int_equal(rc, TCBL_OK);
+}
+
+static void test_tcbl_txn_write_read_abort(void **state)
+{
+
+}
+
+static int tcbl_setup(void **state)
+{
+    int rc;
+    vfs memvfs;
+    tvfs tcbl;
+
+    rc = memvfs_allocate(&memvfs);
+    assert_int_equal(rc, TCBL_OK);
+    assert_non_null(memvfs);
+
+    rc = tcbl_allocate(&tcbl, memvfs);
+    assert_int_equal(rc, TCBL_OK);
+
+    *state = tcbl;
+    return 0;
+}
+
+static int tcbl_teardown(void **state)
+{
+    int rc;
+    tcbl_vfs tcbl = *state;
+    vfs memvfs = tcbl->underlying_vfs;
+
+    rc = vfs_free((vfs) tcbl);
+    assert_int_equal(rc, TCBL_OK);
+
+    rc = vfs_free(memvfs);
+    assert_int_equal(rc, TCBL_OK);
+
+    return 0;
+}
+
+//static void test_leak_memory()
+//{
+//    int *tmp = tcbl_malloc(NULL, sizeof(int));
+//    *tmp = 0;
+//}
 
 
 int main(void)
 {
-    const struct CMUnitTest tests[] = {
+    int rc;
+    const struct CMUnitTest memvfs_tests[] = {
+//        cmocka_unit_test(test_leak_memory),
         cmocka_unit_test(test_memvfs_create),
         cmocka_unit_test(test_memvfs_open),
         cmocka_unit_test(test_memvfs_write_read),
         cmocka_unit_test(test_memvfs_write_read_2),
         cmocka_unit_test(test_memvfs_reopen),
         cmocka_unit_test(test_memvfs_two_files),
-        cmocka_unit_test(test_open_close),
-        cmocka_unit_test(test_write_read),
     };
-    return cmocka_run_group_tests(tests, NULL, NULL);
+    rc = cmocka_run_group_tests_name("memvfs", memvfs_tests, NULL, NULL);
+    if (rc) {
+        return rc;
+    }
+    const struct CMUnitTest tcbl_tests[] = {
+        cmocka_unit_test(test_tcbl_open_close),
+        cmocka_unit_test(test_tcbl_write_read),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_nothing_commit, tcbl_setup, tcbl_teardown),
+//        cmocka_unit_test_setup_teardown(test_tcbl_txn_nothing_abort, tcbl_setup, tcbl_teardown),
+//        cmocka_unit_test_setup_teardown(test_tcbl_txn_write_read_commit, tcbl_setup, tcbl_teardown),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_write_read_abort, tcbl_setup, tcbl_teardown),
+    };
+    return cmocka_run_group_tests_name("tcbl", tcbl_tests, NULL, NULL);
 }

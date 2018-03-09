@@ -74,8 +74,8 @@ int vfs_free(vfs vfs);
 
 
 int vfs_begin_txn(tvfs tvfs, vfs_txn *txn);
+int vfs_commit_txn(vfs_txn txn);
 int vfs_abort_txn(vfs_txn txn);
-int vfs_rollback_txn(vfs_txn txn);
 
 //int tcbl_sync(tcbl_fh file_handle);
 

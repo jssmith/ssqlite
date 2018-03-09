@@ -44,16 +44,26 @@ int tcbl_write(vfs vfs, vfs_fh file_handle, const char* data, size_t offset, siz
 
 int tcbl_begin_txn(tvfs tvfs, vfs_txn *vfs_txn)
 {
-    return TCBL_NOT_IMPLEMENTED;
+    tcbl_txn txn = tcbl_malloc(NULL, sizeof(struct tcbl_txn));
+    if (!txn) {
+        return TCBL_ALLOC_FAILURE;
+    }
+    txn->vfs = tvfs;
+    *vfs_txn = (struct vfs_txn *) txn;
+    return TCBL_OK;
 }
 int tcbl_commit_txn(tvfs tvfs, vfs_txn vfs_txn)
 {
-    return TCBL_NOT_IMPLEMENTED;
+    tcbl_txn txn = (tcbl_txn) vfs_txn;
+    tcbl_free(NULL, txn, sizeof(tcbl_txn));
+    return TCBL_OK;
 }
 
 int tcbl_abort_txn(tvfs tvfs, vfs_txn vfs_txn)
 {
-    return TCBL_NOT_IMPLEMENTED;
+    tcbl_txn txn = (tcbl_txn) vfs_txn;
+    tcbl_free(NULL, txn, sizeof(tcbl_txn));
+    return TCBL_OK;
 }
 
 
