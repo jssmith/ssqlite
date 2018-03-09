@@ -36,6 +36,8 @@ typedef struct tvfs_info {
     int (*x_begin_txn)(tvfs, vfs_txn *);
     int (*x_commit_txn)(tvfs, vfs_txn);
     int (*x_abort_txn)(tvfs, vfs_txn);
+    int (*x_txn_read)(tvfs, vfs_txn, vfs_fh, char* data, size_t offset, size_t len);
+    int (*x_txn_write)(tvfs, vfs_txn, vfs_fh, const char* data, size_t offset, size_t len);
 } *tvfs_info;
 
 struct vfs {
@@ -73,9 +75,11 @@ int vfs_sync(tcbl_fh file_handle);
 int vfs_free(vfs vfs);
 
 
-int vfs_begin_txn(tvfs tvfs, vfs_txn *txn);
-int vfs_commit_txn(vfs_txn txn);
-int vfs_abort_txn(vfs_txn txn);
+int vfs_txn_begin(tvfs tvfs, vfs_txn *txn);
+int vfs_txn_commit(vfs_txn txn);
+int vfs_txn_abort(vfs_txn txn);
+int vfs_txn_read(vfs_txn txn, vfs_fh file_handle, char* data, size_t offset, size_t len);
+int vfs_txn_write(vfs_txn txn, vfs_fh file_handle, const char* data, size_t offset, size_t len);
 
 //int tcbl_sync(tcbl_fh file_handle);
 
