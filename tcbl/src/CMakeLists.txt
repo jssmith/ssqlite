@@ -1,1 +1,1 @@
-add_library(tcbl tcbl.c)
+add_library(tcbl tcbl_vfs.c)
