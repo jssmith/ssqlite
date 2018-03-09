@@ -311,6 +311,75 @@ static void test_memvfs_reopen()
     assert_int_equal(rc, TCBL_OK);
 }
 
+static void test_memvfs_two_files()
+{
+    int rc;
+    vfs memvfs;
+    vfs_fh fh;
+    char *test_file_name_1 = "/test_file";
+    char *test_file_name_2 = "/another_file";
+
+    rc = memvfs_allocate(&memvfs);
+    assert_int_equal(rc, TCBL_OK);
+    assert_non_null(memvfs);
+
+    rc = vfs_open(memvfs, test_file_name_1, &fh);
+    assert_int_equal(rc, TCBL_OK);
+    assert_non_null(fh);
+    assert_ptr_equal(memvfs, fh->vfs);
+
+    size_t data_size = 100;
+    char data_in_1[data_size];
+    char data_in_2[data_size];
+    char data_out[data_size];
+    for (int i = 0; i < data_size; i++) {
+        data_in_1[i] = (char) i;
+    }
+
+    rc = vfs_write(fh, data_in_1, 0, data_size);
+    assert_int_equal(rc, TCBL_OK);
+
+    rc = vfs_close(fh);
+    assert_int_equal(rc, TCBL_OK);
+
+    for (int i = 0; i < data_size; i++) {
+        data_in_2[i] = (char) (2 * i);
+    }
+
+    rc = vfs_open(memvfs, test_file_name_2, &fh);
+    assert_int_equal(rc, TCBL_OK);
+    assert_non_null(fh);
+
+    rc = vfs_write(fh, data_in_2, 0, data_size);
+    assert_int_equal(rc, TCBL_OK);
+
+    rc = vfs_close(fh);
+    assert_int_equal(rc, TCBL_OK);
+
+    rc = vfs_open(memvfs, test_file_name_1, &fh);
+    assert_int_equal(rc, TCBL_OK);
+    assert_non_null(fh);
+    memset(data_out, 0, sizeof(data_out));
+    rc = vfs_read(fh, data_out, 0, data_size);
+    assert_int_equal(rc, TCBL_OK);
+    assert_memory_equal(data_in_1, data_out, data_size);
+    rc = vfs_close(fh);
+    assert_int_equal(rc, TCBL_OK);
+
+    rc = vfs_open(memvfs, test_file_name_2, &fh);
+    assert_int_equal(rc, TCBL_OK);
+    assert_non_null(fh);
+    memset(data_out, 0, sizeof(data_out));
+    rc = vfs_read(fh, data_out, 0, data_size);
+    assert_int_equal(rc, TCBL_OK);
+    assert_memory_equal(data_in_2, data_out, data_size);
+    rc = vfs_close(fh);
+    assert_int_equal(rc, TCBL_OK);
+
+    rc = tcbl_vfs_free(memvfs);
+    assert_int_equal(rc, TCBL_OK);
+}
+
 static void test_open_close()
 {
     int rc;
@@ -375,6 +444,7 @@ int main(void)
         cmocka_unit_test(test_memvfs_write_read),
         cmocka_unit_test(test_memvfs_write_read_2),
         cmocka_unit_test(test_memvfs_reopen),
+        cmocka_unit_test(test_memvfs_two_files),
 //        cmocka_unit_test(test_open_close),
 //        cmocka_unit_test(test_write_read),
     };

@@ -8,6 +8,8 @@ link_directories("/usr/local/lib")
 
 enable_testing()
 
+set(HEADER_FILES src/runtime.h src/tcbl_vfs.h)
+
 add_subdirectory(src)
 add_subdirectory(test)
 
