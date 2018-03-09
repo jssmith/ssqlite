@@ -2,6 +2,7 @@
 #define _TCBL_H
 
 #include <stddef.h>
+#include <stdbool.h>
 
 #define TCBL_OK 0
 #define TCBL_NOT_IMPLEMENTED 1
@@ -26,7 +27,6 @@ typedef struct vfs_info {
 } *vfs_info;
 
 typedef struct tvfs_info {
-    size_t vfs_txn_size;
     int (*x_begin_txn)(vfs_fh);
     int (*x_commit_txn)(vfs_fh);
     int (*x_abort_txn)(vfs_fh);
@@ -54,11 +54,9 @@ typedef struct tcbl_vfs {
 typedef struct tcbl_fh {
     vfs vfs;
     vfs_fh underlying_fh;
+    vfs_fh underlying_log_fh;
+    bool txn_active;
 } *tcbl_fh;
-
-typedef struct tcbl_txn {
-    tvfs vfs;
-} *tcbl_txn;
 
 
 int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs);
@@ -71,11 +69,9 @@ int vfs_file_size(vfs_fh file_handle, size_t *out);
 //int vfs_sync(tcbl_fh file_handle);
 int vfs_free(vfs vfs);
 
-
 int vfs_txn_begin(vfs_fh vfs_fh);
 int vfs_txn_commit(vfs_fh vfs_fh);
 int vfs_txn_abort(vfs_fh vfs_fh);
 
-//int tcbl_sync(tcbl_fh file_handle);
 
 #endif

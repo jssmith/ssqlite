@@ -101,7 +101,6 @@ int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs)
             &tcbl_freevfs
     };
     static struct tvfs_info tcbl_tvfs_info = {
-            sizeof(struct tcbl_txn),
             &tcbl_begin_txn,
             &tcbl_commit_txn,
             &tcbl_abort_txn
