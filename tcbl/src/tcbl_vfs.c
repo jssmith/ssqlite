@@ -3,7 +3,7 @@
 #include "runtime.h"
 
 
-int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
+static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
 {
     tcbl_vfs tcbl_vfs = (struct tcbl_vfs *) vfs;
     vfs_fh underlying_fh;
@@ -22,7 +22,7 @@ int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
     return TCBL_OK;
 }
 
-int tcbl_close(vfs vfs, vfs_fh file_handle)
+static int tcbl_close(vfs vfs, vfs_fh file_handle)
 {
     tcbl_fh fh = (tcbl_fh) file_handle;
     int rc = vfs_close(fh->underlying_fh);
@@ -30,20 +30,25 @@ int tcbl_close(vfs vfs, vfs_fh file_handle)
     return rc;
 }
 
-int tcbl_read(vfs vfs, vfs_fh file_handle, char* data, size_t offset, size_t len)
+static int tcbl_read(vfs vfs, vfs_fh file_handle, char* data, size_t offset, size_t len)
 {
     tcbl_fh fh = (tcbl_fh) file_handle;
     return vfs_read(fh->underlying_fh, data, offset, len);
 }
 
-int tcbl_write(vfs vfs, vfs_fh file_handle, const char* data, size_t offset, size_t len)
+static int tcbl_write(vfs vfs, vfs_fh file_handle, const char* data, size_t offset, size_t len)
 {
     tcbl_fh fh = (tcbl_fh) file_handle;
     return vfs_write(fh->underlying_fh, data, offset, len);
 }
 
+static int tcbl_file_size(vfs vfs, vfs_fh file_handle, size_t* out)
+{
+    tcbl_fh fh = (tcbl_fh) file_handle;
+    return vfs_file_size(fh->underlying_fh, out);
+}
 
-int tcbl_begin_txn(tvfs tvfs, vfs_txn *vfs_txn)
+static int tcbl_begin_txn(tvfs tvfs, vfs_txn *vfs_txn)
 {
     tcbl_txn txn = tcbl_malloc(NULL, sizeof(struct tcbl_txn));
     if (!txn) {
@@ -53,32 +58,40 @@ int tcbl_begin_txn(tvfs tvfs, vfs_txn *vfs_txn)
     *vfs_txn = (struct vfs_txn *) txn;
     return TCBL_OK;
 }
-int tcbl_commit_txn(tvfs tvfs, vfs_txn vfs_txn)
+
+static int tcbl_commit_txn(tvfs tvfs, vfs_txn vfs_txn)
 {
     tcbl_txn txn = (tcbl_txn) vfs_txn;
     tcbl_free(NULL, txn, sizeof(struct tcbl_txn));
     return TCBL_OK;
 }
 
-int tcbl_abort_txn(tvfs tvfs, vfs_txn vfs_txn)
+static int tcbl_abort_txn(tvfs tvfs, vfs_txn vfs_txn)
 {
     tcbl_txn txn = (tcbl_txn) vfs_txn;
     tcbl_free(NULL, txn, sizeof(struct tcbl_txn));
     return TCBL_OK;
 }
 
-int tcbl_txn_read(tvfs tvfs, vfs_txn vfs_txn, vfs_fh vfs_fh, char* data, size_t offset, size_t len)
+static int tcbl_txn_read(tvfs tvfs, vfs_txn vfs_txn, vfs_fh vfs_fh, char* data, size_t offset, size_t len)
 {
-    return TCBL_NOT_IMPLEMENTED;
+    // TODO do it properly
+    return tcbl_read((vfs) tvfs, vfs_fh, data, offset, len);
 }
 
-int tcbl_txn_write(tvfs tvfs, vfs_txn vfs_txn, vfs_fh vfs_fh, const char* data, size_t offset, size_t len)
+static int tcbl_txn_write(tvfs tvfs, vfs_txn vfs_txn, vfs_fh vfs_fh, const char* data, size_t offset, size_t len)
 {
-    return TCBL_NOT_IMPLEMENTED;
+    // TODO do it properly
+    return tcbl_write((vfs) tvfs, vfs_fh, data, offset, len);
 }
 
+static int tcbl_txn_file_size(tvfs tvfs, vfs_txn txn, vfs_fh vfs_fh, size_t* out)
+{
+    // TODO do it properly
+    return tcbl_file_size((vfs) tvfs, vfs_fh, out);
+}
 
-int tcbl_freevfs(vfs vfs)
+static int tcbl_freevfs(vfs vfs)
 {
     return TCBL_OK;
 }
@@ -101,6 +114,7 @@ int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs)
             &tcbl_close,
             &tcbl_read,
             &tcbl_write,
+            &tcbl_file_size,
             &tcbl_freevfs
     };
     static struct tvfs_info tcbl_tvfs_info = {
@@ -109,7 +123,8 @@ int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs)
             &tcbl_commit_txn,
             &tcbl_abort_txn,
             &tcbl_txn_read,
-            &tcbl_txn_write
+            &tcbl_txn_write,
+            &tcbl_txn_file_size
     };
     tcbl_vfs tcbl_vfs = tcbl_malloc(NULL, sizeof(struct tcbl_vfs));
     if (!tcbl_vfs) {
@@ -143,6 +158,12 @@ int vfs_write(vfs_fh file_handle, const char* data, size_t offset, size_t len)
     return file_handle->vfs->vfs_info->x_write(file_handle->vfs, file_handle, data, offset, len);
 }
 
+int vfs_file_size(vfs_fh file_handle, size_t *out)
+{
+    return file_handle->vfs->vfs_info->x_file_size(file_handle->vfs, file_handle, out);
+}
+
+
 int vfs_txn_begin(tvfs vfs, vfs_txn *txn)
 {
     return (vfs->tvfs_info->x_begin_txn(vfs, txn));
@@ -168,4 +189,10 @@ int vfs_txn_write(vfs_txn txn, vfs_fh file_handle, const char* data, size_t offs
 {
     assert((vfs) txn->vfs == file_handle->vfs);
     return txn->vfs->tvfs_info->x_txn_write(txn->vfs, txn, file_handle, data, offset, len);
+}
+
+int vfs_txn_file_size(vfs_txn txn, vfs_fh file_handle, size_t *out)
+{
+    assert((vfs) txn->vfs == file_handle->vfs);
+    return txn->vfs->tvfs_info->x_txn_file_size(txn->vfs, txn, file_handle, out);
 }

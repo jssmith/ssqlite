@@ -4,9 +4,9 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#define UNIT_TESTING
+//#define MEMORY_TESTING
 
-#ifndef UNIT_TESTING
+#ifndef MEMORY_TESTING
 #define tcbl_malloc(__h, __b) (malloc(__b))
 #define tcbl_free(__h, __x, __len) (free(__x))
 #else
