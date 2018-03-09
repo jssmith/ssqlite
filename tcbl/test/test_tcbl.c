@@ -77,13 +77,13 @@ int memvfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
     return memvfs_find_file((memvfs) vfs, file_name, &fh->memvfs_file);
 }
 
-int memvfs_close(vfs vfs, vfs_fh file_handle)
+int memvfs_close(vfs_fh file_handle)
 {
     tcbl_free(NULL, file_handle, vfs->fh_size);
     return TCBL_OK;
 }
 
-int memvfs_read(vfs vfs, vfs_fh file_handle, char *buff, size_t offset, size_t len)
+int memvfs_read(vfs_fh file_handle, char *buff, size_t offset, size_t len)
 {
     memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;
@@ -95,7 +95,7 @@ int memvfs_read(vfs vfs, vfs_fh file_handle, char *buff, size_t offset, size_t l
     return TCBL_OK;
 }
 
-int memvfs_write(struct vfs *vfs, vfs_fh file_handle, const char *buff, size_t offset, size_t len)
+int memvfs_write(vfs_fh file_handle, const char *buff, size_t offset, size_t len)
 {
     memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;
@@ -125,9 +125,8 @@ int memvfs_write(struct vfs *vfs, vfs_fh file_handle, const char *buff, size_t o
     return TCBL_OK;
 }
 
-int memvfs_file_size(vfs vfs, vfs_fh vfs_fh, size_t* out)
+int memvfs_file_size(vfs_fh vfs_fh, size_t* out)
 {
-    memvfs memvfs = (struct memvfs *) vfs;
     struct memvfs_fh *fh = (struct memvfs_fh *) vfs_fh;
     *out = fh->memvfs_file->len;
     return TCBL_OK;
@@ -451,25 +450,28 @@ static void test_tcbl_write_read()
 
 static void test_tcbl_txn_nothing_commit(void **state)
 {
-    tvfs tcbl = *state;
-    vfs_txn txn;
+    tcbl_vfs tcbl = *state;
+    vfs_fh fh;
+    char *test_filename = "/test-file";
 
-    RC_OK(vfs_txn_begin(tcbl, &txn));
-    assert_ptr_equal(tcbl, txn->vfs);
-
-    RC_OK(vfs_txn_commit(txn));
+    RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
+    RC_OK(vfs_txn_begin(fh));
+    RC_OK(vfs_txn_commit(fh));
+    RC_OK(vfs_close(fh));
+    RC_OK(memvfs_free((vfs) tcbl->underlying_vfs));
 }
 
 static void test_tcbl_txn_nothing_abort(void **state)
 {
+    tcbl_vfs tcbl = *state;
+    vfs_fh fh;
+    char *test_filename = "/test-file";
 
-    tvfs tcbl = *state;
-    vfs_txn txn;
-
-    RC_OK(vfs_txn_begin(tcbl, &txn));
-    assert_ptr_equal(tcbl, txn->vfs);
-
-    RC_OK(vfs_txn_abort(txn));
+    RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
+    RC_OK(vfs_txn_begin(fh));
+    RC_OK(vfs_txn_abort(fh));
+    RC_OK(vfs_close(fh));
+    RC_OK(memvfs_free((vfs) tcbl->underlying_vfs));
 }
 
 void prep_data(char* data, size_t data_len, uint64_t seed)
@@ -483,12 +485,10 @@ void prep_data(char* data, size_t data_len, uint64_t seed)
         data[i] = (char) seed;
     }
 }
-
 static void test_tcbl_txn_write_read_commit(void **state)
 {
     tvfs tcbl = *state;
     struct memvfs *memvfs = (struct memvfs*) ((struct tcbl_vfs *) tcbl)->underlying_vfs;
-    vfs_txn txn;
 
     char *test_filename = "/test-file";
 
@@ -500,22 +500,22 @@ static void test_tcbl_txn_write_read_commit(void **state)
     vfs_fh fh;
     RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
 
-    RC_OK(vfs_txn_begin(tcbl, &txn));
+    RC_OK(vfs_txn_begin(fh));
 
     size_t file_size;
-    RC_OK(vfs_txn_file_size(txn, fh, &file_size));
+    RC_OK(vfs_file_size(fh, &file_size));
     assert_int_equal(file_size, 0);
 
-    RC_OK(vfs_txn_write(txn, fh, data_in, 0, data_len));
+    RC_OK(vfs_write(fh, data_in, 0, data_len));
 
-    RC_OK(vfs_txn_file_size(txn, fh, &file_size));
+    RC_OK(vfs_file_size(fh, &file_size));
     assert_int_equal(file_size, data_len);
 
     memset(data_out, 0, sizeof(data_out));
-    RC_OK(vfs_txn_read(txn, fh, data_out, 0, data_len));
+    RC_OK(vfs_read(fh, data_out, 0, data_len));
     assert_memory_equal(data_in, data_out, data_len);
 
-    RC_OK(vfs_txn_commit(txn));
+    RC_OK(vfs_txn_commit(fh));
 
     memset(data_out, 0, sizeof(data_out));
     RC_OK(vfs_read(fh, data_out, 0, data_len));
@@ -530,7 +530,6 @@ static void test_tcbl_txn_write_read_abort(void **state)
 {
     tvfs tcbl = *state;
     struct memvfs *memvfs = (struct memvfs*) ((struct tcbl_vfs *) tcbl)->underlying_vfs;
-    vfs_txn txn;
 
     char *test_filename = "/test-file";
 
@@ -543,22 +542,21 @@ static void test_tcbl_txn_write_read_abort(void **state)
     vfs_fh fh;
     RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
 
-    RC_OK(vfs_txn_begin(tcbl, &txn));
+    RC_OK(vfs_txn_begin(fh));
 
-    RC_OK(vfs_txn_write(txn, fh, data_in, 0, data_len));
+    RC_OK(vfs_write(fh, data_in, 0, data_len));
 
-    RC_OK(vfs_txn_file_size(txn, fh, &file_size));
+    RC_OK(vfs_file_size(fh, &file_size));
     assert_int_equal(file_size, data_len);
 
     memset(data_out, 0, sizeof(data_out));
-    RC_OK(vfs_txn_read(txn, fh, data_out, 0, data_len));
+    RC_OK(vfs_read(fh, data_out, 0, data_len));
     assert_memory_equal(data_in, data_out, data_len);
 
-    RC_OK(vfs_txn_abort(txn));
+    RC_OK(vfs_txn_abort(fh));
 
-    assert_int_equal(1, 0);
-//    RC_OK(vfs_file_size(fh, &file_size));
-//    assert_int_equal(file_size, 0);
+    RC_OK(vfs_file_size(fh, &file_size));
+    assert_int_equal(file_size, 0);
 
     RC_OK(vfs_close(fh));
 
