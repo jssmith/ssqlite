@@ -11,6 +11,7 @@
 
 typedef struct memvfs_file {
     char *name;
+    size_t name_len;
     char *data;
     size_t len;
     size_t alloc_len;
@@ -34,7 +35,6 @@ int file_name_comparator(memvfs_file f1, memvfs_file f2)
 
 int memvfs_new_file(memvfs memvfs, const char *name, memvfs_file *file_out)
 {
-//    type, list, elem, comparator, next, member
     struct memvfs_file* result;
     struct memvfs_file search_file = {
             (char*) name
@@ -48,11 +48,13 @@ int memvfs_new_file(memvfs memvfs, const char *name, memvfs_file *file_out)
     if (!f) {
         return TCBL_ALLOC_FAILURE;
     }
-    f->name = tcbl_malloc(NULL, strlen(name) + 1);
+    size_t name_len = strlen(name) + 1;
+    f->name = tcbl_malloc(NULL, name_len);
     if (!f->name) {
         return TCBL_ALLOC_FAILURE;
     }
     strcpy(f->name, name);
+    f->name_len = name_len;
     f->data = 0;
     f->len = 0;
     f->alloc_len = 0;
@@ -101,7 +103,7 @@ int memvfs_write(struct vfs *vfs, vfs_fh file_handle, const char *buff, size_t o
 
     // ensure length
     if (f->alloc_len < offset + len) {
-        size_t new_len = MAX(offset+len, f->alloc_len * 2);
+        size_t new_len = MAX(offset + len, f->alloc_len * 2);
         char* new_data = tcbl_malloc(NULL, new_len);
         if (!new_data) {
             return TCBL_ALLOC_FAILURE;
@@ -130,6 +132,10 @@ int memvfs_free(struct vfs *vfs)
     while (memvfs->files) {
         memvfs_file f = memvfs->files;
         SGLIB_LIST_DELETE(struct memvfs_file, memvfs->files, f, next_file);
+        tcbl_free(NULL, f->name, f->name_len);
+        if (f->data) {
+            tcbl_free(NULL, f->data, f->alloc_len);
+        }
         tcbl_free(NULL, f, sizeof(struct memvfs_file));
     }
     return TCBL_OK;
@@ -157,7 +163,6 @@ static int memvfs_allocate(vfs *vfs)
     return TCBL_OK;
 }
 
-
 static void test_memvfs_create()
 {
     int rc;
@@ -166,9 +171,10 @@ static void test_memvfs_create()
     rc = memvfs_allocate(&memvfs);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_vfs_free(memvfs);
+    rc = vfs_free(memvfs);
     assert_int_equal(rc, TCBL_OK);
 }
+
 
 static void test_memvfs_open()
 {
@@ -188,7 +194,7 @@ static void test_memvfs_open()
     rc = vfs_close(fh);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_vfs_free(memvfs);
+    rc = vfs_free(memvfs);
     assert_int_equal(rc, TCBL_OK);
 
 }
@@ -227,7 +233,7 @@ static void test_memvfs_write_read()
     rc = vfs_close(fh);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_vfs_free(memvfs);
+    rc = vfs_free(memvfs);
     assert_int_equal(rc, TCBL_OK);
 }
 
@@ -261,7 +267,7 @@ static void test_memvfs_write_read_2()
     rc = vfs_close(fh);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_vfs_free(memvfs);
+    rc = vfs_free(memvfs);
     assert_int_equal(rc, TCBL_OK);
 }
 
@@ -307,7 +313,7 @@ static void test_memvfs_reopen()
     rc = vfs_close(fh);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_vfs_free(memvfs);
+    rc = vfs_free(memvfs);
     assert_int_equal(rc, TCBL_OK);
 }
 
@@ -376,21 +382,35 @@ static void test_memvfs_two_files()
     rc = vfs_close(fh);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_vfs_free(memvfs);
+    rc = vfs_free(memvfs);
     assert_int_equal(rc, TCBL_OK);
 }
 
 static void test_open_close()
 {
     int rc;
-    tcbl_vfs t;
+    vfs memvfs;
+    tvfs tcbl;
     tcbl_fh fh;
 
-    rc = tcbl_allocate(&t, NULL);
+    rc = memvfs_allocate(&memvfs);
     assert_int_equal(rc, TCBL_OK);
-    rc = tcbl_open(t, "test-file", &fh);
+    assert_non_null(memvfs);
+
+    rc = tcbl_allocate(&tcbl, memvfs);
     assert_int_equal(rc, TCBL_OK);
-    rc = tcbl_close(fh);
+
+    rc = vfs_open((vfs) tcbl, "test-file", (vfs_fh *) &fh);
+    assert_int_equal(rc, TCBL_OK);
+    assert_ptr_equal(tcbl, fh->vfs);
+
+    rc = vfs_close((vfs_fh) fh);
+    assert_int_equal(rc, TCBL_OK);
+
+    rc = vfs_free((vfs) tcbl);
+    assert_int_equal(rc, TCBL_OK);
+
+    rc = vfs_free(memvfs);
     assert_int_equal(rc, TCBL_OK);
 }
 
@@ -398,16 +418,16 @@ static void test_write_read()
 {
     int rc;
     vfs memvfs;
-    tcbl_vfs t;
+    tvfs tcbl;
     tcbl_fh fh;
 
     rc = memvfs_allocate(&memvfs);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_allocate(&t, memvfs);
+    rc = tcbl_allocate(&tcbl, memvfs);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_open(t, "test-file", &fh);
+    rc = vfs_open((vfs) tcbl, "test-file", (vfs_fh *) &fh);
     assert_int_equal(rc, TCBL_OK);
 
     size_t data_size = 100;
@@ -418,23 +438,30 @@ static void test_write_read()
     }
     memset(data_out, 0, sizeof(data_out));
 
-    rc = tcbl_write(fh, data_in, 0, data_size);
+    rc = vfs_write((vfs_fh) fh, data_in, 0, data_size);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_read(fh, data_out, 0, data_size);
+    rc = vfs_read((vfs_fh) fh, data_out, 0, data_size);
     assert_int_equal(rc, TCBL_OK);
 
     assert_memory_equal(data_in, data_out, data_size);
 
-    rc = tcbl_close(fh);
+    rc = vfs_close((vfs_fh) fh);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_vfs_free((vfs)t);
+    rc = vfs_free((vfs) tcbl);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_vfs_free(memvfs);
+    rc = vfs_free(memvfs);
     assert_int_equal(rc, TCBL_OK);
 }
+
+static void test_leak_memory()
+{
+    int *tmp = tcbl_malloc(NULL, sizeof(int));
+    *tmp = 0;
+}
+
 
 int main(void)
 {
@@ -445,9 +472,8 @@ int main(void)
         cmocka_unit_test(test_memvfs_write_read_2),
         cmocka_unit_test(test_memvfs_reopen),
         cmocka_unit_test(test_memvfs_two_files),
-//        cmocka_unit_test(test_open_close),
-//        cmocka_unit_test(test_write_read),
+        cmocka_unit_test(test_open_close),
+        cmocka_unit_test(test_write_read),
     };
-//    return run_tests(tests);
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
