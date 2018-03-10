@@ -12,6 +12,8 @@
 #define TCBL_BOUNDS_CHECK 4
 #define TCBL_TXN_ACTIVE 5
 #define TCBL_NO_TXN_ACTIVE 6
+#define TCBL_INVALID_LOG 7
+#define TCBL_CONFLICT_ABORT 7
 
 
 typedef struct vfs *vfs;
@@ -60,7 +62,8 @@ typedef struct tcbl_fh {
     vfs_fh underlying_fh;
     vfs_fh underlying_log_fh;
     bool txn_active;
-    uint64_t txn_lsn;
+    uint64_t txn_shapshot_lsn;
+    size_t txn_begin_log_size;
     struct tcbl_change_log* change_log;
 } *tcbl_fh;
 
