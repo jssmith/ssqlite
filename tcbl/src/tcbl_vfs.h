@@ -3,12 +3,15 @@
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 #define TCBL_OK 0
 #define TCBL_NOT_IMPLEMENTED 1
 #define TCBL_ALLOC_FAILURE 2
 #define TCBL_BAD_ARGUMENT 3
 #define TCBL_BOUNDS_CHECK 4
+#define TCBL_TXN_ACTIVE 5
+#define TCBL_NO_TXN_ACTIVE 6
 
 
 typedef struct vfs *vfs;
@@ -48,6 +51,7 @@ struct tvfs {
 typedef struct tcbl_vfs {
     vfs_info vfs_info;
     tvfs_info tvfs_info;
+    size_t page_size;
     vfs underlying_vfs;
 } *tcbl_vfs;
 
@@ -56,10 +60,12 @@ typedef struct tcbl_fh {
     vfs_fh underlying_fh;
     vfs_fh underlying_log_fh;
     bool txn_active;
+    uint64_t txn_lsn;
+    struct tcbl_change_log* change_log;
 } *tcbl_fh;
 
 
-int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs);
+int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size);
 
 int vfs_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out);
 int vfs_close(vfs_fh file_handle);

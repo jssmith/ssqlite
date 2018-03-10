@@ -1,1 +1,1 @@
-add_library(tcbl tcbl_vfs.c runtime.h)
+add_library(tcbl tcbl_vfs.c tcbl_vfs.h runtime.h sglib.h)

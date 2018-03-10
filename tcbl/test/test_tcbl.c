@@ -9,6 +9,8 @@
 #include "runtime.h"
 #include "sglib.h"
 
+#define TCBL_TEST_PAGE_SIZE 1024
+
 typedef struct memvfs_file {
     char *name;
     size_t name_alloc_len;
@@ -396,7 +398,7 @@ static void test_tcbl_open_close()
     RC_OK(memvfs_allocate(&memvfs));
     assert_non_null(memvfs);
 
-    RC_OK(tcbl_allocate(&tcbl, memvfs));
+    RC_OK(tcbl_allocate(&tcbl, memvfs, TCBL_TEST_PAGE_SIZE));
 
     RC_OK(vfs_open((vfs) tcbl, "test-file", (vfs_fh *) &fh));
     assert_ptr_equal(tcbl, fh->vfs);
@@ -416,13 +418,13 @@ static void test_tcbl_write_read()
     rc = memvfs_allocate(&memvfs);
     assert_int_equal(rc, TCBL_OK);
 
-    rc = tcbl_allocate(&tcbl, memvfs);
+    rc = tcbl_allocate(&tcbl, memvfs, TCBL_TEST_PAGE_SIZE);
     assert_int_equal(rc, TCBL_OK);
 
     rc = vfs_open((vfs) tcbl, "test-file", (vfs_fh *) &fh);
     assert_int_equal(rc, TCBL_OK);
 
-    size_t data_size = 100;
+    size_t data_size = 1024;
     char data_in[data_size];
     char data_out[data_size];
     for (int i = 0; i < data_size; i++) {
@@ -499,7 +501,7 @@ static void test_tcbl_txn_write_read_commit(void **state)
 
     char *test_filename = "/test-file";
 
-    size_t data_len = 1000;
+    size_t data_len = 1024;
     char data_in[data_len];
     char data_out[data_len];
     prep_data(data_in, data_len, 98345);
@@ -540,7 +542,7 @@ static void test_tcbl_txn_write_read_abort(void **state)
 
     char *test_filename = "/test-file";
 
-    size_t data_len = 1000;
+    size_t data_len = 1024;
     char data_in[data_len];
     char data_out[data_len];
     prep_data(data_in, data_len, 98345);
@@ -577,7 +579,7 @@ static int tcbl_setup(void **state)
 
     RC_OK(memvfs_allocate((vfs*)&env->memvfs));
     assert_non_null(env->memvfs);
-    RC_OK(tcbl_allocate(&env->tvfs, (vfs) env->memvfs));
+    RC_OK(tcbl_allocate(&env->tvfs, (vfs) env->memvfs, TCBL_TEST_PAGE_SIZE));
 
     *state = env;
     return 0;
@@ -602,7 +604,7 @@ static int tcbl_teardown(void **state)
 
 int main(void)
 {
-    int rc;
+    int rc = 0;
     const struct CMUnitTest memvfs_tests[] = {
 //        cmocka_unit_test(test_leak_memory),
         cmocka_unit_test(test_memvfs_create),

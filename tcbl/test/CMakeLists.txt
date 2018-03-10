@@ -1,7 +1,7 @@
 include_directories("${PROJECT_SOURCE_DIR}/src")
 add_executable(test_tcbl
         test_tcbl.c
-        sglib.h
+        ../src/sglib.h
         ../src/runtime.h
         ../src/tcbl_vfs.h)
 add_dependencies(test_tcbl test_tcbl)
