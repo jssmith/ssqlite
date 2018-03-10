@@ -340,6 +340,50 @@ static void test_memvfs_write_read_multi_fh()
     RC_OK(vfs_free(memvfs));
 }
 
+static void test_memvfs_write_gap()
+{
+    vfs memvfs;
+    vfs_fh fh;
+
+    RC_OK(memvfs_allocate(&memvfs));
+    assert_non_null(memvfs);
+
+    RC_OK(vfs_open(memvfs, "/test-file", &fh));
+    assert_non_null(fh);
+
+    size_t sz = 200;
+    size_t gap_sz = 800;
+    size_t expected_size = 2 * sz + gap_sz;
+    char data_in_1[sz];
+    char data_in_2[sz];
+    char data_expected[expected_size];
+    char data_out[expected_size];
+
+    prep_data(data_in_1, sz, 577);
+    prep_data(data_in_2, sz, 986);
+    memcpy(data_expected, data_in_1, sz);
+    memcpy(&data_expected[sz + gap_sz], data_in_2, sz);
+    memset(&data_expected[sz], 0, gap_sz);
+
+    size_t file_size;
+    RC_OK(vfs_file_size(fh, &file_size));
+    assert_int_equal(file_size, 0);
+
+    RC_OK(vfs_write(fh, data_in_2, sz + gap_sz, sz));
+    RC_OK(vfs_file_size(fh, &file_size));
+    assert_int_equal(file_size, expected_size);
+
+    RC_OK(vfs_write(fh, data_in_1, 0, sz));
+    RC_OK(vfs_file_size(fh, &file_size));
+    assert_int_equal(file_size, expected_size);
+
+    RC_OK(vfs_read(fh, data_out, 0, expected_size));
+    assert_memory_equal(data_out, data_expected, expected_size);
+
+    RC_OK(vfs_close(fh));
+    RC_OK(vfs_free(memvfs));
+}
+
 static void test_memvfs_reopen()
 {
     int rc;
@@ -946,6 +990,7 @@ int main(void)
         cmocka_unit_test(test_memvfs_write_read),
         cmocka_unit_test(test_memvfs_write_read_by_char),
         cmocka_unit_test(test_memvfs_write_read_multi_fh),
+        cmocka_unit_test(test_memvfs_write_gap),
         cmocka_unit_test(test_memvfs_reopen),
         cmocka_unit_test(test_memvfs_two_files),
     };
