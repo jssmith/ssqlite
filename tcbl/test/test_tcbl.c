@@ -455,6 +455,41 @@ typedef struct tcbl_test_env {
     memvfs memvfs;
 } *tcbl_test_env;
 
+static int tcbl_setup(void **state)
+{
+    tcbl_test_env env = tcbl_malloc(NULL, sizeof(struct tcbl_test_env));
+    assert_non_null(env);
+
+    RC_OK(memvfs_allocate((vfs*)&env->memvfs));
+    assert_non_null(env->memvfs);
+    RC_OK(tcbl_allocate(&env->tvfs, (vfs) env->memvfs, TCBL_TEST_PAGE_SIZE));
+
+    *state = env;
+    return 0;
+}
+
+static int tcbl_teardown(void **state)
+{
+    tcbl_test_env env = *state;
+    RC_OK(vfs_free((vfs) env->tvfs));
+    RC_OK(vfs_free((vfs) env->memvfs));
+    tcbl_free(NULL, env, sizeof(struct tcbl_test_env));
+
+    return 0;
+}
+
+void prep_data(char* data, size_t data_len, uint64_t seed)
+{
+    // TODO make sure this is good
+    uint64_t m = ((uint64_t) 2)<<32;
+    uint64_t a = 1103515245;
+    uint64_t c = 12345;
+    for (int i = 0; i < data_len; i++) {
+        seed = (a * seed + c) % m;
+        data[i] = (char) seed;
+    }
+}
+
 static void test_tcbl_txn_nothing_commit(void **state)
 {
     tcbl_test_env env = *state;
@@ -483,17 +518,6 @@ static void test_tcbl_txn_nothing_abort(void **state)
     RC_OK(memvfs_free((vfs) env->memvfs));
 }
 
-void prep_data(char* data, size_t data_len, uint64_t seed)
-{
-    // TODO make sure this is good
-    uint64_t m = ((uint64_t) 2)<<32;
-    uint64_t a = 1103515245;
-    uint64_t c = 12345;
-    for (int i = 0; i < data_len; i++) {
-        seed = (a * seed + c) % m;
-        data[i] = (char) seed;
-    }
-}
 static void test_tcbl_txn_write_read_commit(void **state)
 {
     tcbl_test_env env = *state;
@@ -551,6 +575,9 @@ static void test_tcbl_txn_write_read_abort(void **state)
     vfs_fh fh;
     RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
 
+    RC_OK(vfs_file_size(fh, &file_size));
+    assert_int_equal(file_size, 0);
+
     RC_OK(vfs_txn_begin(fh));
 
     RC_OK(vfs_write(fh, data_in, 0, data_len));
@@ -570,29 +597,6 @@ static void test_tcbl_txn_write_read_abort(void **state)
     RC_OK(vfs_close(fh));
 
     RC_OK(memvfs_free((vfs) env->memvfs));
-}
-
-static int tcbl_setup(void **state)
-{
-    tcbl_test_env env = tcbl_malloc(NULL, sizeof(struct tcbl_test_env));
-    assert_non_null(env);
-
-    RC_OK(memvfs_allocate((vfs*)&env->memvfs));
-    assert_non_null(env->memvfs);
-    RC_OK(tcbl_allocate(&env->tvfs, (vfs) env->memvfs, TCBL_TEST_PAGE_SIZE));
-
-    *state = env;
-    return 0;
-}
-
-static int tcbl_teardown(void **state)
-{
-    tcbl_test_env env = *state;
-    RC_OK(vfs_free((vfs) env->tvfs));
-    RC_OK(vfs_free((vfs) env->memvfs));
-    tcbl_free(NULL, env, sizeof(struct tcbl_test_env));
-
-    return 0;
 }
 
 //static void test_leak_memory()
