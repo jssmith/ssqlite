@@ -5,15 +5,17 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TCBL_OK 0
-#define TCBL_NOT_IMPLEMENTED 1
-#define TCBL_ALLOC_FAILURE 2
-#define TCBL_BAD_ARGUMENT 3
-#define TCBL_BOUNDS_CHECK 4
-#define TCBL_TXN_ACTIVE 5
-#define TCBL_NO_TXN_ACTIVE 6
-#define TCBL_INVALID_LOG 7
-#define TCBL_CONFLICT_ABORT 7
+#define TCBL_OK                 0x00
+#define TCBL_NOT_IMPLEMENTED    0x01
+#define TCBL_ALLOC_FAILURE      0x02
+#define TCBL_BAD_ARGUMENT       0x03
+#define TCBL_BOUNDS_CHECK       0x04
+#define TCBL_TXN_ACTIVE         0x05
+#define TCBL_NO_TXN_ACTIVE      0x06
+#define TCBL_INVALID_LOG        0x07
+#define TCBL_CONFLICT_ABORT     0x08
+#define TCBL_LOG_NOT_FOUND      0x09
+#define TCBL_SNAPSHOT_EXPIRED   0x0a
 
 
 typedef struct vfs *vfs;
@@ -28,6 +30,7 @@ typedef struct vfs_info {
     int (*x_read)(vfs_fh, char *data, size_t offset, size_t len);
     int (*x_write)(vfs_fh, const char *data, size_t offset, size_t len);
     int (*x_file_size)(vfs_fh, size_t* size_out);
+    int (*x_truncate)(vfs_fh, size_t len);
     int (*x_free)(vfs);
 } *vfs_info;
 
@@ -35,6 +38,7 @@ typedef struct tvfs_info {
     int (*x_begin_txn)(vfs_fh);
     int (*x_commit_txn)(vfs_fh);
     int (*x_abort_txn)(vfs_fh);
+    int (*x_checkpoint)(vfs_fh);
 } *tvfs_info;
 
 struct vfs_fh {
@@ -75,12 +79,13 @@ int vfs_close(vfs_fh file_handle);
 int vfs_read(vfs_fh file_handle, char* data, size_t offset, size_t len);
 int vfs_write(vfs_fh file_handle, const char* data, size_t offset, size_t len);
 int vfs_file_size(vfs_fh file_handle, size_t *out);
+int vfs_truncate(vfs_fh file_handle, size_t len);
 //int vfs_sync(tcbl_fh file_handle);
 int vfs_free(vfs vfs);
 
 int vfs_txn_begin(vfs_fh vfs_fh);
 int vfs_txn_commit(vfs_fh vfs_fh);
 int vfs_txn_abort(vfs_fh vfs_fh);
-
+int vfs_checkpoint(vfs_fh vfs_fh);
 
 #endif
