@@ -261,16 +261,13 @@ static void test_memvfs_open()
 
 static void test_memvfs_write_read()
 {
-    int rc;
     vfs memvfs;
     vfs_fh fh;
 
-    rc = memvfs_allocate(&memvfs);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(memvfs_allocate(&memvfs));
     assert_non_null(memvfs);
 
-    rc = vfs_open(memvfs, "/test-file", &fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_open(memvfs, "/test-file", &fh));
     assert_non_null(fh);
     assert_ptr_equal(memvfs, fh->vfs);
 
@@ -282,53 +279,42 @@ static void test_memvfs_write_read()
     }
     memset(data_out, 0, sizeof(data_out));
 
-    rc = vfs_write(fh, data_in, 0, data_size);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_write(fh, data_in, 0, data_size));
 
-    rc = vfs_read(fh, data_out, 0, data_size);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_read(fh, data_out, 0, data_size));
 
     assert_memory_equal(data_in, data_out, data_size);
 
-    rc = vfs_close(fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_close(fh));
 
-    rc = vfs_free(memvfs);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_free(memvfs));
 }
 
 static void test_memvfs_write_read_by_char()
 {
-    int rc;
     vfs memvfs;
     vfs_fh fh;
 
-    rc = memvfs_allocate(&memvfs);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(memvfs_allocate(&memvfs));
     assert_non_null(memvfs);
 
-    rc = vfs_open(memvfs, "/test-file", &fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_open(memvfs, "/test-file", &fh));
     assert_non_null(fh);
 
     size_t sz = 100;
     char buff[sz];
     for (int i = 0; i < sz; i++) {
         buff[0] = (char) i;
-        rc = vfs_write(fh, buff, i, 1);
-        assert_int_equal(rc, TCBL_OK);
+        RC_OK(vfs_write(fh, buff, i, 1));
     }
-    rc = vfs_read(fh, buff, 0, sz);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_read(fh, buff, 0, sz));
     for (int i = 0; i < sz; i++) {
         assert_int_equal((char) i, buff[i]);
     }
 
-    rc = vfs_close(fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_close(fh));
 
-    rc = vfs_free(memvfs);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_free(memvfs));
 }
 
 static void test_memvfs_write_read_multi_fh()
@@ -415,17 +401,14 @@ static void test_memvfs_write_gap()
 
 static void test_memvfs_reopen()
 {
-    int rc;
     vfs memvfs;
     vfs_fh fh;
     char *test_file_name = "/test_file";
 
-    rc = memvfs_allocate(&memvfs);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(memvfs_allocate(&memvfs));
     assert_non_null(memvfs);
 
-    rc = vfs_open(memvfs, test_file_name, &fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_open(memvfs, test_file_name, &fh));
     assert_non_null(fh);
     assert_ptr_equal(memvfs, fh->vfs);
 
@@ -437,42 +420,33 @@ static void test_memvfs_reopen()
     }
     memset(data_out, 0, sizeof(data_out));
 
-    rc = vfs_write(fh, data_in, 0, data_size);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_write(fh, data_in, 0, data_size));
 
-    rc = vfs_close(fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_close(fh));
 
-    rc = vfs_open(memvfs, test_file_name, &fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_open(memvfs, test_file_name, &fh));
     assert_non_null(fh);
 
-    rc = vfs_read(fh, data_out, 0, data_size);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_read(fh, data_out, 0, data_size));
 
     assert_memory_equal(data_in, data_out, data_size);
 
-    rc = vfs_close(fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_close(fh));
 
-    rc = vfs_free(memvfs);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_free(memvfs));
 }
 
 static void test_memvfs_two_files()
 {
-    int rc;
     vfs memvfs;
     vfs_fh fh;
     char *test_file_name_1 = "/test_file";
     char *test_file_name_2 = "/another_file";
 
-    rc = memvfs_allocate(&memvfs);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(memvfs_allocate(&memvfs));
     assert_non_null(memvfs);
 
-    rc = vfs_open(memvfs, test_file_name_1, &fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_open(memvfs, test_file_name_1, &fh));
     assert_non_null(fh);
     assert_ptr_equal(memvfs, fh->vfs);
 
@@ -484,48 +458,36 @@ static void test_memvfs_two_files()
         data_in_1[i] = (char) i;
     }
 
-    rc = vfs_write(fh, data_in_1, 0, data_size);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_write(fh, data_in_1, 0, data_size));
 
-    rc = vfs_close(fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_close(fh));
 
     for (int i = 0; i < data_size; i++) {
         data_in_2[i] = (char) (2 * i);
     }
 
-    rc = vfs_open(memvfs, test_file_name_2, &fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_open(memvfs, test_file_name_2, &fh));
     assert_non_null(fh);
 
-    rc = vfs_write(fh, data_in_2, 0, data_size);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_write(fh, data_in_2, 0, data_size));
 
-    rc = vfs_close(fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_close(fh));
 
-    rc = vfs_open(memvfs, test_file_name_1, &fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_open(memvfs, test_file_name_1, &fh));
     assert_non_null(fh);
     memset(data_out, 0, sizeof(data_out));
-    rc = vfs_read(fh, data_out, 0, data_size);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_read(fh, data_out, 0, data_size));
     assert_memory_equal(data_in_1, data_out, data_size);
-    rc = vfs_close(fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_close(fh));
 
-    rc = vfs_open(memvfs, test_file_name_2, &fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_open(memvfs, test_file_name_2, &fh));
     assert_non_null(fh);
     memset(data_out, 0, sizeof(data_out));
-    rc = vfs_read(fh, data_out, 0, data_size);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_read(fh, data_out, 0, data_size));
     assert_memory_equal(data_in_2, data_out, data_size);
-    rc = vfs_close(fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_close(fh));
 
-    rc = vfs_free(memvfs);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_free(memvfs));
 }
 
 static void test_memvfs_truncate()
@@ -614,19 +576,15 @@ static void test_tcbl_open_close()
 
 static void test_tcbl_write_read()
 {
-    int rc;
     vfs memvfs;
     tvfs tcbl;
     tcbl_fh fh;
 
-    rc = memvfs_allocate(&memvfs);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(memvfs_allocate(&memvfs));
 
-    rc = tcbl_allocate(&tcbl, memvfs, TCBL_TEST_PAGE_SIZE);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(tcbl_allocate(&tcbl, memvfs, TCBL_TEST_PAGE_SIZE));
 
-    rc = vfs_open((vfs) tcbl, "test-file", (vfs_fh *) &fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_open((vfs) tcbl, "test-file", (vfs_fh *) &fh));
 
     size_t data_size = TCBL_TEST_PAGE_SIZE;
     char data_in[data_size];
@@ -636,22 +594,17 @@ static void test_tcbl_write_read()
     }
     memset(data_out, 0, sizeof(data_out));
 
-    rc = vfs_write((vfs_fh) fh, data_in, 0, data_size);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_write((vfs_fh) fh, data_in, 0, data_size));
 
-    rc = vfs_read((vfs_fh) fh, data_out, 0, data_size);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_read((vfs_fh) fh, data_out, 0, data_size));
 
     assert_memory_equal(data_in, data_out, data_size);
 
-    rc = vfs_close((vfs_fh) fh);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_close((vfs_fh) fh));
 
-    rc = vfs_free((vfs) tcbl);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_free((vfs) tcbl));
 
-    rc = vfs_free(memvfs);
-    assert_int_equal(rc, TCBL_OK);
+    RC_OK(vfs_free(memvfs));
 }
 
 typedef struct tcbl_test_env {
