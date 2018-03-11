@@ -522,19 +522,19 @@ int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size)
     static struct vfs_info tcbl_vfs_info = {
             sizeof(struct tcbl_vfs),
             sizeof(struct tcbl_fh),
-            &tcbl_open,
-            &tcbl_close,
-            &tcbl_read,
-            &tcbl_write,
-            &tcbl_file_size,
-            &tcbl_truncate,
-            &tcbl_freevfs
+            tcbl_open,
+            tcbl_close,
+            tcbl_read,
+            tcbl_write,
+            tcbl_file_size,
+            tcbl_truncate,
+            tcbl_freevfs
     };
     static struct tvfs_info tcbl_tvfs_info = {
-            &tcbl_txn_begin,
-            &tcbl_txn_commit,
-            &tcbl_txn_abort,
-            &tcbl_checkpoint
+            tcbl_txn_begin,
+            tcbl_txn_commit,
+            tcbl_txn_abort,
+            tcbl_checkpoint
     };
     tcbl_vfs tcbl_vfs = tcbl_malloc(NULL, sizeof(struct tcbl_vfs));
     if (!tcbl_vfs) {
