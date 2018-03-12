@@ -16,6 +16,7 @@
 #define TCBL_CONFLICT_ABORT     0x08
 #define TCBL_LOG_NOT_FOUND      0x09
 #define TCBL_SNAPSHOT_EXPIRED   0x0a
+#define TCBL_FILE_NOT_FOUND     0x0b
 
 
 typedef struct vfs *vfs;
@@ -26,6 +27,8 @@ typedef struct vfs_info {
     size_t vfs_obj_size;
     size_t vfs_fh_size;
     int (*x_open)(vfs, const char *file_name, vfs_fh* file_handle_out);
+    int (*x_delete)(vfs, const char* file_name);
+    int (*x_exists)(vfs, const char* file_name, int *out);
     int (*x_close)(vfs_fh);
     int (*x_read)(vfs_fh, char *data, size_t offset, size_t len);
     int (*x_write)(vfs_fh, const char *data, size_t offset, size_t len);
@@ -74,7 +77,9 @@ typedef struct tcbl_fh {
 
 int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size);
 
-int vfs_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out);
+int vfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out);
+int vfs_delete(vfs vfs, const char *file_name);
+int vfs_exists(vfs vfs, const char *file_name, int *out);
 int vfs_close(vfs_fh file_handle);
 int vfs_read(vfs_fh file_handle, char* data, size_t offset, size_t len);
 int vfs_write(vfs_fh file_handle, const char* data, size_t offset, size_t len);

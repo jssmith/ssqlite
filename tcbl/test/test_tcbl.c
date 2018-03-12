@@ -16,6 +16,16 @@
 #define RC_NOT_OK(__x) assert_int_not_equal(__x, TCBL_OK)
 #define RC_EQ(__x, __erc) assert_int_equal(__x, __erc)
 
+#define verify_length(__fh, __el) { size_t file_size; RC_OK(vfs_file_size(__fh, &file_size)); assert_int_equal(file_size, __el); }
+#define verify_data(__fh, __ed, __offs, __len) { char buff[__len]; RC_OK(vfs_read(__fh, buff, __offs, __len)); assert_memory_equal(buff, __ed, __len); }
+#define verify_file(__fh, __ed, __el) { verify_length(__fh, __el); verify_data(__fh, __ed, 0, __el); }
+
+typedef struct test_env {
+    vfs test_vfs;
+    vfs memvfs;
+    vfs_fh fh[0];
+} *test_env;
+
 void prep_data(char* data, size_t data_len, uint64_t seed)
 {
     // TODO make sure this is good
@@ -53,6 +63,42 @@ static void test_memvfs_open()
     assert_ptr_equal(memvfs, fh->vfs);
 
     RC_OK(vfs_close(fh));
+
+    RC_OK(vfs_free(memvfs));
+}
+
+static void test_memvfs_exists()
+{
+    vfs memvfs;
+    vfs_fh fh;
+
+    RC_OK(memvfs_allocate(&memvfs));
+    assert_non_null(memvfs);
+
+    int exists;
+    char *fn1 = "/test-file";
+    char *fn2 = "/test-file-2";
+
+    RC_OK(vfs_exists(memvfs, fn1, &exists));
+    assert_false(exists);
+
+    RC_OK(vfs_exists(memvfs, fn2, &exists));
+    assert_false(exists);
+
+    RC_OK(vfs_open(memvfs, fn1, &fh));
+    assert_non_null(fh);
+    assert_ptr_equal(memvfs, fh->vfs);
+
+    RC_OK(vfs_exists(memvfs, fn1, &exists));
+    assert_true(exists);
+
+    RC_OK(vfs_close(fh));
+
+    RC_OK(vfs_exists(memvfs, fn1, &exists));
+    assert_true(exists);
+
+    RC_OK(vfs_exists(memvfs, fn2, &exists));
+    assert_false(exists);
 
     RC_OK(vfs_free(memvfs));
 }
@@ -195,6 +241,119 @@ static void test_memvfs_write_gap()
 
     RC_OK(vfs_close(fh));
     RC_OK(vfs_free(memvfs));
+}
+
+static void test_nothing(void **state)
+{
+    // noop for setup and teardown testing
+}
+
+static void test_vfs_bounds(void **state)
+{
+    test_env env = *state;
+    vfs_fh fh = env->fh[0];
+
+    size_t data_len = 5 * TCBL_TEST_PAGE_SIZE;
+    char data_in[data_len];
+    prep_data(data_in, data_len, 964);
+
+    RC_OK(vfs_write(fh, data_in, 0, data_len));
+
+    char data_out[data_len];
+    size_t read_offs, read_len;
+    read_offs = 7 * TCBL_TEST_PAGE_SIZE / 2;
+    read_len = 3 * TCBL_TEST_PAGE_SIZE / 2;
+    RC_OK(vfs_read(fh, data_out, read_offs, read_len));
+    assert_memory_equal(&data_in[read_offs], data_out, read_len);
+
+    read_len += 1;
+    RC_EQ(vfs_read(fh, data_out, read_offs, read_len), TCBL_BOUNDS_CHECK);
+
+    RC_OK(memvfs_free(env->memvfs));
+}
+
+static void test_vfs_delete(void **state)
+{
+    test_env env = *state;
+    vfs vfs = env->test_vfs;
+    char *file_name = "test_file";
+    vfs_fh fh, fh2;
+
+    int exists;
+    RC_OK(vfs_exists(vfs, file_name, &exists));
+    assert_false(exists);
+
+    RC_OK(vfs_open(vfs, file_name, &fh));
+
+    RC_OK(vfs_exists(vfs, file_name, &exists));
+    assert_true(exists);
+
+    RC_OK(vfs_close(fh));
+
+    RC_OK(vfs_exists(vfs, file_name, &exists));
+    assert_true(exists);
+
+    RC_OK(vfs_delete(vfs, file_name));
+
+    RC_OK(vfs_exists(vfs, file_name, &exists));
+    assert_false(exists);
+
+    RC_EQ(vfs_delete(vfs, file_name), TCBL_FILE_NOT_FOUND);
+
+    RC_OK(vfs_exists(vfs, file_name, &exists));
+    assert_false(exists);
+
+    RC_OK(vfs_open(vfs, file_name, &fh));
+
+    RC_OK(vfs_exists(vfs, file_name, &exists));
+    assert_true(exists);
+
+    size_t data_len = TCBL_TEST_PAGE_SIZE;
+    char data_in[data_len];
+    prep_data(data_in, data_len, 4391);
+
+    RC_OK(vfs_write(fh, data_in, 0, data_len));
+
+    RC_OK(vfs_delete(vfs, file_name));
+
+    RC_OK(vfs_exists(vfs, file_name, &exists));
+    assert_false(exists);
+
+    RC_OK(vfs_write(fh, data_in, data_len, data_len));
+
+    RC_OK(vfs_exists(vfs, file_name, &exists));
+    assert_false(exists);
+
+    size_t new_file_size = 2 * data_len;
+    char data_expected[new_file_size];
+    memcpy(data_expected, data_in, data_len);
+    memcpy(&data_expected[data_len], data_in, data_len);
+    verify_file(fh, data_expected, new_file_size);
+
+    RC_OK(vfs_open(vfs, file_name, &fh2));
+
+    RC_OK(vfs_exists(vfs, file_name, &exists));
+    assert_true(exists);
+
+    verify_length(fh2, 0);
+    verify_length(fh, new_file_size);
+
+    char data_in_2[data_len];
+    prep_data(data_in_2, data_len, 6054);
+
+    RC_OK(vfs_write(fh2, data_in_2, 0, data_len));
+
+    RC_OK(vfs_close(fh2));
+
+    RC_OK(vfs_close(fh));
+
+    RC_OK(vfs_open(vfs, file_name, &fh));
+
+    verify_file(fh, data_in_2, data_len);
+
+    RC_OK(vfs_close(fh));
+
+    RC_OK(memvfs_free(env->memvfs));
 }
 
 static void test_memvfs_reopen()
@@ -356,33 +515,33 @@ static void test_memvfs_truncate()
 static void test_tcbl_open_close()
 {
     vfs memvfs;
-    tvfs tcbl;
+    vfs tcbl;
     tcbl_fh fh;
 
     RC_OK(memvfs_allocate(&memvfs));
     assert_non_null(memvfs);
 
-    RC_OK(tcbl_allocate(&tcbl, memvfs, TCBL_TEST_PAGE_SIZE));
+    RC_OK(tcbl_allocate((tvfs*) &tcbl, memvfs, TCBL_TEST_PAGE_SIZE));
 
-    RC_OK(vfs_open((vfs) tcbl, "test-file", (vfs_fh *) &fh));
+    RC_OK(vfs_open(tcbl, "test-file", (vfs_fh *) &fh));
     assert_ptr_equal(tcbl, fh->vfs);
 
     RC_OK(vfs_close((vfs_fh) fh));
-    RC_OK(vfs_free((vfs) tcbl));
+    RC_OK(vfs_free(tcbl));
     RC_OK(vfs_free(memvfs));
 }
 
 static void test_tcbl_write_read()
 {
     vfs memvfs;
-    tvfs tcbl;
+    vfs tcbl;
     tcbl_fh fh;
 
     RC_OK(memvfs_allocate(&memvfs));
 
-    RC_OK(tcbl_allocate(&tcbl, memvfs, TCBL_TEST_PAGE_SIZE));
+    RC_OK(tcbl_allocate((tvfs*) &tcbl, memvfs, TCBL_TEST_PAGE_SIZE));
 
-    RC_OK(vfs_open((vfs) tcbl, "test-file", (vfs_fh *) &fh));
+    RC_OK(vfs_open(tcbl, "test-file", (vfs_fh *) &fh));
 
     size_t data_size = TCBL_TEST_PAGE_SIZE;
     char data_in[data_size];
@@ -400,25 +559,65 @@ static void test_tcbl_write_read()
 
     RC_OK(vfs_close((vfs_fh) fh));
 
-    RC_OK(vfs_free((vfs) tcbl));
+    RC_OK(vfs_free(tcbl));
 
     RC_OK(vfs_free(memvfs));
 }
 
-typedef struct tcbl_test_env {
-    tvfs tvfs;
-    vfs memvfs;
-    vfs_fh fh[0];
-} *tcbl_test_env;
+static int memvfs_setup(void **state)
+{
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env));
+    assert_non_null(env);
+
+    RC_OK(memvfs_allocate((vfs*)&env->test_vfs));
+    assert_non_null(env->test_vfs);
+    env->memvfs = env->test_vfs;
+
+    *state = env;
+    return 0;
+}
+
+static int memvfs_teardown(void **state)
+{
+    test_env env = *state;
+    RC_OK(vfs_free((vfs) env->test_vfs));
+    tcbl_free(NULL, env, sizeof(struct test_env));
+    return 0;
+}
+
+static int memvfs_setup_1fh(void **state)
+{
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + sizeof(vfs_fh));
+    assert_non_null(env);
+
+    RC_OK(memvfs_allocate((vfs*)&env->test_vfs));
+    assert_non_null(env->test_vfs);
+    env->memvfs = env->test_vfs;
+
+    char *test_filename = "/test-file";
+    RC_OK(vfs_open((vfs) env->test_vfs, test_filename, &env->fh[0]));
+
+    *state = env;
+    return 0;
+}
+
+static int memvfs_teardown_1fh(void **state)
+{
+    test_env env = *state;
+    RC_OK(vfs_close(env->fh[0]));
+    RC_OK(vfs_free((vfs) env->test_vfs));
+    tcbl_free(NULL, env, sizeof(struct test_env) + sizeof(vfs_fh));
+    return 0;
+}
 
 static int tcbl_setup(void **state)
 {
-    tcbl_test_env env = tcbl_malloc(NULL, sizeof(struct tcbl_test_env));
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env));
     assert_non_null(env);
 
     RC_OK(memvfs_allocate((vfs*)&env->memvfs));
     assert_non_null(env->memvfs);
-    RC_OK(tcbl_allocate(&env->tvfs, (vfs) env->memvfs, TCBL_TEST_PAGE_SIZE));
+    RC_OK(tcbl_allocate((tvfs*) &env->test_vfs, (vfs) env->memvfs, TCBL_TEST_PAGE_SIZE));
 
     *state = env;
     return 0;
@@ -426,26 +625,26 @@ static int tcbl_setup(void **state)
 
 static int tcbl_teardown(void **state)
 {
-    tcbl_test_env env = *state;
-    RC_OK(vfs_free((vfs) env->tvfs));
+    test_env env = *state;
+    RC_OK(vfs_free((vfs) env->test_vfs));
     RC_OK(vfs_free((vfs) env->memvfs));
-    tcbl_free(NULL, env, sizeof(struct tcbl_test_env));
+    tcbl_free(NULL, env, sizeof(struct test_env));
 
     return 0;
 }
 
 static int tcbl_setup_1fh(void **state)
 {
-    tcbl_test_env env = tcbl_malloc(NULL, sizeof(struct tcbl_test_env) + sizeof(vfs_fh));
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + sizeof(vfs_fh));
     assert_non_null(env);
 
     RC_OK(memvfs_allocate((vfs*)&env->memvfs));
     assert_non_null(env->memvfs);
-    RC_OK(tcbl_allocate(&env->tvfs, (vfs) env->memvfs, TCBL_TEST_PAGE_SIZE));
+    RC_OK(tcbl_allocate((tvfs*) &env->test_vfs, (vfs) env->memvfs, TCBL_TEST_PAGE_SIZE));
 
 
     char *test_filename = "/test-file";
-    RC_OK(vfs_open((vfs) env->tvfs, test_filename, &env->fh[0]));
+    RC_OK(vfs_open((vfs) env->test_vfs, test_filename, &env->fh[0]));
 
     *state = env;
     return 0;
@@ -453,27 +652,27 @@ static int tcbl_setup_1fh(void **state)
 
 static int tcbl_teardown_1fh(void **state)
 {
-    tcbl_test_env env = *state;
+    test_env env = *state;
     RC_OK(vfs_close(env->fh[0]));
-    RC_OK(vfs_free((vfs) env->tvfs));
+    RC_OK(vfs_free((vfs) env->test_vfs));
     RC_OK(vfs_free((vfs) env->memvfs));
-    tcbl_free(NULL, env, sizeof(struct tcbl_test_env + sizeof(vfs_fh)));
+    tcbl_free(NULL, env, sizeof(struct test_env + sizeof(vfs_fh)));
     return 0;
 }
 
 static int tcbl_setup_2fh_1vfs(void **state)
 {
-    tcbl_test_env env = tcbl_malloc(NULL, sizeof(struct tcbl_test_env) + 2 * sizeof(vfs_fh));
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + 2 * sizeof(vfs_fh));
     assert_non_null(env);
 
     RC_OK(memvfs_allocate((vfs*)&env->memvfs));
     assert_non_null(env->memvfs);
-    RC_OK(tcbl_allocate(&env->tvfs, (vfs) env->memvfs, TCBL_TEST_PAGE_SIZE));
+    RC_OK(tcbl_allocate((tvfs*) &env->test_vfs, (vfs) env->memvfs, TCBL_TEST_PAGE_SIZE));
 
 
     char *test_filename = "/test-file";
-    RC_OK(vfs_open((vfs) env->tvfs, test_filename, &env->fh[0]));
-    RC_OK(vfs_open((vfs) env->tvfs, test_filename, &env->fh[1]));
+    RC_OK(vfs_open((vfs) env->test_vfs, test_filename, &env->fh[0]));
+    RC_OK(vfs_open((vfs) env->test_vfs, test_filename, &env->fh[1]));
 
     *state = env;
     return 0;
@@ -481,18 +680,18 @@ static int tcbl_setup_2fh_1vfs(void **state)
 
 static int tcbl_teardown_2fh_1vfs(void **state)
 {
-    tcbl_test_env env = *state;
+    test_env env = *state;
     RC_OK(vfs_close(env->fh[0]));
     RC_OK(vfs_close(env->fh[1]));
-    RC_OK(vfs_free((vfs) env->tvfs));
+    RC_OK(vfs_free((vfs) env->test_vfs));
     RC_OK(vfs_free((vfs) env->memvfs));
-    tcbl_free(NULL, env, sizeof(struct tcbl_test_env + 2 * sizeof(vfs_fh)));
+    tcbl_free(NULL, env, sizeof(struct test_env) + 2 * sizeof(vfs_fh));
     return 0;
 }
 
 static int tcbl_setup_2fh_2vfs(void **state)
 {
-    tcbl_test_env env = tcbl_malloc(NULL, sizeof(struct tcbl_test_env) + 2 * sizeof(vfs_fh));
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + 2 * sizeof(vfs_fh));
     assert_non_null(env);
 
     RC_OK(memvfs_allocate((vfs*)&env->memvfs));
@@ -505,14 +704,14 @@ static int tcbl_setup_2fh_2vfs(void **state)
     RC_OK(vfs_open((vfs) vfs1, test_filename, &env->fh[0]));
     RC_OK(vfs_open((vfs) vfs2, test_filename, &env->fh[1]));
 
-    env->tvfs = 0;
+    env->test_vfs = 0;
     *state = env;
     return 0;
 }
 
 static int tcbl_teardown_2fh_2vfs(void **state)
 {
-    tcbl_test_env env = *state;
+    test_env env = *state;
     vfs vfs1 = env->fh[0]->vfs;
     vfs vfs2 = env->fh[1]->vfs;
     RC_OK(vfs_close(env->fh[0]));
@@ -520,18 +719,18 @@ static int tcbl_teardown_2fh_2vfs(void **state)
     RC_OK(vfs_free(vfs1));
     RC_OK(vfs_free(vfs2));
     RC_OK(vfs_free((vfs) env->memvfs));
-    tcbl_free(NULL, env, sizeof(struct tcbl_test_env) + 2 * sizeof(vfs_fh));
+    tcbl_free(NULL, env, sizeof(struct test_env) + 2 * sizeof(vfs_fh));
     return 0;
 }
 
 static void test_tcbl_txn_nothing_commit(void **state)
 {
-    tcbl_test_env env = *state;
-    tvfs tcbl = env->tvfs;
+    test_env env = *state;
+    vfs tcbl = env->test_vfs;
     vfs_fh fh;
     char *test_filename = "/test-file";
 
-    RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
+    RC_OK(vfs_open(tcbl, test_filename, &fh));
     RC_OK(vfs_txn_begin(fh));
     RC_OK(vfs_txn_commit(fh));
     RC_OK(vfs_close(fh));
@@ -540,12 +739,12 @@ static void test_tcbl_txn_nothing_commit(void **state)
 
 static void test_tcbl_txn_nothing_abort(void **state)
 {
-    tcbl_test_env env = *state;
-    tvfs tcbl = env->tvfs;
+    test_env env = *state;
+    vfs tcbl = env->test_vfs;
     vfs_fh fh;
     char *test_filename = "/test-file";
 
-    RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
+    RC_OK(vfs_open(tcbl, test_filename, &fh));
     RC_OK(vfs_txn_begin(fh));
     RC_OK(vfs_txn_abort(fh));
     RC_OK(vfs_close(fh));
@@ -554,9 +753,7 @@ static void test_tcbl_txn_nothing_abort(void **state)
 
 static void test_tcbl_txn_write_read_commit(void **state)
 {
-    tcbl_test_env env = *state;
-    tvfs tcbl = env->tvfs;
-
+    test_env env = *state;
     char *test_filename = "/test-file";
 
     size_t data_len = TCBL_TEST_PAGE_SIZE;
@@ -565,7 +762,7 @@ static void test_tcbl_txn_write_read_commit(void **state)
     prep_data(data_in, data_len, 98345);
 
     vfs_fh fh;
-    RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
+    RC_OK(vfs_open(env->test_vfs, test_filename, &fh));
 
     RC_OK(vfs_txn_begin(fh));
 
@@ -595,8 +792,7 @@ static void test_tcbl_txn_write_read_commit(void **state)
 
 static void test_tcbl_txn_write_read_abort(void **state)
 {
-    tcbl_test_env env = *state;
-    tvfs tcbl = env->tvfs;
+    test_env env = *state;
 
     char *test_filename = "/test-file";
 
@@ -607,7 +803,7 @@ static void test_tcbl_txn_write_read_abort(void **state)
     size_t file_size;
 
     vfs_fh fh;
-    RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
+    RC_OK(vfs_open(env->test_vfs, test_filename, &fh));
 
     RC_OK(vfs_file_size(fh, &file_size));
     assert_int_equal(file_size, 0);
@@ -635,8 +831,8 @@ static void test_tcbl_txn_write_read_abort(void **state)
 
 static void test_tcbl_txn_multiblock(void **state)
 {
-    tcbl_test_env env = *state;
-    tvfs tcbl = env->tvfs;
+    test_env env = *state;
+    vfs tcbl = env->test_vfs;
 
     char *test_filename = "/test-file";
 
@@ -647,7 +843,7 @@ static void test_tcbl_txn_multiblock(void **state)
     size_t file_size;
 
     vfs_fh fh;
-    RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
+    RC_OK(vfs_open(tcbl, test_filename, &fh));
 
     RC_OK(vfs_file_size(fh, &file_size));
     assert_int_equal(file_size, 0);
@@ -676,8 +872,8 @@ static void test_tcbl_txn_multiblock(void **state)
 
 static void test_tcbl_txn_reopen(void **state)
 {
-    tcbl_test_env env = *state;
-    tvfs tcbl = env->tvfs;
+    test_env env = *state;
+    vfs tcbl = env->test_vfs;
 
     char *test_filename = "/test-file";
 
@@ -688,11 +884,11 @@ static void test_tcbl_txn_reopen(void **state)
     size_t file_size;
 
     vfs_fh fh;
-    RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
+    RC_OK(vfs_open(tcbl, test_filename, &fh));
     RC_OK(vfs_write(fh, data_in, 0, data_len));
     RC_OK(vfs_close(fh));
 
-    RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
+    RC_OK(vfs_open(tcbl, test_filename, &fh));
     RC_OK(vfs_file_size(fh, &file_size));
     assert_int_equal(file_size, data_len);
 
@@ -710,8 +906,8 @@ static void test_tcbl_txn_reopen(void **state)
 
 static void test_tcbl_txn_overwrite(void **state)
 {
-    tcbl_test_env env = *state;
-    tvfs tcbl = env->tvfs;
+    test_env env = *state;
+    vfs tcbl = env->test_vfs;
 
     char *test_filename = "/test-file";
 
@@ -722,7 +918,7 @@ static void test_tcbl_txn_overwrite(void **state)
     size_t file_size;
 
     vfs_fh fh;
-    RC_OK(vfs_open((vfs) tcbl, test_filename, &fh));
+    RC_OK(vfs_open(tcbl, test_filename, &fh));
     RC_OK(vfs_write(fh, data_in, 0, data_len));
     RC_OK(vfs_file_size(fh, &file_size));
     assert_int_equal(file_size, data_len);
@@ -754,13 +950,192 @@ static void test_tcbl_txn_overwrite(void **state)
     RC_OK(memvfs_free((vfs) env->memvfs));
 }
 
-#define verify_length(__fh, __el) { size_t file_size; RC_OK(vfs_file_size(__fh, &file_size)); assert_int_equal(file_size, __el); }
-#define verify_data(__fh, __ed, __offs, __len) { char buff[__len]; RC_OK(vfs_read(__fh, buff, __offs, __len)); assert_memory_equal(buff, __ed, __len); }
-#define verify_file(__fh, __ed, __el) { verify_length(__fh, __el); verify_data(__fh, __ed, 0, __el); }
+void test_tcbl_txn_read_unaligned(void **state)
+{
+    test_env env = *state;
+    vfs_fh fh = env->fh[0];
+
+    size_t data_len = 10 * TCBL_TEST_PAGE_SIZE;
+    char data_in[data_len];
+    prep_data(data_in, data_len, 378);
+    RC_OK(vfs_write(fh, data_in, 0, data_len));
+
+    char data_out[data_len];
+
+    RC_OK(vfs_read(fh, data_out, 0, data_len));
+    assert_memory_equal(data_in, data_out, data_len);
+
+    RC_OK(vfs_read(fh, data_out, 0, 1));
+    assert_memory_equal(data_in, data_out, 1);
+
+    RC_OK(vfs_read(fh, data_out, 1, 1));
+    assert_memory_equal(&data_in[1], data_out, 1);
+
+    RC_OK(vfs_read(fh, data_out, 10, 1));
+    assert_memory_equal(&data_in[10], data_out, 1);
+
+    size_t rs = TCBL_TEST_PAGE_SIZE / 2;
+    RC_OK(vfs_read(fh, data_out, 0, rs));
+    assert_memory_equal(data_in, data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, 1, rs));
+    assert_memory_equal(&data_in[1], data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, 10, rs));
+    assert_memory_equal(&data_in[10], data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, rs, rs));
+    assert_memory_equal(&data_in[rs], data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, TCBL_TEST_PAGE_SIZE - 1, rs));
+    assert_memory_equal(&data_in[TCBL_TEST_PAGE_SIZE - 1], data_out, rs);
+
+    rs = 3 * TCBL_TEST_PAGE_SIZE / 2;
+    RC_OK(vfs_read(fh, data_out, 0, rs));
+    assert_memory_equal(data_in, data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, 1, rs));
+    assert_memory_equal(&data_in[1], data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, 10, rs));
+    assert_memory_equal(&data_in[10], data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, rs, rs));
+    assert_memory_equal(&data_in[rs], data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, TCBL_TEST_PAGE_SIZE - 1, rs));
+    assert_memory_equal(&data_in[TCBL_TEST_PAGE_SIZE - 1], data_out, rs);
+
+    rs = 7 * TCBL_TEST_PAGE_SIZE / 2;
+    RC_OK(vfs_read(fh, data_out, 0, rs));
+    assert_memory_equal(data_in, data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, 1, rs));
+    assert_memory_equal(&data_in[1], data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, 10, rs));
+    assert_memory_equal(&data_in[10], data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, rs, rs));
+    assert_memory_equal(&data_in[rs], data_out, rs);
+
+    RC_OK(vfs_read(fh, data_out, TCBL_TEST_PAGE_SIZE - 1, rs));
+    assert_memory_equal(&data_in[TCBL_TEST_PAGE_SIZE - 1], data_out, rs);
+
+    RC_OK(memvfs_free(env->memvfs));
+}
+
+void test_tcbl_txn_write_unaligned(void **state)
+{
+    test_env env = *state;
+    vfs_fh fh = env->fh[0];
+
+    size_t sz = TCBL_TEST_PAGE_SIZE;
+    size_t data_len = 10 * sz;
+    char data_in[data_len];
+    char data_expected[data_len];
+    prep_data(data_in, data_len, 379);
+    memcpy(data_expected, data_in, data_len);
+
+    RC_OK(vfs_write(fh, data_in, 0, data_len - sz - 1));
+    verify_file(fh, data_expected, data_len - sz - 1);
+
+    RC_OK(vfs_write(fh, &data_in[data_len - sz + 1], data_len - sz + 1, sz - 2));
+    memset(&data_expected[data_len - sz - 1], 0, 2);
+    verify_file(fh, data_expected, data_len - 1);
+
+    RC_OK(vfs_write(fh, &data_in[data_len - sz - 1], data_len - sz - 1, 2));
+    memcpy(&data_expected[data_len - sz - 1], &data_in[data_len - sz - 1], 2);
+    verify_file(fh, data_expected, data_len - 1);
+
+    RC_OK(vfs_write(fh, &data_in[data_len - 1], data_len - 1, 1));
+    verify_file(fh, data_expected, data_len);
+
+    char data_in_2[data_len];
+    prep_data(data_in_2, data_len, 6098);
+    assert_memory_not_equal(data_in_2, data_in, data_len);
+
+    RC_OK(vfs_write(fh, data_in_2, 0, 1));
+    memcpy(&data_expected[0], &data_in_2[0], 1);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[1], 1, 1));
+    memcpy(&data_expected[1], &data_in_2[1], 1);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[10], 10, 1));
+    memcpy(&data_expected[10], &data_in_2[10], 1);
+    verify_file(fh, data_expected, data_len);
+
+    size_t rs = TCBL_TEST_PAGE_SIZE / 2;
+    RC_OK(vfs_write(fh, &data_in_2[0], 0, rs));
+    memcpy(&data_expected[0], &data_in_2[0], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[1], 1, rs));
+    memcpy(&data_expected[1], &data_in_2[1], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[10], 10, rs));
+    memcpy(&data_expected[10], &data_in_2[10], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[rs], rs, rs));
+    memcpy(&data_expected[rs], &data_in_2[rs], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[TCBL_TEST_PAGE_SIZE - 1], TCBL_TEST_PAGE_SIZE - 1, rs));
+    memcpy(&data_expected[TCBL_TEST_PAGE_SIZE - 1], &data_in_2[TCBL_TEST_PAGE_SIZE - 1], rs);
+    verify_file(fh, data_expected, data_len);
+
+    rs = 3 * TCBL_TEST_PAGE_SIZE / 2;
+    RC_OK(vfs_write(fh, &data_in_2[0], 0, rs));
+    memcpy(&data_expected[0], &data_in_2[0], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[1], 1, rs));
+    memcpy(&data_expected[1], &data_in_2[1], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[10], 10, rs));
+    memcpy(&data_expected[10], &data_in_2[10], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[rs], rs, rs));
+    memcpy(&data_expected[rs], &data_in_2[rs], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[TCBL_TEST_PAGE_SIZE - 1], TCBL_TEST_PAGE_SIZE - 1, rs));
+    memcpy(&data_expected[TCBL_TEST_PAGE_SIZE - 1], &data_in_2[TCBL_TEST_PAGE_SIZE - 1], rs);
+    verify_file(fh, data_expected, data_len);
+
+    rs = 7 * TCBL_TEST_PAGE_SIZE / 2;
+    RC_OK(vfs_write(fh, &data_in_2[0], 0, rs));
+    memcpy(&data_expected[0], &data_in_2[0], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[1], 1, rs));
+    memcpy(&data_expected[1], &data_in_2[1], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[10], 10, rs));
+    memcpy(&data_expected[10], &data_in_2[10], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[rs], rs, rs));
+    memcpy(&data_expected[rs], &data_in_2[rs], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(vfs_write(fh, &data_in_2[TCBL_TEST_PAGE_SIZE - 1], TCBL_TEST_PAGE_SIZE - 1, rs));
+    memcpy(&data_expected[TCBL_TEST_PAGE_SIZE - 1], &data_in_2[TCBL_TEST_PAGE_SIZE - 1], rs);
+    verify_file(fh, data_expected, data_len);
+
+    RC_OK(memvfs_free(env->memvfs));
+}
 
 static void test_tcbl_txn_2fh_snapshot(void **state)
 {
-    tcbl_test_env env = *state;
+    test_env env = *state;
     vfs_fh fh1 = env->fh[0];
     vfs_fh fh2 = env->fh[1];
 
@@ -852,7 +1227,7 @@ static void test_tcbl_txn_2fh_snapshot(void **state)
 
 static void test_tcbl_txn_2fh_overwrite(void **state)
 {
-    tcbl_test_env env = *state;
+    test_env env = *state;
     vfs_fh fh1 = env->fh[0];
     vfs_fh fh2 = env->fh[1];
 
@@ -900,7 +1275,7 @@ static void test_tcbl_txn_2fh_overwrite(void **state)
 
 static void test_tcbl_txn_2fh_conflict(void **state)
 {
-    tcbl_test_env env = *state;
+    test_env env = *state;
     vfs_fh fh1 = env->fh[0];
     vfs_fh fh2 = env->fh[1];
 
@@ -943,7 +1318,7 @@ static void test_tcbl_txn_2fh_conflict(void **state)
 
 static void test_tcbl_txn_checkpoint(void **state)
 {
-    tcbl_test_env env = *state;
+    test_env env = *state;
     vfs_fh fh = env->fh[0];
 
     size_t data_len = TCBL_TEST_PAGE_SIZE;
@@ -979,7 +1354,7 @@ static void test_tcbl_txn_checkpoint(void **state)
 
 static void test_tcbl_txn_checkpoint_activity(void **state)
 {
-    tcbl_test_env env = *state;
+    test_env env = *state;
     vfs_fh fh = env->fh[0];
 
     RC_OK(vfs_txn_begin(fh));
@@ -1012,7 +1387,7 @@ static void test_tcbl_txn_checkpoint_activity(void **state)
 
 static void test_tcbl_txn_checkpoint_activity_2(void **state)
 {
-    tcbl_test_env env = *state;
+    test_env env = *state;
     vfs_fh fh1 = env->fh[0];
     vfs_fh fh2 = env->fh[1];
 
@@ -1093,10 +1468,14 @@ int main(void)
 //        cmocka_unit_test(test_leak_memory),
         cmocka_unit_test(test_memvfs_create),
         cmocka_unit_test(test_memvfs_open),
+        cmocka_unit_test(test_memvfs_exists),
         cmocka_unit_test(test_memvfs_write_read),
         cmocka_unit_test(test_memvfs_write_read_by_char),
         cmocka_unit_test(test_memvfs_write_read_multi_fh),
         cmocka_unit_test(test_memvfs_write_gap),
+        cmocka_unit_test_setup_teardown(test_nothing, memvfs_setup_1fh, memvfs_teardown_1fh),
+        cmocka_unit_test_setup_teardown(test_vfs_bounds, memvfs_setup_1fh, memvfs_teardown_1fh),
+        cmocka_unit_test_setup_teardown(test_vfs_delete, memvfs_setup, memvfs_teardown),
         cmocka_unit_test(test_memvfs_reopen),
         cmocka_unit_test(test_memvfs_two_files),
         cmocka_unit_test(test_memvfs_truncate)
@@ -1108,6 +1487,8 @@ int main(void)
     const struct CMUnitTest tcbl_tests[] = {
         cmocka_unit_test(test_tcbl_open_close),
         cmocka_unit_test(test_tcbl_write_read),
+        cmocka_unit_test_setup_teardown(test_vfs_bounds, tcbl_setup_1fh, tcbl_teardown_1fh),
+        cmocka_unit_test_setup_teardown(test_vfs_delete, tcbl_setup, tcbl_teardown),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_nothing_commit, tcbl_setup, tcbl_teardown),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_nothing_abort, tcbl_setup, tcbl_teardown),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_write_read_commit, tcbl_setup, tcbl_teardown),
@@ -1115,6 +1496,8 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_tcbl_txn_multiblock, tcbl_setup, tcbl_teardown),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_reopen, tcbl_setup, tcbl_teardown),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_overwrite, tcbl_setup, tcbl_teardown),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_read_unaligned, tcbl_setup_1fh, tcbl_teardown_1fh),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_write_unaligned, tcbl_setup_1fh, tcbl_teardown_1fh),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_snapshot, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_overwrite, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_conflict, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),

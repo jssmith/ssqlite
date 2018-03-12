@@ -12,19 +12,24 @@ typedef struct memvfs_file {
     char *data;
     size_t len;
     size_t alloc_len;
+    uint64_t ref_ct;
     struct memvfs_file *next_file;
 } *memvfs_file;
 
 typedef struct memvfs_fh {
     struct memvfs *vfs;
     struct memvfs_file *memvfs_file;
+    bool is_valid;
+    struct memvfs_fh *next;
 } *memvfs_fh;
 
 typedef struct memvfs {
     vfs_info vfs_info;
     struct memvfs_file *files;
+    struct memvfs_fh *file_handles;
 } *memvfs;
 
+static void memvfs_free_file(memvfs_file f);
 
 static void print_block(const char* data, size_t len)
 {
@@ -42,15 +47,18 @@ int file_name_comparator(memvfs_file f1, memvfs_file f2)
     return strcmp(f1->name, f2->name);
 }
 
-int memvfs_find_file(memvfs memvfs, const char *name, memvfs_file *file_out)
+void memvfs_find_existing_file(memvfs memvfs, const char *name, memvfs_file *file_out)
 {
-    struct memvfs_file* result;
     struct memvfs_file search_file = {
             (char*) name
     };
-    SGLIB_LIST_FIND_MEMBER(struct memvfs_file, memvfs->files, &search_file, file_name_comparator, next_file, result);
-    if (result) {
-        *file_out = result;
+    SGLIB_LIST_FIND_MEMBER(struct memvfs_file, memvfs->files, &search_file, file_name_comparator, next_file, *file_out);
+}
+
+int memvfs_find_file(memvfs memvfs, const char *name, memvfs_file *file_out)
+{
+    memvfs_find_existing_file(memvfs, name, file_out);
+    if (*file_out) {
         return TCBL_OK;
     }
     memvfs_file f = tcbl_malloc(NULL, sizeof(struct memvfs_file));
@@ -68,6 +76,7 @@ int memvfs_find_file(memvfs memvfs, const char *name, memvfs_file *file_out)
     f->len = 0;
     f->alloc_len = 0;
     f->next_file = NULL; // TODO is this necessary?
+    f->ref_ct = 1;
     *file_out = f;
 
     SGLIB_LIST_ADD(struct memvfs_file, memvfs->files, f, next_file);
@@ -81,13 +90,53 @@ int memvfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
         return TCBL_ALLOC_FAILURE;
     }
     fh->vfs = (memvfs) vfs;
+    fh->is_valid = true;
     *file_handle_out = (vfs_fh) fh;
 
-    return memvfs_find_file((memvfs) vfs, file_name, &fh->memvfs_file);
+    int rc = memvfs_find_file((memvfs) vfs, file_name, &fh->memvfs_file);
+    if (rc) {
+        tcbl_free(NULL, fh, sizeof(struct memvfs_fh));
+    } else {
+        SGLIB_LIST_ADD(struct memvfs_fh, ((memvfs) vfs)->file_handles, fh, next);
+        fh->memvfs_file->ref_ct += 1;
+    }
+    return rc;
+}
+
+int memvfs_delete(vfs vfs, const char *file_name)
+{
+    memvfs_file f;
+    memvfs_find_existing_file((memvfs) vfs, file_name, &f);
+    if (!f) {
+        return TCBL_FILE_NOT_FOUND;
+    } else {
+        SGLIB_LIST_DELETE(struct memvfs_file, ((memvfs) vfs)->files, f, next_file);
+        f->ref_ct -= 1;
+        if (f->ref_ct == 0) {
+            memvfs_free_file(f);
+        }
+        return TCBL_OK;
+    }
+}
+
+int memvfs_exists(vfs vfs, const char* file_name, int *out)
+{
+    memvfs_file f;
+    memvfs_find_existing_file((memvfs) vfs, file_name, &f);
+    *out = (f != NULL);
+    return TCBL_OK;
 }
 
 int memvfs_close(vfs_fh file_handle)
 {
+    memvfs_file f = ((memvfs_fh) file_handle)->memvfs_file;
+    if (f) {
+        f->ref_ct -= 1;
+        if (f->ref_ct == 0) {
+            memvfs_free_file(f);
+        }
+    }
+    SGLIB_LIST_DELETE(struct memvfs_fh, ((memvfs)((memvfs_fh) file_handle)->vfs)->file_handles, (memvfs_fh) file_handle, next);
     tcbl_free(NULL, file_handle, file_handle->vfs->vfs_info->vfs_fh_size);
     return TCBL_OK;
 }
@@ -170,17 +219,40 @@ int memvfs_truncate(vfs_fh vfs_fh, size_t len)
     return TCBL_OK;
 }
 
+static void memvfs_free_file_data(memvfs_file f)
+{
+    if (f->data) {
+        tcbl_free(NULL, f->data, f->alloc_len);
+        f->data = NULL;
+    }
+}
+
+static void memvfs_free_file(memvfs_file f)
+{
+    tcbl_free(NULL, f->name, f->name_alloc_len);
+    memvfs_free_file_data(f);
+    tcbl_free(NULL, f, sizeof(struct memvfs_file));
+}
+
 int memvfs_free(vfs vfs)
 {
     memvfs memvfs = (struct memvfs *) vfs;
+    memvfs_fh fh = memvfs->file_handles;
+    while (fh) {
+//        fh->memvfs_file->ref_ct -= 1;
+//        fh->memvfs_file = NULL;
+        fh->is_valid = false;
+        fh = fh->next;
+    }
     while (memvfs->files) {
         memvfs_file f = memvfs->files;
         SGLIB_LIST_DELETE(struct memvfs_file, memvfs->files, f, next_file);
-        tcbl_free(NULL, f->name, f->name_alloc_len);
-        if (f->data) {
-            tcbl_free(NULL, f->data, f->alloc_len);
+        f->ref_ct -= 1;
+        if (f->ref_ct == 0) {
+            memvfs_free_file(f);
+        } else {
+            memvfs_free_file_data(f);
         }
-        tcbl_free(NULL, f, sizeof(struct memvfs_file));
     }
     return TCBL_OK;
 }
@@ -190,13 +262,15 @@ int memvfs_allocate(vfs *vfs)
     static struct vfs_info memvfs_info = {
             sizeof(struct memvfs),
             sizeof(struct memvfs_fh),
-            &memvfs_open,
-            &memvfs_close,
-            &memvfs_read,
-            &memvfs_write,
-            &memvfs_file_size,
-            &memvfs_truncate,
-            &memvfs_free
+            memvfs_open,
+            memvfs_delete,
+            memvfs_exists,
+            memvfs_close,
+            memvfs_read,
+            memvfs_write,
+            memvfs_file_size,
+            memvfs_truncate,
+            memvfs_free
     };
     memvfs memvfs = tcbl_malloc(NULL, sizeof(struct memvfs));
     if (!memvfs) {
@@ -204,6 +278,7 @@ int memvfs_allocate(vfs *vfs)
     }
     memvfs->vfs_info = &memvfs_info;
     memvfs->files = NULL;
+    memvfs->file_handles = NULL;
     *vfs = (struct vfs *) memvfs;
     return TCBL_OK;
 }

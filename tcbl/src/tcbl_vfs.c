@@ -26,15 +26,23 @@ static int tcbl_txn_commit(vfs_fh file_handle);
 static int tcbl_txn_abort(vfs_fh file_handle);
 static int tcbl_checkpoint(vfs_fh file_handle);
 
-static int tcbl_log_open(vfs underlying_vfs, const char* file_name, size_t page_size, vfs_fh *log_fh)
+static size_t tcbl_log_filename_len(const char * file_name)
+{
+    return strlen(file_name) + 4;
+}
+
+static void gen_log_file_name(const char *file_name, char *log_file_name)
+{
+    char* p = stpcpy(log_file_name, file_name);
+    strcpy(p, "-log");
+}
+
+static int tcbl_log_open(vfs underlying_vfs, const char *file_name, size_t page_size, vfs_fh *log_fh)
 {
     int rc;
-    char *log_fn_ext = "-log";
-    size_t file_name_len = strlen(file_name);
-    size_t log_fn_ext_len = strlen(log_fn_ext);
-    char log_file_name[file_name_len + log_fn_ext_len + 1];
-    memcpy(log_file_name, file_name, file_name_len);
-    memcpy(&log_file_name[strlen(file_name)], log_fn_ext, log_fn_ext_len + 1);
+    size_t log_fn_len = tcbl_log_filename_len(file_name);
+    char log_file_name[log_fn_len + 1];
+    gen_log_file_name(file_name, log_file_name);
 
     rc = vfs_open(underlying_vfs, log_file_name, log_fh);
     if (rc) {
@@ -186,6 +194,28 @@ static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
     return TCBL_OK;
 }
 
+static int tcbl_delete(vfs vfs, const char *file_name)
+{
+    int rc;
+    tcbl_vfs tcbl_vfs = (struct tcbl_vfs *) vfs;
+    rc = vfs_delete(tcbl_vfs->underlying_vfs, file_name);
+    if (rc) {
+        return rc;
+    }
+
+    size_t log_fn_len = tcbl_log_filename_len(file_name);
+    char log_file_name[log_fn_len + 1];
+    gen_log_file_name(file_name, log_file_name);
+
+    return vfs_delete(tcbl_vfs->underlying_vfs, log_file_name);
+}
+
+static int tcbl_exists(vfs vfs, const char *file_name, int *out)
+{
+    tcbl_vfs tcbl_vfs = (struct tcbl_vfs *) vfs;
+    return vfs_exists(tcbl_vfs->underlying_vfs, file_name, out);
+}
+
 static int tcbl_close(vfs_fh file_handle)
 {
     tcbl_fh fh = (tcbl_fh) file_handle;
@@ -205,10 +235,9 @@ static int tcbl_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
     tcbl_fh fh = (tcbl_fh) file_handle;
     size_t page_size = ((tcbl_vfs) fh->vfs)->page_size;
 
-    // Require alignment for now - TODO add unaligned later
-    if (offset % page_size != 0 || len % page_size !=0) {
-        return TCBL_BAD_ARGUMENT;
-    }
+    size_t alignment_shift = offset % page_size;
+    size_t block_offset = offset - alignment_shift;
+    size_t block_len = ((offset + len - 1) / page_size + 1) * page_size - block_offset;
 
     // If no transaction is active start one
     bool auto_txn = !fh->txn_active;
@@ -219,17 +248,19 @@ static int tcbl_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
         }
     }
 
-    size_t read_offset = offset;
+    size_t read_offset = block_offset;
     char* dst = data;
+    size_t block_begin_skip = alignment_shift;
+    size_t block_read_size = MIN(len, page_size - alignment_shift);
     rc = TCBL_OK;
-    while (read_offset < offset + len) {
+    while (read_offset < block_offset + block_len) {
         tcbl_change_log result;
         struct tcbl_change_log search_record = {
             read_offset
         };
         SGLIB_LIST_FIND_MEMBER(struct tcbl_change_log, fh->change_log, &search_record, tcbl_change_log_cmp, next, result);
         if (result) {
-            memcpy(dst, result->data, page_size);
+            memcpy(dst, &result->data[block_begin_skip], block_read_size);
         } else {
             // scan the log for this block - lots of things are bad about this
             // implementation: 1/ it scans, 2/ it scans once for each read block
@@ -243,10 +274,10 @@ static int tcbl_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
                 // TODO check lsn too
                 rc = vfs_read(fh->underlying_log_fh, log_page_buff, log_read_pos, log_page_size);
                 if (rc) {
-                    break;
+                    goto txn_end;
                 }
                 if (log_page->offset == read_offset) {
-                    memcpy(dst, log_page->data, page_size);
+                    memcpy(dst, &log_page->data[block_begin_skip], block_read_size);
                     found_block = true;
                 }
                 log_read_pos += log_page_size;
@@ -255,20 +286,30 @@ static int tcbl_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
             struct tcbl_change_log_header h;
             rc = vfs_read(fh->underlying_log_fh, (char *) &h, 0, sizeof(struct tcbl_change_log_header));
             if (rc) {
-                return rc;
+                goto txn_end;
             }
             if (h.begin_lsn > fh->txn_shapshot_lsn) {
-                return TCBL_SNAPSHOT_EXPIRED;
+                rc = TCBL_SNAPSHOT_EXPIRED;
+                goto txn_end;
             }
             // read the block from the underlying file system
             if (!rc && !found_block) {
-                rc = vfs_read(fh->underlying_fh, dst, read_offset, page_size);
+                // TODO address extra copy when adding caching
+                char buff[page_size];
+                rc = vfs_read(fh->underlying_fh, buff, read_offset, page_size);
+                if (rc) {
+                    goto txn_end;
+                }
+                memcpy(dst, &buff[block_begin_skip], block_read_size);
             }
         }
-        dst += page_size;
+        dst += block_read_size;
         read_offset += page_size;
+        block_begin_skip = 0;
+        block_read_size = MIN(page_size, offset + len - read_offset);
     }
 
+    txn_end:
     if (auto_txn) {
         // skip rc assignment on this
         tcbl_txn_abort((vfs_fh) fh);
@@ -319,10 +360,9 @@ static int tcbl_write(vfs_fh file_handle, const char* data, size_t offset, size_
     tcbl_fh fh = (tcbl_fh) file_handle;
     size_t page_size = ((tcbl_vfs) fh->vfs)->page_size;
 
-    // Require alignment for now - TODO add unaligned later
-    if (offset % page_size != 0 || len % page_size !=0) {
-        return TCBL_BAD_ARGUMENT;
-    }
+    size_t alignment_shift = offset % page_size;
+    size_t block_offset = offset - alignment_shift;
+    size_t block_len = ((offset + len - 1) / page_size + 1) * page_size - block_offset;
 
     // If no transaction is active start one
     bool auto_txn = !fh->txn_active;
@@ -336,23 +376,46 @@ static int tcbl_write(vfs_fh file_handle, const char* data, size_t offset, size_
     size_t starting_file_size;
     rc = tcbl_file_size(file_handle, &starting_file_size);
 
+
     if (!rc) {
-        size_t page_offset = offset;
-        const char *src_ptr = data;
+        size_t write_offset = block_offset;
+        const char* src = data;
+        size_t block_begin_skip = alignment_shift;
+        size_t block_write_size = MIN(len, page_size - alignment_shift);
+
         rc = TCBL_OK;
-        while (src_ptr < data + len) {
+        while (write_offset < block_offset + block_len) {
             tcbl_change_log log_record = tcbl_malloc(NULL, sizeof(struct tcbl_change_log) + page_size);
             if (!log_record) {
                 // TODO cleanup - should be taken care of by abort but make sure
                 rc = TCBL_ALLOC_FAILURE;
                 break;
             }
-            log_record->offset = page_offset;
-            log_record->newlen = MAX(page_offset + page_size, starting_file_size);
-            memcpy(log_record->data, src_ptr, page_size);
+            log_record->offset = write_offset;
+            log_record->newlen = MAX(write_offset + block_begin_skip + block_write_size, starting_file_size);
+            if (block_begin_skip > 0 || block_begin_skip + block_write_size < page_size) {
+                // TODO maybe we are reading a bit more than necessary here as some will be overwritten
+                // but just pull in as much of the block as is available for now
+                if (write_offset < starting_file_size) {
+                    size_t read_len = MIN(page_size, starting_file_size - write_offset);
+                    rc = tcbl_read(file_handle, log_record->data, write_offset, read_len);
+                    if (rc) {
+                        break;
+                    }
+                    if (read_len < page_size) {
+                        // Sanitize the remainder of the block - in case we extend later
+                        memset(&log_record->data[read_len], 0, page_size - read_len);
+                    }
+                } else {
+                    memset(log_record->data, 0, page_size);
+                }
+            }
+            memcpy(&log_record->data[block_begin_skip], src, block_write_size);
             SGLIB_LIST_ADD(struct tcbl_change_log, fh->change_log, log_record, next);
-            page_offset += page_size;
-            src_ptr += page_size;
+            src += block_write_size;
+            write_offset += page_size;
+            block_begin_skip = 0;
+            block_write_size = MIN(page_size, offset + len - write_offset);
         }
     }
 
@@ -523,6 +586,8 @@ int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size)
             sizeof(struct tcbl_vfs),
             sizeof(struct tcbl_fh),
             tcbl_open,
+            tcbl_delete,
+            tcbl_exists,
             tcbl_close,
             tcbl_read,
             tcbl_write,
@@ -549,9 +614,18 @@ int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size)
 }
 
 
-int vfs_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
+int vfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
 {
     return vfs->vfs_info->x_open(vfs, file_name, file_handle_out);
+}
+
+int vfs_delete(vfs vfs, const char* file_name) {
+    return vfs->vfs_info->x_delete(vfs, file_name);
+}
+
+int vfs_exists(vfs vfs, const char *file_name, int *out)
+{
+    return vfs->vfs_info->x_exists(vfs, file_name, out);
 }
 
 int vfs_close(vfs_fh file_handle)
