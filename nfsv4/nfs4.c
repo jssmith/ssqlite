@@ -466,6 +466,7 @@ static int nfs4Open(sqlite3_vfs *pVfs,
                     int flags,
                     int *pOutFlags)
 {
+    // Any need to populate pOutFlags?
     sqlfile f = (sqlfile)(void *)pFile;
     appd ad = pVfs->pAppData;
     
