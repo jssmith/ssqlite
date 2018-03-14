@@ -31,6 +31,7 @@ typedef struct memvfs {
 
 static void memvfs_free_file(memvfs_file f);
 
+#ifdef TCBL_MEMVFS_VERBOSE
 static void print_block(const char* data, size_t len)
 {
     for (int i = 0; i < len; i++) {
@@ -41,6 +42,7 @@ static void print_block(const char* data, size_t len)
         }
     }
 }
+#endif
 
 int file_name_comparator(memvfs_file f1, memvfs_file f2)
 {

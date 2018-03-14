@@ -1,3 +1,5 @@
+#include <string.h>
+#include <sys/param.h>
 #include "sqlite3ext.h"
 SQLITE_EXTENSION_INIT1
 
@@ -11,28 +13,36 @@ typedef struct appd {
     vfs active_vfs;
     vfs memvfs;
     bool has_txn;
+    bool trace;
 } *appd;
 
 typedef struct tcbl_sqlite3_fh {
     sqlite3_file base;
     appd ad;
     vfs_fh tcbl_fh;
+    bool has_txn;
     bool txn_active;
+    uint64_t checkpoint_txn_ct;
 } *tcbl_sqlite3_fh;
 
 // TODO confirm that this should be static
 #define ORIGVFS(p) (((appd)(p)->pAppData)->parent)
 
-#define TRACE(...) { printf(__VA_ARGS__); printf("\n"); }
+static bool trace_logging;
+static bool info_logging;
+
+#define TRACE(...) { if (trace_logging) { printf(__VA_ARGS__); printf("\n"); } }
+#define INFO(...) { if (info_logging) { printf(__VA_ARGS__); printf("\n"); } }
 
 // TODO list of tests to write
 // - bounds check returned properly on file reads
 
+#define SQLITE3_TCBL_PAGE_SIZE 4096
 
 static inline int sqlite3_rc(int s)
 {
     TRACE("result %s", s == TCBL_OK ? "ok" : s == TCBL_BOUNDS_CHECK ? "bounds" : "error");
-    return s == TCBL_OK ? SQLITE_OK : s == TCBL_BOUNDS_CHECK ? 522 : SQLITE_ERROR;
+    return s == TCBL_OK ? SQLITE_OK : s == TCBL_BOUNDS_CHECK ? SQLITE_IOERR_SHORT_READ : SQLITE_ERROR;
 }
 
 static int tcblClose(sqlite3_file *pFile)
@@ -50,12 +60,6 @@ static int tcblRead(sqlite3_file *pFile,
     TRACE("read %p %lld %d", pFile, iOfst, iAmt);
     tcbl_sqlite3_fh fh = (tcbl_sqlite3_fh) pFile;
     return sqlite3_rc(vfs_read(fh->tcbl_fh, zBuf, iOfst, iAmt));
-//    int rc = sqlite3_rc(vfs_read(fh->tcbl_fh, zBuf, iOfst, iAmt));
-//    if (rc) {
-//        return 522;
-//    } else {
-//        return SQLITE_OK;
-//    }
 }
 
 static int tcblWrite(sqlite3_file *pFile,
@@ -65,6 +69,7 @@ static int tcblWrite(sqlite3_file *pFile,
 {
     TRACE("write %p %lld %d", pFile, iOfst, iAmt);
     tcbl_sqlite3_fh fh = (tcbl_sqlite3_fh) pFile;
+    fh->checkpoint_txn_ct += 1;
     return sqlite3_rc(vfs_write(fh->tcbl_fh, z, iOfst, iAmt));
 }
 
@@ -73,6 +78,7 @@ static int tcblTruncate(sqlite3_file *pFile,
 {
     TRACE("truncate %p %lld", pFile, size);
     tcbl_sqlite3_fh fh = (tcbl_sqlite3_fh) pFile;
+    fh->checkpoint_txn_ct += 1;
     return sqlite3_rc(vfs_truncate(fh->tcbl_fh, size));
 }
 
@@ -81,10 +87,17 @@ static int tcblSync(sqlite3_file *pFile, int flags)
     TRACE("sync %p", pFile);
     tcbl_sqlite3_fh fh = (tcbl_sqlite3_fh) pFile;
     int rc = TCBL_OK;
-    if (fh->txn_active) {
-        rc = vfs_txn_commit(fh->tcbl_fh);
-        fh->txn_active = false;
-
+    if (fh->has_txn) {
+        if (fh->txn_active) {
+            rc = vfs_txn_commit(fh->tcbl_fh);
+            fh->txn_active = false;
+            fh->checkpoint_txn_ct += 1;
+        }
+        if (!rc) {
+            if (fh->checkpoint_txn_ct > 20) {
+                rc = vfs_checkpoint(fh->tcbl_fh);
+            }
+        }
     }
     return sqlite3_rc(rc);
 }
@@ -131,6 +144,8 @@ static int tcblFileControl(sqlite3_file *pFile, int op, void *pArg)
         *(uint64_t *) pArg = 0;
     }
 
+    // TODO support SQLITE_IOCAP_BATCH_ATOMIC by wrapping with transaction
+
     if (op==SQLITE_FCNTL_VFSNAME) {
         *(char**)pArg = sqlite3_mprintf("tcbl");
     }
@@ -142,7 +157,7 @@ static int tcblSectorSize(sqlite3_file *pFile)
 {
     TRACE("sector size %p", pFile);
     // TODO - maybe make this larger, understand what it is used for
-    return 512;
+    return SQLITE3_TCBL_PAGE_SIZE;
 }
 
 static int tcblDeviceCharacteristics(sqlite3_file *pFile){
@@ -206,7 +221,9 @@ static int tcblOpen(sqlite3_vfs *pVfs,
             *pOutFlags = flags;
         }
     }
+    fh->has_txn = ad->has_txn;
     fh->txn_active = false;
+    fh->checkpoint_txn_ct = 0;
     TRACE("have fh %p", fh->tcbl_fh);
     return sqlite3_rc(rc);
 }
@@ -347,6 +364,68 @@ static sqlite3_io_methods tcbl_io_methods = {
         tcblUnfetch                             /* xUnfetch */
 };
 
+static inline int env_int(const char *var_name, int not_found, int exists_empty)
+{
+    char *x = getenv(var_name);
+    if (!x) {
+        return not_found;
+    } else if (strlen(x) == 0) {
+        return exists_empty;
+    } else {
+        return atoi(x);
+    }
+}
+
+int load_test_db(vfs memvfs, const char *memvfs_fn, const char *local_fs_fn) {
+    int rc;
+    vfs_fh fh = NULL;
+    FILE *f = NULL;
+    size_t buff_size = 1024 * 1024;
+    char buffer[buff_size];
+
+    rc = vfs_open(memvfs, memvfs_fn, &fh);
+    if (rc) {
+        goto exit;
+    }
+
+    INFO("preloading %s to %s", local_fs_fn, memvfs_fn);
+    f = fopen(local_fs_fn, "rb");
+    if (!f) {
+        rc = TCBL_IO_ERROR;
+        goto exit;
+    }
+    fseek(f, 0, SEEK_END);
+    size_t file_size = (size_t) ftell(f);
+    fseek(f, 0, SEEK_SET);
+
+    // Preallocate the space
+    vfs_truncate(fh, file_size);
+
+    size_t offs = 0;
+    size_t remaining = file_size;
+    while (remaining > 0) {
+        size_t read_len = MIN(remaining, buff_size);
+        size_t nread = fread(buffer, read_len, 1, f);
+        if (nread != 1) {
+            rc = TCBL_IO_ERROR;
+            goto exit;
+        }
+        vfs_write(fh, buffer, offs, read_len);
+        offs += read_len;
+        remaining -= read_len;
+    }
+
+    exit:
+    if (f) {
+        fclose(f);
+    }
+    if (fh) {
+        vfs_close(fh);
+    }
+    INFO("finished preloading %d", rc);
+    return rc;
+}
+
 int sqlite3_sqlitetcbl_init(sqlite3 *db,
                      char **pzErrMsg,
                      const sqlite3_api_routines *pApi)
@@ -355,13 +434,28 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
     appd ad = tcbl_malloc(0, sizeof(struct appd));
     ad->parent = sqlite3_vfs_find(0);
     memvfs_allocate(&ad->memvfs);
-    tcbl_allocate((tvfs*) &ad->active_vfs, ad->memvfs, 512);
-//    ad->active_vfs = ad->memvfs;
+    int memvfs_only = env_int("TCBL_MEMVFS_ONLY", 0, 1);
+    int trace = env_int("TCBL_TRACE", 0, 1);
+    trace_logging = trace != 0;
+    info_logging = true;
+    if (!memvfs_only) {
+        INFO("Activating tcbl with transactional layer");
+        ad->has_txn = true;
+        tcbl_allocate((tvfs*) &ad->active_vfs, ad->memvfs, SQLITE3_TCBL_PAGE_SIZE);
+    } else {
+        INFO("Allocating tcbl with memvfs only");
+        ad->has_txn = false;
+        ad->active_vfs = ad->memvfs;
+    }
+
+    load_test_db(ad->memvfs, "tpcc.db", "/tmp/tpcc-initial");
 
     tcbl_sqlite3_vfs.pNext = sqlite3_vfs_find(0);
     tcbl_sqlite3_vfs.pAppData = ad;
 
     int rc = sqlite3_vfs_register(&tcbl_sqlite3_vfs, 1);
-    if (rc == SQLITE_OK) return SQLITE_OK_LOAD_PERMANENTLY;
+    if (rc == SQLITE_OK) {
+        return SQLITE_OK_LOAD_PERMANENTLY;
+    }
     return rc;
 }

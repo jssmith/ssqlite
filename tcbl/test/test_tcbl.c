@@ -199,16 +199,10 @@ static void test_memvfs_write_read_multi_fh()
     RC_OK(vfs_free(memvfs));
 }
 
-static void test_memvfs_write_gap()
+static void test_memvfs_write_gap(void **state)
 {
-    vfs memvfs;
-    vfs_fh fh;
-
-    RC_OK(memvfs_allocate(&memvfs));
-    assert_non_null(memvfs);
-
-    RC_OK(vfs_open(memvfs, "/test-file", &fh));
-    assert_non_null(fh);
+    test_env env = *state;
+    vfs_fh fh = env->fh[0];
 
     size_t sz = 200;
     size_t gap_sz = 800;
@@ -239,8 +233,7 @@ static void test_memvfs_write_gap()
     RC_OK(vfs_read(fh, data_out, 0, expected_size));
     assert_memory_equal(data_out, data_expected, expected_size);
 
-    RC_OK(vfs_close(fh));
-    RC_OK(vfs_free(memvfs));
+    RC_OK(memvfs_free(env->memvfs));
 }
 
 static void test_nothing(void **state)
@@ -1472,7 +1465,7 @@ int main(void)
         cmocka_unit_test(test_memvfs_write_read),
         cmocka_unit_test(test_memvfs_write_read_by_char),
         cmocka_unit_test(test_memvfs_write_read_multi_fh),
-        cmocka_unit_test(test_memvfs_write_gap),
+        cmocka_unit_test_setup_teardown(test_memvfs_write_gap, memvfs_setup_1fh, memvfs_teardown_1fh),
         cmocka_unit_test_setup_teardown(test_nothing, memvfs_setup_1fh, memvfs_teardown_1fh),
         cmocka_unit_test_setup_teardown(test_vfs_bounds, memvfs_setup_1fh, memvfs_teardown_1fh),
         cmocka_unit_test_setup_teardown(test_vfs_delete, memvfs_setup, memvfs_teardown),
@@ -1498,6 +1491,7 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_tcbl_txn_overwrite, tcbl_setup, tcbl_teardown),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_read_unaligned, tcbl_setup_1fh, tcbl_teardown_1fh),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_write_unaligned, tcbl_setup_1fh, tcbl_teardown_1fh),
+        cmocka_unit_test_setup_teardown(test_memvfs_write_gap, tcbl_setup_1fh, tcbl_teardown_1fh),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_snapshot, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_overwrite, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_conflict, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),

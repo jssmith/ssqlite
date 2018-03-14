@@ -33,8 +33,8 @@ static size_t tcbl_log_filename_len(const char * file_name)
 
 static void gen_log_file_name(const char *file_name, char *log_file_name)
 {
-    char* p = stpcpy(log_file_name, file_name);
-    strcpy(p, "-log");
+    strcpy(log_file_name, file_name);
+    strcpy(&log_file_name[strlen(file_name)], "-log");
 }
 
 static int tcbl_log_open(vfs underlying_vfs, const char *file_name, size_t page_size, vfs_fh *log_fh)
@@ -297,10 +297,11 @@ static int tcbl_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
                 // TODO address extra copy when adding caching
                 char buff[page_size];
                 rc = vfs_read(fh->underlying_fh, buff, read_offset, page_size);
-                if (rc) {
+                if (!(rc == TCBL_OK || rc == TCBL_BOUNDS_CHECK)) {
                     goto txn_end;
                 }
                 memcpy(dst, &buff[block_begin_skip], block_read_size);
+                rc = TCBL_OK;
             }
         }
         dst += block_read_size;
@@ -567,7 +568,6 @@ static int tcbl_checkpoint(vfs_fh file_handle)
 
 static int tcbl_freevfs(vfs vfs)
 {
-    tcbl_vfs tcbl = (tcbl_vfs) vfs;
     return TCBL_OK; // No state yet
 }
 

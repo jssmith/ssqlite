@@ -17,6 +17,7 @@
 #define TCBL_LOG_NOT_FOUND      0x09
 #define TCBL_SNAPSHOT_EXPIRED   0x0a
 #define TCBL_FILE_NOT_FOUND     0x0b
+#define TCBL_IO_ERROR           0x0c
 
 
 typedef struct vfs *vfs;
