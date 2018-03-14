@@ -5,7 +5,9 @@ add_executable(test_tcbl
         memvfs.c
         ../src/sglib.h
         ../src/runtime.h
-        ../src/tcbl_vfs.h)
+        ../src/tcbl_vfs.h
+        change_fh.c
+        change_fh.h)
 add_dependencies(test_tcbl test_tcbl)
 add_test(test_tcbl test_tcbl)
 target_link_libraries(test_tcbl tcbl cmocka)

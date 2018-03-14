@@ -1,5 +1,5 @@
-#ifndef _TCBL_H
-#define _TCBL_H
+#ifndef TCBL_TCBL_H
+#define TCBL_TCBL_H
 
 #include <stddef.h>
 #include <stdbool.h>
@@ -22,7 +22,7 @@
 
 typedef struct vfs *vfs;
 typedef struct tvfs *tvfs;
-typedef struct vfs_fh * vfs_fh;
+typedef struct vfs_fh *vfs_fh;
 
 typedef struct vfs_info {
     size_t vfs_obj_size;
@@ -39,6 +39,7 @@ typedef struct vfs_info {
 } *vfs_info;
 
 typedef struct tvfs_info {
+    // TODO standardize on txn_begin or begin_txn
     int (*x_begin_txn)(vfs_fh);
     int (*x_commit_txn)(vfs_fh);
     int (*x_abort_txn)(vfs_fh);
@@ -94,4 +95,4 @@ int vfs_txn_commit(vfs_fh vfs_fh);
 int vfs_txn_abort(vfs_fh vfs_fh);
 int vfs_checkpoint(vfs_fh vfs_fh);
 
-#endif
+#endif // TCBL_TCBL_H

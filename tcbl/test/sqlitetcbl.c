@@ -364,7 +364,7 @@ static sqlite3_io_methods tcbl_io_methods = {
         tcblUnfetch                             /* xUnfetch */
 };
 
-static inline int env_int(const char *var_name, int not_found, int exists_empty)
+static int env_int(const char *var_name, int not_found, int exists_empty)
 {
     char *x = getenv(var_name);
     if (!x) {
@@ -398,6 +398,8 @@ int load_test_db(vfs memvfs, const char *memvfs_fn, const char *local_fs_fn) {
     size_t file_size = (size_t) ftell(f);
     fseek(f, 0, SEEK_SET);
 
+    INFO("preload size is %ld", file_size);
+
     // Preallocate the space
     vfs_truncate(fh, file_size);
 
@@ -422,7 +424,7 @@ int load_test_db(vfs memvfs, const char *memvfs_fn, const char *local_fs_fn) {
     if (fh) {
         vfs_close(fh);
     }
-    INFO("finished preloading %d", rc);
+    INFO("finished preloading - rc=%d", rc);
     return rc;
 }
 
@@ -431,6 +433,7 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
                      const sqlite3_api_routines *pApi)
 {
     SQLITE_EXTENSION_INIT2(pApi);
+    int rc;
     appd ad = tcbl_malloc(0, sizeof(struct appd));
     ad->parent = sqlite3_vfs_find(0);
     memvfs_allocate(&ad->memvfs);
@@ -448,12 +451,29 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
         ad->active_vfs = ad->memvfs;
     }
 
-    load_test_db(ad->memvfs, "tpcc.db", "/tmp/tpcc-initial");
+    // parse TCBL_PRELOAD, which has format host_file_path:tcbl_file_path
+    char *preload_arg = getenv("TCBL_PRELOAD");
+    if (preload_arg) {
+        size_t len = strlen(preload_arg);
+        char preload_arg_cpy[len + 1];
+        memcpy(preload_arg_cpy, preload_arg, len + 1);
+        char* local_filename = strtok(preload_arg_cpy, ":");
+        char *vfs_filename = strtok(NULL, ":");
+        if (!vfs_filename) {
+            TRACE("invalid format in TCBL_PRELOAD");
+            rc = SQLITE_ERROR;
+            goto exit;
+        }
+        printf("%s %s %s\n", local_filename, vfs_filename, preload_arg);
+
+        load_test_db(ad->memvfs, vfs_filename, local_filename);
+    }
 
     tcbl_sqlite3_vfs.pNext = sqlite3_vfs_find(0);
     tcbl_sqlite3_vfs.pAppData = ad;
 
-    int rc = sqlite3_vfs_register(&tcbl_sqlite3_vfs, 1);
+    rc = sqlite3_vfs_register(&tcbl_sqlite3_vfs, 1);
+    exit:
     if (rc == SQLITE_OK) {
         return SQLITE_OK_LOAD_PERMANENTLY;
     }

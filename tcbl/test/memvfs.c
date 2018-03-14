@@ -149,6 +149,13 @@ int memvfs_read(vfs_fh file_handle, char *buff, size_t offset, size_t len)
     memvfs_file f = fh->memvfs_file;
 
     if (f->len < offset + len) {
+        if (offset < f->len) {
+            size_t read_len = f->len - offset;
+            memcpy(buff, &f->data[offset], read_len);
+            memset(&buff[read_len], 0, len - read_len);
+        } else {
+            memset(buff, 0, len);
+        }
         return TCBL_BOUNDS_CHECK;
     }
     memcpy(buff, &f->data[offset], len);

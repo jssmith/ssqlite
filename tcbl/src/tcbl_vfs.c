@@ -252,6 +252,7 @@ static int tcbl_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
     char* dst = data;
     size_t block_begin_skip = alignment_shift;
     size_t block_read_size = MIN(len, page_size - alignment_shift);
+    bool bounds_error = false;
     rc = TCBL_OK;
     while (read_offset < block_offset + block_len) {
         tcbl_change_log result;
@@ -261,6 +262,7 @@ static int tcbl_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
         SGLIB_LIST_FIND_MEMBER(struct tcbl_change_log, fh->change_log, &search_record, tcbl_change_log_cmp, next, result);
         if (result) {
             memcpy(dst, &result->data[block_begin_skip], block_read_size);
+            bounds_error = false;
         } else {
             // scan the log for this block - lots of things are bad about this
             // implementation: 1/ it scans, 2/ it scans once for each read block
@@ -278,6 +280,11 @@ static int tcbl_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
                 }
                 if (log_page->offset == read_offset) {
                     memcpy(dst, &log_page->data[block_begin_skip], block_read_size);
+                    if (log_page->newlen < offset + len) {
+                        bounds_error = true;
+                    } else {
+                        bounds_error = false;
+                    }
                     found_block = true;
                 }
                 log_read_pos += log_page_size;
@@ -297,11 +304,19 @@ static int tcbl_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
                 // TODO address extra copy when adding caching
                 char buff[page_size];
                 rc = vfs_read(fh->underlying_fh, buff, read_offset, page_size);
+                if (rc == TCBL_BOUNDS_CHECK) {
+                    size_t underlying_size;
+                    vfs_file_size(fh->underlying_fh, &underlying_size);
+                    if (underlying_size < read_offset + block_begin_skip + block_read_size) {
+                        bounds_error = true;
+                    } else {
+                        bounds_error = false;
+                    }
+                }
                 if (!(rc == TCBL_OK || rc == TCBL_BOUNDS_CHECK)) {
                     goto txn_end;
                 }
                 memcpy(dst, &buff[block_begin_skip], block_read_size);
-                rc = TCBL_OK;
             }
         }
         dst += block_read_size;
@@ -316,7 +331,11 @@ static int tcbl_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
         tcbl_txn_abort((vfs_fh) fh);
     }
     // TODO - this fragments large reads into many smaller ones. Should not do that.
-    return rc;
+    if (!((rc == TCBL_OK) || (rc == TCBL_BOUNDS_CHECK))) {
+        return rc;
+    } else {
+        return bounds_error ? TCBL_BOUNDS_CHECK : TCBL_OK;
+    }
 }
 
 static int tcbl_file_size(vfs_fh file_handle, size_t* out)
@@ -400,7 +419,11 @@ static int tcbl_write(vfs_fh file_handle, const char* data, size_t offset, size_
                 if (write_offset < starting_file_size) {
                     size_t read_len = MIN(page_size, starting_file_size - write_offset);
                     rc = tcbl_read(file_handle, log_record->data, write_offset, read_len);
-                    if (rc) {
+                    if (rc == TCBL_BOUNDS_CHECK) {
+                        // trust that read has provided everything that it can and
+                        // zeroed out the rest
+                        rc = TCBL_OK;
+                    } else if (rc) {
                         break;
                     }
                     if (read_len < page_size) {
@@ -547,7 +570,7 @@ static int tcbl_checkpoint(vfs_fh file_handle)
         if (rc) {
             return rc;
         }
-        rc = vfs_write(fh->underlying_fh, log_entry->data, log_entry->offset, page_size);
+        rc = vfs_write(fh->underlying_fh, log_entry->data, log_entry->offset, MIN(page_size, log_entry->newlen - log_entry->offset));
         if (rc) {
             return rc;
         }
