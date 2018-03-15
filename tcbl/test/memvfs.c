@@ -248,8 +248,6 @@ int memvfs_free(vfs vfs)
     memvfs memvfs = (struct memvfs *) vfs;
     memvfs_fh fh = memvfs->file_handles;
     while (fh) {
-//        fh->memvfs_file->ref_ct -= 1;
-//        fh->memvfs_file = NULL;
         fh->is_valid = false;
         fh = fh->next;
     }

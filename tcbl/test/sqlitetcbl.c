@@ -4,16 +4,16 @@
 SQLITE_EXTENSION_INIT1
 
 #include "../src/runtime.h"
-#include "memvfs.h"
 #include "../src/tcbl_vfs.h"
+#include "memvfs.h"
+#include "unixvfs.h"
 
 
 typedef struct appd {
     sqlite3_vfs *parent;
     vfs active_vfs;
-    vfs memvfs;
+    vfs base_vfs;
     bool has_txn;
-    bool trace;
 } *appd;
 
 typedef struct tcbl_sqlite3_fh {
@@ -436,23 +436,52 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
     int rc;
     appd ad = tcbl_malloc(0, sizeof(struct appd));
     ad->parent = sqlite3_vfs_find(0);
-    memvfs_allocate(&ad->memvfs);
-    int memvfs_only = env_int("TCBL_MEMVFS_ONLY", 0, 1);
+
     int trace = env_int("TCBL_TRACE", 0, 1);
     trace_logging = trace != 0;
     info_logging = true;
+
+    char* unix_mountpoint = getenv("TCBL_UNIX_MOUNTPOINT");
+    char *preload_arg = getenv("TCBL_MEMVFS_PRELOAD");
+
+    if (unix_mountpoint && preload_arg) {
+        // conflicting environment variables
+        rc = SQLITE_ERROR;
+        goto exit;
+    }
+
+    char* base_vfs_name;
+    if (unix_mountpoint) {
+        if (unix_vfs_allocate(&ad->base_vfs, unix_mountpoint)) {
+            rc = SQLITE_ERROR;
+            goto exit;
+        }
+        base_vfs_name = "unix";
+    } else {
+        rc = memvfs_allocate(&ad->base_vfs);
+        if (rc) {
+            rc = SQLITE_ERROR;
+            goto exit;
+        }
+        base_vfs_name = "memory";
+    }
+
+    int memvfs_only = env_int("TCBL_BASE_VFS_ONLY", 0, 1);
     if (!memvfs_only) {
         INFO("Activating tcbl with transactional layer");
         ad->has_txn = true;
-        tcbl_allocate((tvfs*) &ad->active_vfs, ad->memvfs, SQLITE3_TCBL_PAGE_SIZE);
+        rc = tcbl_allocate((tvfs*) &ad->active_vfs, ad->base_vfs, SQLITE3_TCBL_PAGE_SIZE);
+        if (rc) {
+            rc = SQLITE_ERROR;
+            goto exit;
+        }
     } else {
-        INFO("Allocating tcbl with memvfs only");
+        INFO("Allocating tcbl with base vfs (%s) only", base_vfs_name);
         ad->has_txn = false;
-        ad->active_vfs = ad->memvfs;
+        ad->active_vfs = ad->base_vfs;
     }
 
     // parse TCBL_PRELOAD, which has format host_file_path:tcbl_file_path
-    char *preload_arg = getenv("TCBL_PRELOAD");
     if (preload_arg) {
         size_t len = strlen(preload_arg);
         char preload_arg_cpy[len + 1];
@@ -460,13 +489,17 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
         char* local_filename = strtok(preload_arg_cpy, ":");
         char *vfs_filename = strtok(NULL, ":");
         if (!vfs_filename) {
-            TRACE("invalid format in TCBL_PRELOAD");
+            TRACE("invalid format in TCBL_MEMVFS_PRELOAD");
             rc = SQLITE_ERROR;
             goto exit;
         }
         printf("%s %s %s\n", local_filename, vfs_filename, preload_arg);
 
-        load_test_db(ad->memvfs, vfs_filename, local_filename);
+        rc = load_test_db(ad->base_vfs, vfs_filename, local_filename);
+        if (rc) {
+            rc = SQLITE_ERROR;
+            goto exit;
+        }
     }
 
     tcbl_sqlite3_vfs.pNext = sqlite3_vfs_find(0);

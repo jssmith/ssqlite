@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 2.8)
 project(tcbl)
 
 set(CMAKE_C_STANDARD 99)
-set(CMAKE_C_FLAGS "-std=c99 -Wall")
+set(CMAKE_C_FLAGS "-std=c99 -Wall -g")
 set(CMAKE_MACOSX_RPATH 1)
 
 include_directories("/usr/local/include")
@@ -14,9 +14,3 @@ set(HEADER_FILES src/runtime.h src/tcbl_vfs.h)
 
 add_subdirectory(src)
 add_subdirectory(test)
-
-
-
-#set(SOURCE_FILES test/main.c)
-#add_executable(tcbl ${SOURCE_FILES})
-#target_link_libraries(tcbl cmocka)

@@ -3,16 +3,17 @@
 
 #include "tcbl_vfs.h"
 
-enum TestMode { MemVfs = 1, TcblVfs = 2 };
+enum TestMode { MemVfs = 1, TcblVfs = 2, UnixVfs = 3 };
 
 typedef struct test_env {
     enum TestMode test_mode;
     vfs test_vfs;
-    vfs memvfs;
+    vfs base_vfs;
     int (*before_change)(vfs_fh);
     int (*after_change)(vfs_fh);
     int (*cleanup_change)(vfs_fh);
     int (*cleanup)(struct test_env *);
+    int num_fh;
     vfs_fh fh[0];
 } *test_env;
 
