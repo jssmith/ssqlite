@@ -18,15 +18,15 @@ static ticks ktime()
     return (tv.tv_sec << 32) | ((u64)tv.tv_usec * (1ull<<32)/1000000);
 }
 
-static void print_ticks(buffer b, ticks t) {
+static status print_ticks(buffer b, ticks t) {
     print_u64(b, t>>32);
     u32 fraction  = t&((1ull<<32)-1);
     if (fraction) {
-        push_char(b, '.');
+        push_character(b, '.');
         u32 digit;
         for (u32 log = (1ull<<32)/10; log && fraction; fraction -= digit * log, log /=10) {
             digit = fraction/log;
-            push_char(b, '0' + digit);
+            push_character(b, '0' + digit);
         }
     }
 }

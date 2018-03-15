@@ -3,6 +3,9 @@
 #include <unistd.h>
 #include <stdio.h>
 
+
+static buffer cwd;
+
 static boolean generator(buffer b, int len)
 {
     u32 seed = 0;
@@ -97,28 +100,32 @@ static int lsc(nfs4 c, char *path, vector args)
     nfs4_dir d;
     int s = nfs4_opendir(c, path, &d);
     if (s) return s;
-    nfs4_properties k;
-    s = nfs4_readdir(d, &k);
-    if (s < 0) return s;
-    for (int i = 0; i< s ; i++) {
-        printf ("%s\n", k->name);
+    struct nfs4_properties k;
+    while (!s) {
+        s = nfs4_readdir(d, &k);
+        if (!s) {
+            printf ("%s %lld\n", k.name, k.size);
+        }
     }
+    nfs4_closedir(d);
+    if (s != NFS4_ENOENT) return s;
+    return NFS4_OK;
 }
 
 static int mkdirc(nfs4 c, char *path, vector args)
 {
+    return nfs4_mkdir(c, path);
 }
 
 
 static int help(nfs4 c, char *path, vector args);
 
-static void format_mode(nfs4_mode_t x, buffer b)
+static status format_mode(nfs4_mode_t x, buffer b)
 {
     for (int i = 8; i >= 0; i--) {
         char m[] ="rwx";
-        if ((1<<i) & x) 
-            push_char(b, m[i%3]);
-            else push_char(b,'-');
+        if ((1<<i) & x)  push_character(b, m[i%3]);
+        //        else push_char(b,'-');
     }
 }
 
@@ -149,16 +156,31 @@ static int help(nfs4 c, char *path, vector args)
 int main(int argc, char **argv)
 {
     nfs4 c;
-    int s = nfs4_create(argv[1], &c);
+    int s;
+
+    if (argc == 1) {
+        char *server = getenv("NFS4_SERVER");
+        if (server) {
+            s = nfs4_create(server, &c);
+        } else {
+            char error[] ="must pass server as first argument or set NFS4_SERVER";
+            write (1, error, sizeof(error)-1);
+            exit(-1);
+        }
+    } else {
+        s = nfs4_create(argv[1], &c);
+    }
     buffer z = allocate_buffer(0, 100);
 
     if (s) {
         printf ("open client failed\n");
         exit(-1);
     }
-    
+
+    write(1, "> ", 2);
+    cwd = allocate_buffer(0, 10);
+    push_bytes(cwd, "/", 1);
     while (1) {
-        write(1, "> ", 2);
         char x;
         // secondary loop around input chunks
         if (read(0, &x, 1) != 1) {
@@ -166,13 +188,14 @@ int main(int argc, char **argv)
         }
         if (x == '\n')  {
             if (length(z)){
-                vector v = split(0, z, ' ');
+                vector v = allocate_vector(0, 10);
+                split(v, 0, z, ' ');
                 buffer command = vector_pop(v);
                 char *path;
                 vector fn = 0;
                 if (vector_length(v)) {
                     buffer p = vector_pop(v);
-                    push_char(p, 0);
+                    push_character(p, 0);
                     path = p->contents;
                 }
                 
@@ -182,24 +205,25 @@ int main(int argc, char **argv)
                         ticks start = ktime();
                         int s = commands[i].f(c, path, v);
                         if (s) {
-                            printf("%s\n", nfs4_error_string(c));
+                            printf("error: %s\n", nfs4_error_string(c));
                         } else {
                             ticks total = ktime()- start;
                             buffer b = allocate_buffer(0, 100);
                             print_ticks(b, total);
-                            push_char(b, 0);
+                            push_character(b, 0);
                             printf ("%s\n", (char *)b->contents);
                         }
                         break;
                     }
                 }
                 if (!commands[i].name[0]) {
-                    push_char(command, 0);
+                    push_character(command, 0);
                     printf ("no shell command %s\n", (char *)command->contents);
                 }
                 z->start = z->end = 0;
+                write(1, "> ", 2);                
             }
-        } else push_char(z, x);
+        } else push_character(z, x);
     }
 }
 

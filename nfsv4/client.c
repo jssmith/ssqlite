@@ -1,6 +1,13 @@
 #include <nfs4_internal.h>
 #include <sys/time.h>
 
+#define api_check(__d, __st) \
+    if (nfs4_is_error(__st)) {\
+        __d->error_string = __st->description;   \
+        return __st->error;                     \
+    }
+
+
 char *nfs4_error_string(nfs4 n)
 {
     return n->error_string->contents;
@@ -10,13 +17,15 @@ char *nfs4_error_string(nfs4 n)
 int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes length)
 {
     // size calc off by the headers
-    return segment(read_chunk, f->c->maxresp, f, dest, offset, length);
+    api_check(f->c, segment(read_chunk, f->c->maxresp, f, dest, offset, length));
+    return NFS4_OK;
 }
 
 int nfs4_pwrite(nfs4_file f, void *dest, bytes offset, bytes length)
 {
     // size calc off by the headers
-    return segment(write_chunk, f->c->maxreq, f, dest, offset, length);
+    api_check(f->c, segment(write_chunk, f->c->maxreq, f, dest, offset, length));
+    return NFS4_OK;    
 }
 
 int nfs4_open(nfs4 c, char *path, int flags, nfs4_mode_t mode, nfs4_file *dest)
@@ -27,26 +36,22 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_mode_t mode, nfs4_file *dest)
     rpc r = allocate_rpc(f->c, f->c->forward);
     push_sequence(r);
     char *final = push_initial_path(r, path);
-    push_open(r,final, flags);
+    struct nfs4_properties p;
+    p.mode = mode;
+    push_open(r, final, flags, &p);
     push_op(r, OP_GETFH);
     buffer res = f->c->reverse;    
     status st = transact(r, OP_OPEN, res);
-    // macro this shortcut return
-    if (st) {
-        deallocate_rpc(r);
-        return st;
+    if (!nfs4_is_error(st)) {
+        st = parse_open(f, res);
+        if (!nfs4_is_error(st)) {
+            // xxx - checky
+            res->start += 8;
+            st = parse_filehandle(res, (char *)&f->filehandle);
+        }
     }
-    st = parse_open(f, res);
-    if (st) {
-        deallocate_rpc(r);
-        return st;
-    }
-    verify_and_adv(c, res, OP_GETFH);
-    verify_and_adv(c, res, 0); // status
-    verify_and_adv(c, res, 0x80); // length
-    st = read_buffer(c, res, &f->filehandle, NFS4_FHSIZE);
     deallocate_rpc(r);
-    if (st) return st;
+    api_check(c, st);
     *dest = f;
     return NFS4_OK;
 }
@@ -59,16 +64,19 @@ int nfs4_close(nfs4_file f)
 
 int nfs4_stat(nfs4 c, char *path, nfs4_properties dest)
 {
+    status st = NFS4_OK;
     rpc r = allocate_rpc(c, c->forward);
     push_sequence(r);
     push_resolution(r, path);
-    push_op(r, OP_GETFH);
+    push_op(r, OP_GETATTR);    
     buffer res = c->reverse;    
-    status st = transact(r, OP_GETFH, res);
+    st = transact(r, OP_GETATTR, res);
+    if (nfs4_is_error(st)) {
+        st = read_fattr(res, dest);
+    }
     deallocate_rpc(r);    
-    if (st) return st;    
+    api_check(c, st);
     return NFS4_OK;
-
 }
 
 int nfs4_unlink(nfs4 c, char *path)
@@ -81,29 +89,45 @@ int nfs4_unlink(nfs4 c, char *path)
     buffer res = r->c->reverse;
     status s = transact(r, OP_REMOVE, res);
     deallocate_rpc(r);
-    if (s) return s;    
+    api_check(c, s);    
     return NFS4_OK;
 }
 
 int nfs4_opendir(nfs4 c, char *path, nfs4_dir *dest)
 {
+    // use open?
+    rpc r = allocate_rpc(c, c->forward);
+    push_sequence(r);    
+    push_resolution(r, path);
+    push_op(r, OP_GETFH);
+    buffer res = c->reverse;    
+    api_check(c, transact(r, OP_GETFH, res));
     nfs4_dir d = allocate(0, sizeof(struct nfs4_dir));
-    nfs4_file f;
-    int res = nfs4_open(c, path, NFS4_RDONLY, 0000, &f);
-    if (res != 0) {
-        return res;
-    }
+    d->entries = allocate_buffer(c->h, 4096);
+    api_check(c, parse_filehandle(res, d->filehandle));
+    d->cookie = 0;
+    memset(d->verifier, 0, sizeof(d->verifier));
+    d->c = c;
     *dest = d;
+    return NFS4_OK;
 }
-
+                      
+int nfs4_readdir(nfs4_dir d, nfs4_properties dest)
+{
+   int more;
+   while (1) {
+       api_check(d->c, read_dirent(d->entries, dest, &more, &d->cookie));
+       if (more == 0) return NFS4_OK;
+       if (more == 2) return NFS4_ENOENT;
+       if (more == 1) {
+           api_check(d->c, rpc_readdir(d, d->entries));
+       }
+   }
+}
 
 int nfs4_closedir(nfs4_dir d)
 {
-    nfs4_close(d->f);
-}
-
-int nfs4_readdir(nfs4_dir d, nfs4_properties *dest)
-{
+    deallocate_buffer(d->entries);
 }
 
 int nfs4_mkdir(nfs4 c, char *path)
@@ -113,7 +137,8 @@ int nfs4_mkdir(nfs4 c, char *path)
     push_sequence(r);
     char *final = push_initial_path(r, path);
     push_create(r, &p);
-    return transact(r, OP_CREATE, c->reverse);    
+    api_check(c, transact(r, OP_CREATE, c->reverse));
+    return NFS4_OK;
 }
 
 
@@ -122,10 +147,9 @@ int nfs4_synch(nfs4 c)
     while (vector_length(c->outstanding)) {
         boolean bs;
         read_response(c, c->reverse);
-        int k = parse_rpc(c, c->reverse, &bs);
         // we stop after the first error - this is effectively fatal
-        // for the session
-        if (k) return k;
+        // for the session        
+        api_check(c, parse_rpc(c, c->reverse, &bs));
     }
     return NFS4_OK;
 }
@@ -146,8 +170,7 @@ int nfs4_lock_range(nfs4_file f, int locktype, bytes offset, bytes length)
     push_owner(r);
 
     buffer res = f->c->reverse;
-    status s = transact(r, OP_LOCK, res);
-    if (s) return s;
+    api_check(f->c, transact(r, OP_LOCK, res));
     parse_stateid(f->c, res, &f->latest_sid);
     return NFS4_OK;
 }
@@ -163,9 +186,8 @@ int nfs4_unlock_range(nfs4_file f, int locktype, bytes offset, bytes length)
     push_be64(r->b, offset);
     push_be64(r->b, length);
     buffer res = f->c->reverse;
-    status s = transact(r, OP_LOCKU, res);
-    if (s) return s;
-    parse_stateid(f->c, res, &f->latest_sid);
+    api_check(f->c, transact(r, OP_LOCKU, res));
+    api_check(f->c, parse_stateid(f->c, res, &f->latest_sid));
     return NFS4_OK;
 }
 
@@ -175,7 +197,8 @@ int nfs4_create(char *hostname, nfs4 *dest)
     
     c->hostname = allocate_buffer(0, strlen(hostname) + 1);
     push_bytes(c->hostname, hostname, strlen(hostname));
-    push_char(c->hostname, 0);
+    // guarenteed to have room
+    push_character(c->hostname, 0);
 
     c->h = 0;
     c->xid = 0xb956bea4;
@@ -196,7 +219,8 @@ int nfs4_create(char *hostname, nfs4 *dest)
     c->outstanding = allocate_vector(c->h, 5);
 
     *dest = c;
-    return rpc_connection(c);
+    api_check(c, rpc_connection(c));
+    return NFS4_OK;
 }
  
 

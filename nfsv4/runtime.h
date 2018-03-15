@@ -1,7 +1,16 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 
+typedef struct buffer *buffer;
+
+typedef struct status {
+    int error;
+    buffer description;
+} *status;
+
+#define check(__x) {status st = (__x); if (st) return st;}
 #define true (1)
 #define false (0)
 typedef int boolean;
@@ -34,21 +43,21 @@ static inline void panic (char *cause)
 static int parse_u64(buffer s, u64 *target)
 {
     u64 result = 0;
-    forchar (i, s) result = result * 10 + (i - '0');
+    foreach_character (i, s) result = result * 10 + (i - '0');
     *target = result;
     return NFS4_OK;
 }
 
 // '4' prints as '004'?
-static void print_u64(buffer d, u64 s)
+static status print_u64(buffer d, u64 s)
 {
     if (s == 0) {
-        push_char(d, '0');
+        check_push_char(d, '0');
     } else {
         u32 log= 1;
         for (u64 b = s; b; b/= log, log*=10);
         for (u64 b = s; b; b -= b/log, log/=10)
-            push_char(d, '0' + b/log);
+            check_push_char(d, '0' + b/log);
     }
 }
 

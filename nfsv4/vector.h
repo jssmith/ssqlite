@@ -55,30 +55,28 @@ static void *vector_pop(vector v)
     return res;
 }
 
-static vector split(heap h, buffer source, char divider)
+static status split(vector dest, heap h, buffer source, char divider)
 {
-    vector result = allocate_vector(h, 10);
     buffer each = allocate_buffer(h, 10);
-    forchar(i, source) {
+    foreach_character(i, source) {
         if (i == divider)  {
-            vector_push(result, each);
+            vector_push(dest, each);
             each = allocate_buffer(h, 10);
         } else {
-            push_char(each, i);
+            push_character(each, i);
         }
     }
-    if (length(each) > 0)  vector_push(result, each);
-    return result;
+    if (length(each) > 0)  vector_push(dest, each);
+    return NFS4_OK;
 }
 
-static buffer join(heap h, vector source, char between)
+static status join(buffer dest, vector source, char between)
 {
-    buffer out = allocate_buffer(h, 100);
     for (int i = 0; i < vector_length(source); i++){
-        if (i) push_char(out, between);
-        buffer_concat(out, vector_get(source, i));
+        if (i) push_character(dest, between);
+        buffer_concat(dest, vector_get(source, i));
     }
-    return out;
+    return NFS4_OK;
 }
 
 #define vector_foreach(__i, __v) for(u32 _i = 0, _len = vector_length(__v); _i< _len && (__i = vector_get(__v, _i), 1); _i++)

@@ -6,8 +6,20 @@
 #include <nfs4xdr.h>
 #include <config.h>
 #include <unistd.h>
+#include <string.h>
 
-typedef int status;
+static int nfs4_is_error(status s) {return s?1:0;}
+
+
+static inline status error(int code, char* description, ...)
+{
+    status st = allocate(0, sizeof(struct status));
+    st->error = code;
+    // double fault
+    st->description = allocate_buffer(0, 100);
+    push_bytes(st->description, description, strlen(description));
+    return st;
+}
 
 struct nfs4 {
     int fd;
@@ -42,57 +54,46 @@ struct nfs4_file {
     u8 filehandle[NFS4_FHSIZE];
     struct stateid latest_sid;
     struct stateid open_sid;
+    
 };
 
 #define DIR_FILE_BATCH_SIZE 32
 struct nfs4_dir {
-    nfs4_file f;
+    nfs4 c;
+    // does this need an open reservation?
+    u8 filehandle[NFS4_FHSIZE];    
     u64 cookie;
     u8 verifier[NFS4_VERIFIER_SIZE];
     struct nfs4_properties props[DIR_FILE_BATCH_SIZE];
+    buffer entries;
+    boolean complete;
 };
     
-static inline int error(nfs4 c, int code, char* format, ...)
-{
-    // pull in buffer-based printf
-    int len = strlen(format);
-    c->error_string->start =0;
-    c->error_string->end =0;
-    buffer_extend(c->error_string, len);
-    push_bytes(c->error_string, format, len);
-    push_char(c->error_string, 0);
-    return code;
-}
-
                         
-static inline void push_boolean(buffer b, boolean x)
-{
-      buffer_extend(b, 4);
-      *(u32 *)(b->contents + b->end) = x ? htonl(1) : 0;
-       b->end += 4;
+#define push_boolean(__b, __x) push_be32(__b, __x) 
+
+#define push_be32(__b, __w) {\
+    u32 __v = __w;\
+    buffer_extend(__b, 4);\
+    *(u32 *)(__b->contents + __b->end) = htonl(__v);\
+    __b->end += 4;\
+  }
+
+#define push_be64(__b, __w) {\
+    buffer_extend(__b, 8);\
+    *(u32 *)(__b->contents + __b->end) = htonl(__w>>32);\
+    *(u32 *)(__b->contents + __b->end + 4) = htonl(__w&0xffffffffull);\
+    __b->end += 8;\
 }
 
-static inline void push_be32(buffer b, u32 w) {
-    buffer_extend(b, 4);
-    *(u32 *)(b->contents + b->end) = htonl(w);
-    b->end += 4;
-}
-
-static inline void push_be64(buffer b, u64 w) {
-    buffer_extend(b, 8);
-    *(u32 *)(b->contents + b->end) = htonl(w>>32);
-    *(u32 *)(b->contents + b->end + 4) = htonl(w&0xffffffffull);
-    b->end += 8;
-}
-
-#define read_beu32(__c, __b) ({\
-    if ((__b->end - __b->start) < 4 ) return error(__c, NFS4_PROTOCOL, "out of data"); \
+#define read_beu32(__b) ({\
+    if ((__b->end - __b->start) < 4 ) return error(NFS4_PROTOCOL, "out of data"); \
     u32 v = ntohl(*(u32*)(__b->contents + __b->start));\
     __b->start += 4;\
     v;})
 
-#define read_beu64(__c, __b) ({\
-    if ((__b->end - __b->start) < 8 ) return error(__c, NFS4_PROTOCOL, "out of data"); \
+#define read_beu64(__b) ({\
+    if ((__b->end - __b->start) < 8 ) return error(NFS4_PROTOCOL, "out of data"); \
     u64 v = ntohl(*(u32*)(__b->contents + __b->start));\
     u64 v2 = ntohl(*(u32*)(__b->contents + __b->start + 4));    \
     __b->start += 8;                                        \
@@ -122,7 +123,7 @@ void push_bare_sequence(rpc r);
 void push_lock_sequence(rpc r);
 
 // pull in printf - "%x not equal to %x!\n", v, v2"
-#define verify_and_adv(__c, __b , __v) { u32 v2 = read_beu32(__c, __b); if (__v != v2) return error(__c, NFS4_PROTOCOL, "encoding mismatch");}
+#define verify_and_adv(__b , __v) { u32 v2 = read_beu32(__b); if (__v != v2) return error(NFS4_PROTOCOL, "encoding mismatch");}
 
 
 typedef u64 clientid;
@@ -134,7 +135,7 @@ void push_create_session(rpc r);
 status parse_create_session(nfs4, buffer);
 void push_lookup(rpc r, buffer i);
 status parse_rpc(nfs4 s, buffer b, boolean *badsession);
-void push_open(rpc r, char *name, int flags);
+void push_open(rpc r, char *name, int flags, nfs4_properties p);
 status parse_open(nfs4_file f, buffer b);
 status parse_stateid(nfs4 c, buffer b, stateid sid);
 void push_string(buffer b, char *x, u32 length);
@@ -156,30 +157,40 @@ static void deallocate_rpc(rpc r)
 
 buffer print_path(heap h, vector v);
 
-static void print_buffer(char *tag, buffer b)
+static status print_buffer(char *tag, buffer b)
 {
     eprintf("%s:\n", tag);
-    buffer temp = print_buffer_u32(0, b);
+    buffer temp = allocate_buffer_check(0, length(b) * 3);
+    print_buffer_u32(temp, b);
     write(1, temp->contents + temp->start, length(temp));
     eprintf("----------\n");
     deallocate_buffer(temp);
 }
 
-static inline status read_buffer(nfs4 c, buffer b, void *dest, u32 len)
+static inline status read_buffer(buffer b, void *dest, u32 len)
 {
-    if (length(b) < len) return error(c, NFS4_ESPIPE, "out of data");
     if (dest != (void *)0) memcpy(dest, b->contents + b->start, len);
     b->start += len;
     return NFS4_OK;
 }
 
 
-int create_session(nfs4 c);
-int exchange_id(nfs4 c);
-int reclaim_complete(nfs4 c);
+status create_session(nfs4 c);
+status exchange_id(nfs4 c);
+status reclaim_complete(nfs4 c);
 void push_session_id(rpc r, u8 *session);
 status rpc_connection(nfs4 c);
 void push_owner(rpc r);
-int read_response(nfs4 c, buffer b);
+status read_response(nfs4 c, buffer b);
 rpc file_rpc(nfs4_file f);
-void push_create(rpc r, nfs4_properties p);
+status push_create(rpc r, nfs4_properties p);
+status push_fattr(rpc r, nfs4_properties p);
+
+// xxx - we currently dont use bits > 64, but they are there 80 defined
+// in 4.2..use a bitset, or ...a map
+status push_fattr_mask(rpc r, u64 mask);
+status push_create(rpc r, nfs4_properties p);
+status rpc_readdir(nfs4_dir d, buffer result);
+status read_fattr(buffer b, nfs4_properties p);
+status parse_filehandle(buffer b, u8 *dest);
+status read_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie);

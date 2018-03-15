@@ -4,10 +4,8 @@ typedef struct nfs4_file *nfs4_file;
 
 typedef unsigned long long bytes;
 typedef int nfs4_mode_t;
-typedef int nfs4_uid_t;
-typedef int nfs4_gid_t;
 typedef unsigned long long nfs4_time;
-
+    
 // cribbed neraly verbatim from include/asm-generic/errno-base.h
 // could really use that instead..but its probably an unneccesary
 // extern dependency
@@ -40,6 +38,7 @@ typedef unsigned long long nfs4_time;
 #define NFS4_EMLINK       -31     /* Too many links */
 #define NFS4_PROTOCOL     -32     /* protocol/framing error */
 
+
 int nfs4_create(char *hostname, nfs4 *dest);
 void nfs4_destroy(nfs4);
 
@@ -49,8 +48,7 @@ char *nfs4_error_string(nfs4 n);
 #define NFS4_WRONLY 2
 #define NFS4_RDWRITE 3
 #define NFS4_CREAT 4
-// not yet implemented
-// #define NFS4_APPEND 8
+#define NFS4_APPEND 8
 #define NFS4_TRUNC 16
 #define NFS4_SERVER_ASYNCH 32
 
@@ -63,7 +61,7 @@ int nfs4_pread(nfs4_file f, void *buf, bytes, bytes offset);
 // nfs4 filehandle size;
 typedef unsigned char nfs4_ino_t[128];
 
-
+// 1-1 from the xdr spec
 typedef enum nfs_ftype4 {
         NF4REG       = 1,  /* Regular File */
         NF4DIR       = 2,  /* Directory */
@@ -72,23 +70,29 @@ typedef enum nfs_ftype4 {
         NF4LNK       = 5,  /* Symbolic Link */
         NF4SOCK      = 6,  /* Special File -- socket */
         NF4FIFO      = 7,  /* Special File -- fifo */
-        NF4ATTRDIR   = 8,  /* Attribute Directory */
-        NF4NAMEDATTR = 9   /* Named Attribute */
 } nfs_ftype4;
 
-typedef struct nfs4_properties {
-    char           name[256];
-    nfs4_ino_t     ino;
-    nfs4_mode_t    mode;        /* protection */
-    int            nlink;       /* number of hard links */
-    nfs4_uid_t     uid;    /* user ID of owner */
-    nfs4_gid_t     gid;    /* group ID of owner */
-    bytes          size;        /* total size, in bytes */
-    nfs_ftype4     type; 
-    nfs4_time st_atim;  /* time of last access */
-    nfs4_time st_mtim;  /* time of last modification */
-    nfs4_time st_ctim;  /* time of last status change */
-} *nfs4_properties;
+
+#define MODE4_SUID  0x800;  /* set user id on execution */
+#define MODE4_SGID  0x400;  /* set group id on execution */
+#define MODE4_SVTX  0x200;  /* save text even after use */
+#define MODE4_RUSR  0x100;  /* read permission: owner */
+#define MODE4_WUSR  0x080;  /* write permission: owner */
+#define MODE4_XUSR  0x040;  /* execute permission: owner */
+#define MODE4_RGRP  0x020;  /* read permission: group */
+#define MODE4_WGRP  0x010;  /* write permission: group */
+#define MODE4_XGRP  0x008;  /* execute permission: group */
+#define MODE4_ROTH  0x004;  /* read permission: other */
+#define MODE4_WOTH  0x002;  /* write permission: other */
+#define MODE4_XOTH  0x001;  /* execute permission: other */
+
+#define NFS4_PROP_INO (1ull<<19)
+#define NFS4_PROP_MODE (1ull<<33)
+#define NFS4_PROP_UID (1ull<<36)
+#define NFS4_PROP_GID (1ull<<37)
+#define NFS4_PROP_SIZE (1ull<<4)
+#define NFS4_PROP_ACCESS_TIME (1ull<<47)
+#define NFS4_PROP_MODIFY_TIME (1ull<<53)
 
 enum nfs_lock_type4 {
         READ_LT         = 1,
@@ -98,6 +102,21 @@ enum nfs_lock_type4 {
     };
 
 
+typedef struct nfs4_properties {
+    unsigned long long mask;
+    char           name[256];
+    nfs4_ino_t     ino;
+    nfs4_mode_t    mode;        /* protection */
+    int            nlink;       /* number of hard links */
+    char           user[64];    /* user ID of owner */
+    char           group[64];    /* group ID of owner */
+    bytes          size;        /* total size, in bytes */
+    nfs_ftype4     type; 
+    nfs4_time      access_time;  /* time of last access */
+    nfs4_time      modify_time;  /* time of last modification */
+} *nfs4_properties;
+
+
 int nfs4_unlink(nfs4 n, char *path);
 int nfs4_stat(nfs4 n, char *path, nfs4_properties st);
 int nfs4_fstat(nfs4_file fd, nfs4_properties st);
@@ -105,13 +124,13 @@ int nfs4_mkdir(nfs4 n, char *path);
 
 typedef struct nfs4_dir *nfs4_dir;
 int nfs4_opendir(nfs4, char *path, nfs4_dir *);
-int nfs4_readdir(nfs4_dir, nfs4_properties *d);
+int nfs4_readdir(nfs4_dir, nfs4_properties d);
 int nfs4_closedir(nfs4_dir);
     
 // special length for entire file?
 int lock_range(nfs4_file f, int locktype, bytes offset, bytes length);
 int unlock_range(nfs4_file f, int locktype, bytes offset, bytes length);
-int nfs4_setid(nfs4_uid_t uid, nfs4_gid_t gid);
+int nfs4_setid(char *uid, char *gid);
 
 
 

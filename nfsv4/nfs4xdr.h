@@ -428,7 +428,7 @@ static struct codepoint nfsstatus[] = {
     {"request too big  ", 10065},
     {"reply too big    ", 10066},
     {"rep. not all cached", 10067},
-    {"retry + rep. uncached", 10068},
+    {"retry uncached rep", 10068},
     {"retry/recovery too hard", 10069},
     {"too many ops in [CB_]COMP", 10070},
     {"op needs [CB_]SEQ. op", 10071},
@@ -572,3 +572,125 @@ enum why_no_delegation4 { /* New to NFSv4.1 */
 
 #define NFS_LIMIT_SIZE 1
 #define NFS_LIMIT_BLOCKS 2
+
+#if NOTYET
+*            opaque
+bitmap4      [u64]
+bool         u32
+chg_policy4  {u64, u64}
+enum         u32
+fs4_status   struct
+fsid4        {u64, u64}
+fs_locations {string, pathname}
+layouthint4  {u32, opaque}
+layouttype4<> [u32]
+mdsthreshold4 // complicated
+mode4          u32
+mode_masked4
+nfsace4<>      [ace]
+nfsacl41       {u32, [ace]}
+nfs_fh4  128 bits
+nfs_ftype4  u32
+nfs_lease4  u32
+nfstime4   {64s + 32ns}
+retention_get4 {64, time}
+retention_set4 {bool, u64}
+settime4 // {bool, optional time}
+specdata4 {u32, u32}
+
+
+
+struct{int, void (*)()} attribute_parsers[] = {
+    {FATTR_SUPPORTED_ATTRS    , bitmap4},
+    {FATTR_TYPE               , nfs_ftype4 },
+    {FATTR_FH_EXPIRE_TYPE     , uint32_t   },
+    {FATTR_CHANGE             , uint64_t   },
+    {FATTR_SIZE               , uint64_t   },
+    {FATTR_LINK_SUPPORT       , bool       },
+    {FATTR_SYMLINK_SUPPORT    , bool       },
+    {FATTR_NAMED_ATTR         , bool       },
+    {FATTR_FSID               , fsid4      },
+    {FATTR_UNIQUE_HANDLES     , bool       },
+    {FATTR_LEASE_TIME         , nfs_lease4 },
+    {FATTR_RDATTR_ERROR       , enum       },
+    {FATTR_FILEHANDLE         , nfs_fh4    },
+    {FATTR_SUPPATTR_EXCLCREAT , bitmap4    },
+    {FATTR_ACL                , nfsace4<>      },
+    {FATTR_ACLSUPPORT         , uint32_t       },
+    {FATTR_ARCHIVE            , bool           },
+    {FATTR_CANSETTIME         , bool           },
+    {FATTR_CASE_INSENSITIVE   , bool           },
+    {FATTR_CASE_PRESERVING    , bool           },
+    {FATTR_CHANGE_POLICY      , chg_policy4    },
+    {FATTR_CHOWN_RESTRICTED   , bool           },
+    {FATTR_DACL               , nfsacl41       },
+    {FATTR_DIR_NOTIF_DELAY    , nfstime4       },
+    {FATTR_DIRENT_NOTIF_DELAY , nfstime4       },
+    {FATTR_FILEID             , uint64_t       },
+    {FATTR_FILES_AVAIL        , uint64_t       },
+    {FATTR_FILES_FREE         , uint64_t       },
+    {FATTR_FILES_TOTAL        , uint64_t       },
+    {FATTR_FS_CHARSET_CAP     , uint32_t       },
+    {FATTR_FS_LAYOUT_TYPE     , layouttype4<>  },
+    {FATTR_FS_LOCATIONS       , fs_locations   },
+    {FATTR_FS_LOCATIONS_INFO  , *              },
+    {FATTR_FS_STATUS          , fs4_status     },
+    {FATTR_HIDDEN             , bool           },
+    {FATTR_HOMOGENEOUS        , bool           },
+    {FATTR_LAYOUT_ALIGNMENT   , uint32_t       },
+    {FATTR_LAYOUT_BLKSIZE     , uint32_t       },
+    {FATTR_LAYOUT_HINT        , layouthint4    },
+    {FATTR_LAYOUT_TYPE        , layouttype4<>  },
+    {FATTR_MAXFILESIZE        , uint64_t       },
+    {FATTR_MAXLINK            , uint32_t       },
+    {FATTR_MAXNAME            , uint32_t       },
+    {FATTR_MAXREAD            , uint64_t       },
+    {FATTR_MAXWRITE           , uint64_t       },
+    {FATTR_MDSTHRESHOLD       , mdsthreshold4  },
+    {FATTR_MIMETYPE           , utf8str_cs     },
+    {FATTR_MODE               , mode4          },
+    {FATTR_MODE_SET_MASKED    , mode_masked4   },
+    {FATTR_MOUNTED_ON_FILEID  , uint64_t       },
+    {FATTR_NO_TRUNC           , bool           },
+    {FATTR_NUMLINKS           , uint32_t       },
+    {FATTR_OWNER              , utf8str_mixed  },
+    {FATTR_OWNER_GROUP        , utf8str_mixed  },
+    {FATTR_QUOTA_AVAIL_HARD   , uint64_t       },
+    {FATTR_QUOTA_AVAIL_SOFT   , uint64_t       },
+    {FATTR_QUOTA_USED         , uint64_t       },
+    {FATTR_RAWDEV             , specdata4      },
+    {FATTR_RETENTEVT_GET      , retention_get4 },
+    {FATTR_RETENTEVT_SET      , retention_set4 },
+    {FATTR_RETENTION_GET      , retention_get4 },
+    {FATTR_RETENTION_HOLD     , uint64_t       },
+    {FATTR_RETENTION_SET      , retention_set4 },
+    {FATTR_SACL               , nfsacl41       },
+    {FATTR_SPACE_AVAIL        , uint64_t       },
+    {FATTR_SPACE_FREE         , uint64_t       },
+    {FATTR_SPACE_TOTAL        , uint64_t       },
+    {FATTR_SPACE_USED         , uint64_t       },
+    {FATTR_SYSTEM             , bool           },
+    {FATTR_TIME_ACCESS        , nfstime4       },
+    {FATTR_TIME_ACCESS_SET    , settime4       },
+    {FATTR_TIME_BACKUP        , nfstime4       },
+    {FATTR_TIME_CREATE        , nfstime4       },
+    {FATTR_TIME_DELTA         , nfstime4       },
+    {FATTR_TIME_METADATA      , nfstime4       },
+    {FATTR_TIME_MODIFY        , nfstime4       },
+    {FATTR_TIME_MODIFY_SET     settime4       }},
+
+#endif
+   
+enum fs4_status_type {
+        STATUS4_FIXED     = 1,
+        STATUS4_UPDATED   = 2,
+        STATUS4_VERSIONED = 3,
+        STATUS4_WRITABLE  = 4,
+        STATUS4_REFERRAL  = 5
+};
+
+enum layouttype4 {
+        LAYOUT4_NFSV4_1_FILES   = 0x1,
+        LAYOUT4_OSD2_OBJECTS    = 0x2,
+        LAYOUT4_BLOCK_VOLUME    = 0x3
+};

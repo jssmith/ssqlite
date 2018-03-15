@@ -1,8 +1,6 @@
-#include ../Makefile
+include ../Makefile
 
 all: shell
-
-OBJ = rpc.o xdr.o client.o 
 
 %.o : %.c
 	gcc -g -I. -I.. -std=gnu99 $< -c
@@ -12,7 +10,7 @@ OBJ = rpc.o xdr.o client.o
 
 SHELLOBJ= shell.o 
 
-shell: $(OBJ) $(SHELLOBJ)
+shell: $(NFS4_OBJ) $(SHELLOBJ)
 	cc -g $^ -lm -o shell
 
 clean:
