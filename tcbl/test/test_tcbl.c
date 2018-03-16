@@ -692,8 +692,43 @@ struct fuzz_update_args {
     int len_blocks;
     int checkpoint_interval;
     int id;
+    bool has_txn;
     unsigned seed;
 };
+
+static int fuzz_updates_initialize(vfs_fh fh, size_t block_size, int len_blocks)
+{
+    char buff[block_size];
+    struct test_page *tp = (struct test_page *) buff;
+    unsigned int seed = 23823094;
+    size_t data_len = block_size - sizeof(struct test_page);
+    int prev_id = 0;
+    for (int i = 0; i < len_blocks; i++) {
+        tp->id = rand_r(&seed);
+        tp->prev_id = prev_id;
+        prep_data(tp->data, data_len, (uint64_t) rand_r(&seed));
+        RC_OK(vfs_write(fh, buff, i * block_size, block_size));
+        prev_id = tp->id;
+    }
+    return TCBL_OK;
+}
+
+static int fuzz_updates_verify(vfs_fh fh, bool has_txn, size_t block_size, int len_blocks)
+{
+    char buff[block_size];
+    struct test_page *tp = (struct test_page *) buff;
+    unsigned int seed = 23823094;
+    size_t data_len = block_size - sizeof(struct test_page);
+    int prev_id = 0;
+    if (has_txn) RC_OK(vfs_txn_begin(fh));
+    for (int i = 0; i < len_blocks; i++) {
+        RC_OK(vfs_read(fh, buff, i * block_size, block_size));
+        assert_int_equal(tp->prev_id, prev_id);
+        prev_id = tp->id;
+    }
+    if (has_txn) RC_OK(vfs_txn_abort(fh));
+    return TCBL_OK;
+}
 
 static void *fuzz_updates_changefn(void* args)
 {
@@ -703,6 +738,7 @@ static void *fuzz_updates_changefn(void* args)
     int checkpoint_interval = a->checkpoint_interval;
     int id = a->id;
     unsigned seed = a->seed;
+    bool has_txn = a->has_txn;
 
     vfs_fh fh = a->fh;
 
@@ -718,7 +754,7 @@ static void *fuzz_updates_changefn(void* args)
     for (int i = 0; i < 25; i++) {
 //        usleep(rand_r(&seed) % 100000);
         printf("thread %d (%lu) at iteration %d\n", id, self, i);
-        RC_OK(vfs_txn_begin(fh));
+        if (has_txn) RC_OK(vfs_txn_begin(fh));
         int cb = rand_r(&seed) % (len_blocks - 1);
         size_t pos1 = cb * block_size;
         size_t pos2 = (cb + 1) * block_size;
@@ -728,7 +764,7 @@ static void *fuzz_updates_changefn(void* args)
         tp2->prev_id = tp->id;
         vfs_write(fh, buff_1, pos1, block_size);
         vfs_write(fh, buff_2, pos2, block_size);
-        RC_OK(vfs_txn_commit(fh));
+        if (has_txn) RC_OK(vfs_txn_commit(fh));
         update_ct += 1;
         if (update_ct % checkpoint_interval == 0) {
             RC_OK(vfs_checkpoint(fh));
@@ -739,34 +775,49 @@ static void *fuzz_updates_changefn(void* args)
 }
 
 static void fuzz_updates_direct(void **state) {
-    vfs memvfs;
-    tvfs tcbl;
 
-    RC_OK(memvfs_allocate(&memvfs));
-    assert_non_null(memvfs);
+    // begin configuration
+    bool shared_memvfs = true;
+    int num_testers = 10;
+    // end configuration
 
-    vfs_fh fh;
-    tcbl_allocate(&tcbl, memvfs, TCBL_TEST_PAGE_SIZE);
-    RC_OK(vfs_open((vfs) tcbl, TCBL_TEST_FILENAME, &fh));
+    int tester_offset = shared_memvfs ? 1 : 0;
+    int num_fh = num_testers + tester_offset;
 
-    int num_fh = 1;
+    int num_memvfs = shared_memvfs ? 1 : num_testers;
+    vfs memvfs[num_memvfs];
+    tvfs tcbl[num_fh];
+    vfs_fh fh[num_fh];
+    int start_vfh = tester_offset;
+    int end_vfh = num_testers;
+    bool has_txn = true;
+    bool verify = true;
+    if (shared_memvfs) {
+        RC_OK(memvfs_allocate(&memvfs[0]));
+        assert_non_null(memvfs[0]);
+    }
+    for (int i = 0; i < num_fh; i++) {
+        vfs fh_memvfs;
+        if (shared_memvfs) {
+            fh_memvfs = memvfs[0];
+        } else {
+            RC_OK(memvfs_allocate(&memvfs[i]));
+            assert_non_null(memvfs[i]);
+            fh_memvfs = memvfs[i];
+        }
+
+        RC_OK(tcbl_allocate(&tcbl[i], fh_memvfs, TCBL_TEST_PAGE_SIZE));
+        RC_OK(vfs_open((vfs) tcbl[i], TCBL_TEST_FILENAME, &fh[i]));
+    }
+
 
     // each block must contain a copy of data from
     // the previous block
     size_t block_size = TCBL_TEST_PAGE_SIZE;
     int len_blocks = 10;
 
-    char buff[block_size];
-    struct test_page *tp = (struct test_page *) buff;
-    unsigned int seed = 23823094;
-    size_t data_len = block_size - sizeof(struct test_page);
-    int prev_id = 0;
-    for (int i = 0; i < len_blocks; i++) {
-        tp->id = rand_r(&seed);
-        tp->prev_id = prev_id;
-        prep_data(tp->data, data_len, (uint64_t) rand_r(&seed));
-        RC_OK(vfs_write(fh, buff, i * block_size, block_size));
-        prev_id = tp->id;
+    for (int i = start_vfh; i < end_vfh; i++) {
+        RC_OK(fuzz_updates_initialize(fh[i], block_size, len_blocks));
     }
 
     // make this multithreaded
@@ -774,42 +825,39 @@ static void fuzz_updates_direct(void **state) {
     unsigned seed_seq = 123;
     for (int n = 0; n < 10; n++) {
         // verify integrity
-        printf("beginning integrity verfication\n");
-        prev_id = 0;
-        RC_OK(vfs_txn_begin(fh));
-        for (int i = 0; i < len_blocks; i++) {
-            RC_OK(vfs_read(fh, buff, i * block_size, block_size));
-            assert_int_equal(tp->prev_id, prev_id);
-            prev_id = tp->id;
+        if (verify) {
+            for (int i = start_vfh; i < end_vfh; i++) {
+                RC_OK(fuzz_updates_verify(fh[i], has_txn, block_size, len_blocks));
+            }
         }
-        RC_OK(vfs_txn_abort(fh));
-        printf("ended integrity verfication\n");
 
-        if (num_fh == 1) {
+        if (false && num_testers == 1) {
             struct fuzz_update_args args;
-            args.fh = fh;
+            args.fh = fh[1];
             args.block_size = block_size;
             args.len_blocks = len_blocks;
             args.checkpoint_interval = checkpoint_interval;
             args.id = 0;
             args.seed = seed_seq;
+            args.has_txn = has_txn;
             seed_seq += 1;
             fuzz_updates_changefn(&args);
         } else {
             // multithreaded execution
-            pthread_t threads[num_fh];
+            pthread_t threads[num_testers];
             struct fuzz_update_args args[num_fh];
-            for (int i = 0; i < num_fh; i++) {
-                args[i].fh = fh;
+            for (int i = 0; i < num_testers; i++) {
+                args[i].fh = fh[i + tester_offset];
                 args[i].block_size = block_size;
                 args[i].len_blocks = len_blocks;
                 args[i].checkpoint_interval = checkpoint_interval;
                 args[i].id = i;
                 args[i].seed = seed_seq;
+                args[i].has_txn = has_txn;
                 seed_seq += 1;
                 pthread_create(&threads[i], NULL, fuzz_updates_changefn, &args[i]);
             }
-            for (int i = 0; i < num_fh; i++) {
+            for (int i = 0; i < num_testers; i++) {
                 int rc = pthread_join(threads[i], NULL);
                 if (rc) {
                     printf("error joining thread\n");
@@ -819,8 +867,13 @@ static void fuzz_updates_direct(void **state) {
             }
         }
     }
-    RC_OK(vfs_free((vfs) tcbl));
-    RC_OK(vfs_free(memvfs));
+    for (int i = 0; i < num_fh; i++) {
+        RC_OK(vfs_free((vfs) tcbl[i]));
+
+    }
+    for (int i = 0; i < num_memvfs; i++) {
+        RC_OK(vfs_free(memvfs[i]));
+    }
 }
 
 static void test_tcbl_open_close(void **state)

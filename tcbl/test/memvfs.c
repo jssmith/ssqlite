@@ -52,16 +52,16 @@ static inline int lock(memvfs memvfs)
 {
     // TODO error checking
     int rc = pthread_mutex_lock(&memvfs->lock);
-    pthread_t self = pthread_self();
-    printf("lock %p %lu %d\n", &memvfs->lock, self, rc);
+//    pthread_t self = pthread_self();
+//    printf("lock %p %lu %d\n", &memvfs->lock, self, rc);
 }
 
 static inline int unlock(memvfs memvfs)
 {
     // TODO error checking
-    pthread_t self = pthread_self();
+//    pthread_t self = pthread_self();
     int rc = pthread_mutex_unlock(&memvfs->lock);
-    printf("unlock %p %lu %d\n", &memvfs->lock, self, rc);
+//    printf("unlock %p %lu %d\n", &memvfs->lock, self, rc);
 }
 
 static int file_name_comparator(memvfs_file f1, memvfs_file f2)
