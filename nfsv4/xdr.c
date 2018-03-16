@@ -248,14 +248,7 @@ void push_open(rpc r, char *name, int flags, nfs4_properties p)
         buffer attr = allocate_buffer(r->c->h, 256); // leak
         push_be32(r->b, OPEN4_CREATE);
         push_be32(r->b, UNCHECKED4);
-        buffer mask = allocate_buffer(r->c->h, 8);
-        bitvector_set(mask, FATTR4_MODE);
-        //  bitvector_set(mask, FATTR4_OWNER);
-
-        push_attr_bitmap(r, mask); 
-        push_be32(attr, p->mode);
-        // push_string(attr, "4134", 4);
-        push_string(r->b, attr->contents, length(attr));
+        push_fattr(r, p);
     } else {
         push_be32(r->b, OPEN4_NOCREATE);
     }
@@ -330,6 +323,14 @@ status push_fattr(rpc r, nfs4_properties p)
 {
     // filter by supported types
     push_fattr_mask(r, p->mask);
+    u64 len = 0;
+
+    // a more general map of length functions, or an intermediate buffer
+    if (p->mask & NFS4_PROP_MODE) len += 4;
+    if (p->mask & NFS4_PROP_UID) len += 4 + pad(strlen(p->user), 4);
+    if (p->mask & NFS4_PROP_GID) len += 4 + pad(strlen(p->group), 4);
+    push_be32(r->b, len);
+    
     if (p->mask & NFS4_PROP_MODE) {
         push_be32(r->b, p->mode);
     }
@@ -460,4 +461,43 @@ status read_fs4_status(buffer b)
     read_time(b, &version); //fss_version        
 }
 
+
+// dup w/ push resolution
+// assumes paths always start with slash
+char *push_initial_path(rpc r, char *path)
+{
+    int offset = 1;
+    int i;
+    push_op(r, OP_PUTROOTFH);
+    for (i = offset; path[i]; i++) 
+        if (path[i] == '/') {
+            push_op(r, OP_LOOKUP);
+            push_string(r->b, path+offset, i-offset);            
+            offset = i + 1;
+        }
+    return path + offset;
+}
+
+void push_resolution(rpc r, char *path)
+{
+    push_op(r, OP_PUTROOTFH);
+    int start = 0;
+    if (path[0] == '/') path++;
+    int i;
+    
+    for (i = 0 ; path[i]; i++) {
+        if (path[i] == '/')  {
+            push_op(r, OP_LOOKUP);
+            push_string(r->b, path+start, i-start);
+        } else {
+            start = i + 1;
+        }
+    }
+    // it doesnt ever really make sense to have a path with
+    // an empty last element?
+    if (i != start) {
+        push_op(r, OP_LOOKUP);
+        push_string(r->b, path+start, i-start);
+    }
+}
 

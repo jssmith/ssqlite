@@ -28,7 +28,7 @@ int nfs4_pwrite(nfs4_file f, void *dest, bytes offset, bytes length)
     return NFS4_OK;    
 }
 
-int nfs4_open(nfs4 c, char *path, int flags, nfs4_mode_t mode, nfs4_file *dest)
+int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
 {
     nfs4_file f = allocate(s->h, sizeof(struct nfs4_file));
     f->path = path;
@@ -36,9 +36,7 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_mode_t mode, nfs4_file *dest)
     rpc r = allocate_rpc(f->c, f->c->forward);
     push_sequence(r);
     char *final = push_initial_path(r, path);
-    struct nfs4_properties p;
-    p.mode = mode;
-    push_open(r, final, flags, &p);
+    push_open(r, final, flags, p);
     push_op(r, OP_GETFH);
     buffer res = f->c->reverse;    
     status st = transact(r, OP_OPEN, res);
@@ -130,13 +128,18 @@ int nfs4_closedir(nfs4_dir d)
     deallocate_buffer(d->entries);
 }
 
-int nfs4_mkdir(nfs4 c, char *path)
+// path in properties?
+int nfs4_mkdir(nfs4 c, char *path, nfs4_properties p)
 {
-    struct nfs4_properties p;
+    struct nfs4_properties real;
+    // merge p and default into real
+    real.mask = NFS4_PROP_MODE;
+    real.mode = 0755;
     rpc r = allocate_rpc(c, c->forward);
     push_sequence(r);
-    char *final = push_initial_path(r, path);
-    push_create(r, &p);
+    char *term = push_initial_path(r, path);
+    strncpy(real.name, term, strlen(term) + 1);
+    push_create(r, &real);
     api_check(c, transact(r, OP_CREATE, c->reverse));
     return NFS4_OK;
 }
@@ -152,6 +155,10 @@ int nfs4_synch(nfs4 c)
         api_check(c, parse_rpc(c, c->reverse, &bs));
     }
     return NFS4_OK;
+}
+
+int nfs4_change_properties(char *path, nfs4_properties p)
+{
 }
 
 int nfs4_lock_range(nfs4_file f, int locktype, bytes offset, bytes length)

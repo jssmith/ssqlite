@@ -259,28 +259,6 @@ status nfs4_connect(nfs4 c)
     return NFS4_OK;
 }
 
-void push_resolution(rpc r, char *path)
-{
-    push_op(r, OP_PUTROOTFH);
-    int start = 0, end = 0;
-    if (path[0] == '/') path++;
-    
-    for (char *i = path; *i; i++) {
-        if (*i == '/')  {
-            push_op(r, OP_LOOKUP);
-            push_string(r->b, path+start, end-start);
-        } else {
-            end += 1;
-        }
-    }
-    // it doesnt ever really make sense to have a path with
-    // an empty last element?
-    if (end != start) {
-        push_op(r, OP_LOOKUP);
-        push_string(r->b, path+start, end-start);
-    }
-}
-
 static status read_until(nfs4 c, buffer b, u32 which)
 {
     int opcount = read_beu32(b);
@@ -479,17 +457,6 @@ status write_chunk(nfs4_file f, void *source, u64 offset, u32 length)
     return transact(r, OP_WRITE, b);
 }
 
-char *push_initial_path(rpc r, char *path)
-{
-    int offset = 0;
-    for (int i = 0; path[i]; i++) if (path[i] == '/') offset = i;
-    // just to avoid mutating path
-    char *initial = alloca(offset+1);
-    memcpy(initial, path, offset);
-    initial[offset]= 0;
-    push_resolution(r, initial);
-    return path + offset;
-}
 
 status segment(status (*each)(nfs4_file, void *, u64, u32),
             int chunksize,

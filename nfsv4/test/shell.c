@@ -25,7 +25,10 @@ static int create(nfs4 c, char *path, vector args)
 {
     // parse optionl mode arguments
     nfs4_file f;
-    int st = nfs4_open(c, path, NFS4_CREAT, 0666, &f);
+    struct nfs4_properties p;
+    p.mask = NFS4_PROP_MODE;
+    p.mode = 0666;
+    int st = nfs4_open(c, path, NFS4_CREAT, &p, &f);
     nfs4_close(f);
     return st;
 }
@@ -53,7 +56,7 @@ static int readc(nfs4 c, char *path, vector args)
 static int writec(nfs4 c, char *path, vector args)
 {
     nfs4_file f;
-    int st = nfs4_open(c, path, NFS4_WRONLY, 0, &f);
+    int st = nfs4_open(c, path, NFS4_CREAT | NFS4_WRONLY, 0, &f);
     if (st) {
         buffer c = vector_pop(args);
         st = nfs4_pwrite(f, c->contents + c->start, 0, length(c));
@@ -79,7 +82,10 @@ static int readd(nfs4 c, char *path, vector args)
 static int writed(nfs4 c, char *path, vector args)
 {
     nfs4_file f;
-    int s = nfs4_open(c, path, NFS4_CREAT, 0666, &f);
+    struct nfs4_properties p;
+    p.mask = NFS4_PROP_MODE;
+    p.mode = 0666;
+    int s = nfs4_open(c, path, NFS4_WRONLY | NFS4_CREAT, &p, &f);
     if (s) return s;
     u64 length;
     s = parse_u64(vector_pop(args), &length);
@@ -114,7 +120,10 @@ static int lsc(nfs4 c, char *path, vector args)
 
 static int mkdirc(nfs4 c, char *path, vector args)
 {
-    return nfs4_mkdir(c, path);
+    struct nfs4_properties p;
+    p.mask = 0;
+    // default and null
+    return nfs4_mkdir(c, path, &p);
 }
 
 

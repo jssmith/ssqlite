@@ -52,12 +52,6 @@ char *nfs4_error_string(nfs4 n);
 #define NFS4_TRUNC 16
 #define NFS4_SERVER_ASYNCH 32
 
-int nfs4_open(nfs4 n, char *filename, int flags, nfs4_mode_t mode, nfs4_file *dest);
-int nfs4_close(nfs4_file fd);
-int nfs4_pwrite(nfs4_file f, void *source, bytes count, bytes offset);
-// asymmetry of byte return to allow for negative errors
-int nfs4_pread(nfs4_file f, void *buf, bytes, bytes offset);
-
 // nfs4 filehandle size;
 typedef unsigned char nfs4_ino_t[128];
 
@@ -117,10 +111,16 @@ typedef struct nfs4_properties {
 } *nfs4_properties;
 
 
+int nfs4_open(nfs4 n, char *filename, int flags, nfs4_properties p, nfs4_file *dest);
+int nfs4_close(nfs4_file fd);
+int nfs4_pwrite(nfs4_file f, void *source, bytes count, bytes offset);
+// asymmetry of byte return to allow for negative errors
+int nfs4_pread(nfs4_file f, void *buf, bytes, bytes offset);
 int nfs4_unlink(nfs4 n, char *path);
-int nfs4_stat(nfs4 n, char *path, nfs4_properties st);
-int nfs4_fstat(nfs4_file fd, nfs4_properties st);
-int nfs4_mkdir(nfs4 n, char *path);
+int nfs4_stat(nfs4 n, char *path, nfs4_properties p);
+int nfs4_fstat(nfs4_file fd, nfs4_properties p);
+int nfs4_mkdir(nfs4 n, char *path, nfs4_properties p);
+void nfs4_set_default_properties(nfs4 n, nfs4_properties p);
 
 typedef struct nfs4_dir *nfs4_dir;
 int nfs4_opendir(nfs4, char *path, nfs4_dir *);
