@@ -1,6 +1,9 @@
 #include <string.h>
 #include <stdio.h>
 #include <sys/param.h>
+#include <sys/types.h>
+#include <pthread.h>
+#include <z3.h>
 
 #include "memvfs.h"
 #include "sglib.h"
@@ -25,6 +28,7 @@ typedef struct memvfs_fh {
 
 typedef struct memvfs {
     vfs_info vfs_info;
+    pthread_mutex_t lock;
     struct memvfs_file *files;
     struct memvfs_fh *file_handles;
 } *memvfs;
@@ -44,12 +48,28 @@ static void print_block(const char* data, size_t len)
 }
 #endif
 
-int file_name_comparator(memvfs_file f1, memvfs_file f2)
+static inline int lock(memvfs memvfs)
+{
+    // TODO error checking
+    int rc = pthread_mutex_lock(&memvfs->lock);
+    pthread_t self = pthread_self();
+    printf("lock %p %lu %d\n", &memvfs->lock, self, rc);
+}
+
+static inline int unlock(memvfs memvfs)
+{
+    // TODO error checking
+    pthread_t self = pthread_self();
+    int rc = pthread_mutex_unlock(&memvfs->lock);
+    printf("unlock %p %lu %d\n", &memvfs->lock, self, rc);
+}
+
+static int file_name_comparator(memvfs_file f1, memvfs_file f2)
 {
     return strcmp(f1->name, f2->name);
 }
 
-void memvfs_find_existing_file(memvfs memvfs, const char *name, memvfs_file *file_out)
+static void memvfs_find_existing_file(memvfs memvfs, const char *name, memvfs_file *file_out)
 {
     struct memvfs_file search_file = {
             (char*) name
@@ -57,7 +77,7 @@ void memvfs_find_existing_file(memvfs memvfs, const char *name, memvfs_file *fil
     SGLIB_LIST_FIND_MEMBER(struct memvfs_file, memvfs->files, &search_file, file_name_comparator, next_file, *file_out);
 }
 
-int memvfs_find_file(memvfs memvfs, const char *name, memvfs_file *file_out)
+static int memvfs_find_file(memvfs memvfs, const char *name, memvfs_file *file_out)
 {
     memvfs_find_existing_file(memvfs, name, file_out);
     if (*file_out) {
@@ -85,7 +105,7 @@ int memvfs_find_file(memvfs memvfs, const char *name, memvfs_file *file_out)
     return TCBL_OK;
 }
 
-int memvfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
+static int memvfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
 {
     memvfs_fh fh = tcbl_malloc(NULL, sizeof(struct memvfs_fh));
     if (!fh) {
@@ -95,6 +115,7 @@ int memvfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
     fh->is_valid = true;
     *file_handle_out = (vfs_fh) fh;
 
+    lock((memvfs) vfs);
     int rc = memvfs_find_file((memvfs) vfs, file_name, &fh->memvfs_file);
     if (rc) {
         tcbl_free(NULL, fh, sizeof(struct memvfs_fh));
@@ -102,36 +123,46 @@ int memvfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
         SGLIB_LIST_ADD(struct memvfs_fh, ((memvfs) vfs)->file_handles, fh, next);
         fh->memvfs_file->ref_ct += 1;
     }
+    unlock((memvfs) vfs);
     return rc;
 }
 
-int memvfs_delete(vfs vfs, const char *file_name)
+static int memvfs_delete(vfs vfs, const char *file_name)
 {
+    int rc = TCBL_OK;
     memvfs_file f;
+    lock((memvfs) vfs);
     memvfs_find_existing_file((memvfs) vfs, file_name, &f);
     if (!f) {
-        return TCBL_FILE_NOT_FOUND;
+        rc = TCBL_FILE_NOT_FOUND;
+        goto exit;
     } else {
         SGLIB_LIST_DELETE(struct memvfs_file, ((memvfs) vfs)->files, f, next_file);
         f->ref_ct -= 1;
         if (f->ref_ct == 0) {
             memvfs_free_file(f);
         }
-        return TCBL_OK;
+        goto exit;
     }
+    exit:
+    unlock((memvfs) vfs);
+    return rc;
 }
 
-int memvfs_exists(vfs vfs, const char* file_name, int *out)
+static int memvfs_exists(vfs vfs, const char* file_name, int *out)
 {
+    lock((memvfs) vfs);
     memvfs_file f;
     memvfs_find_existing_file((memvfs) vfs, file_name, &f);
     *out = (f != NULL);
+    unlock((memvfs) vfs);
     return TCBL_OK;
 }
 
-int memvfs_close(vfs_fh file_handle)
+static int memvfs_close(vfs_fh file_handle)
 {
     memvfs_file f = ((memvfs_fh) file_handle)->memvfs_file;
+    lock((memvfs) file_handle->vfs);
     if (f) {
         f->ref_ct -= 1;
         if (f->ref_ct == 0) {
@@ -140,14 +171,16 @@ int memvfs_close(vfs_fh file_handle)
     }
     SGLIB_LIST_DELETE(struct memvfs_fh, ((memvfs)((memvfs_fh) file_handle)->vfs)->file_handles, (memvfs_fh) file_handle, next);
     tcbl_free(NULL, file_handle, file_handle->vfs->vfs_info->vfs_fh_size);
+    unlock((memvfs) file_handle->vfs);
     return TCBL_OK;
 }
 
-int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len)
+static int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len)
 {
     memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;
 
+    lock((memvfs) file_handle->vfs);
     if (f->len < offset + len) {
         if (offset < f->len) {
             size_t read_len = f->len - offset;
@@ -163,6 +196,7 @@ int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len)
     printf("memvfs read %s %lx %lx\n", f->name, offset, len);
     print_block(buff, len);
 #endif
+    unlock((memvfs) file_handle->vfs);
     return TCBL_OK;
 }
 
@@ -184,11 +218,12 @@ static int memvfs_ensure_alloc_len(memvfs_file f, size_t len)
     return TCBL_OK;
 }
 
-int memvfs_write(vfs_fh file_handle, const void *buff, size_t offset, size_t len)
+static int memvfs_write(vfs_fh file_handle, const void *buff, size_t offset, size_t len)
 {
     memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;
 
+    lock((memvfs) file_handle->vfs);
     memvfs_ensure_alloc_len(f, offset + len);
 
     memcpy(&f->data[offset], buff, len);
@@ -202,30 +237,36 @@ int memvfs_write(vfs_fh file_handle, const void *buff, size_t offset, size_t len
     printf("memvfs write %s %lx %lx\n", f->name, offset, len);
     print_block(buff, len);
 #endif
+    unlock((memvfs) file_handle->vfs);
     return TCBL_OK;
 }
 
-int memvfs_file_size(vfs_fh vfs_fh, size_t* out)
+static int memvfs_file_size(vfs_fh file_handle, size_t* out)
 {
-    struct memvfs_fh *fh = (struct memvfs_fh *) vfs_fh;
+    struct memvfs_fh *fh = (struct memvfs_fh *) file_handle;
+    lock((memvfs) file_handle->vfs);
     *out = fh->memvfs_file->len;
+    unlock((memvfs) file_handle->vfs);
     return TCBL_OK;
 }
 
-int memvfs_truncate(vfs_fh vfs_fh, size_t len)
+static int memvfs_truncate(vfs_fh file_handle, size_t len)
 {
-    int rc;
-    memvfs_fh fh = (memvfs_fh) vfs_fh;
+    int rc = TCBL_OK;
+    memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;
+    lock((memvfs) file_handle->vfs);
     if (len > f->len) {
         rc = memvfs_ensure_alloc_len(f, len);
         if (rc) {
-            return rc;
+            goto exit;
         }
         memset(&f->data[f->len], 0, len - f->len);
     }
     f->len = len;
-    return TCBL_OK;
+    exit:
+    unlock((memvfs) file_handle->vfs);
+    return rc;
 }
 
 static void memvfs_free_file_data(memvfs_file f)
@@ -247,6 +288,7 @@ int memvfs_free(vfs vfs)
 {
     memvfs memvfs = (struct memvfs *) vfs;
     memvfs_fh fh = memvfs->file_handles;
+    lock(memvfs);
     while (fh) {
         fh->is_valid = false;
         fh = fh->next;
@@ -261,6 +303,8 @@ int memvfs_free(vfs vfs)
             memvfs_free_file_data(f);
         }
     }
+    // TODO HOW DO WE FREE memvfs itself?
+    unlock(memvfs);
     return TCBL_OK;
 }
 
@@ -286,6 +330,10 @@ int memvfs_allocate(vfs *vfs)
     memvfs->vfs_info = &memvfs_info;
     memvfs->files = NULL;
     memvfs->file_handles = NULL;
+    if (pthread_mutex_init(&memvfs->lock, NULL)) {
+        tcbl_free(NULL, memvfs, sizeof(struct memvfs));
+        return TCBL_ALLOC_FAILURE; // TODO more appropriate error code?
+    }
     *vfs = (struct vfs *) memvfs;
     return TCBL_OK;
 }

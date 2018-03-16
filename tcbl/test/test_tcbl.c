@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <errno.h>
 #include <pthread.h>
+#include <unistd.h>
 
 #define TCBL_TEST_PAGE_SIZE 64
 #define TCBL_TEST_MAX_FH 2
@@ -581,9 +582,13 @@ static void *test_paried_updates_changefn(void* args)
     struct test_page *tp = (struct test_page *) buff_1;
     struct test_page *tp2 = (struct test_page *) buff_2;
 
+    pthread_t self = pthread_self();
+
     // make some changes
     int update_ct = 0;
     for (int i = 0; i < 25; i++) {
+//        usleep(rand_r(&seed) % 100000);
+        printf("thread %d (%lu) at iteration %d\n", id, self, i);
         if (env->has_txn) RC_OK(vfs_txn_begin(fh));
         int cb = rand_r(&seed) % (len_blocks - 1);
         size_t pos1 = cb * block_size;
@@ -600,6 +605,7 @@ static void *test_paried_updates_changefn(void* args)
             if (env->has_txn) RC_OK(vfs_checkpoint(fh));
         }
     }
+    printf("thread %d (%lu) completed\n", id, self);
     return NULL;
 }
 
@@ -631,6 +637,7 @@ static void test_paired_updates(void **state)
     unsigned seed_seq = 123;
     for (int n = 0; n < 10; n++) {
         // verify integrity
+        printf("beginning integrity verfication\n");
         prev_id = 0;
         if (env->has_txn) RC_OK(vfs_txn_begin(fh));
         for (int i = 0; i < len_blocks; i++) {
@@ -639,6 +646,7 @@ static void test_paired_updates(void **state)
             prev_id = tp->id;
         }
         if (env->has_txn) RC_OK(vfs_txn_abort(fh));
+        printf("ended integrity verfication\n");
 
         if (env->num_fh == 1) {
             struct paired_update_args args;
@@ -659,18 +667,160 @@ static void test_paired_updates(void **state)
                 args[i].block_size = block_size;
                 args[i].len_blocks = len_blocks;
                 args[i].checkpoint_interval = checkpoint_interval;
-                args[i].id = 0;
+                args[i].id = i;
                 args[i].seed = seed_seq;
                 seed_seq += 1;
                 pthread_create(&threads[i], NULL, test_paried_updates_changefn, &args[i]);
             }
             for (int i = 0; i < env->num_fh; i++) {
-                pthread_join(threads[i], NULL);
+                int rc = pthread_join(threads[i], NULL);
+                if (rc) {
+                    printf("error joining thread\n");
+                } else {
+                    printf("successfully joined thread %d\n", i);
+                }
             }
         }
     }
 
     RC_OK(env->cleanup(env));
+}
+
+struct fuzz_update_args {
+    vfs_fh fh;
+    size_t block_size;
+    int len_blocks;
+    int checkpoint_interval;
+    int id;
+    unsigned seed;
+};
+
+static void *fuzz_updates_changefn(void* args)
+{
+    struct fuzz_update_args *a = args;
+    size_t block_size = a->block_size;
+    int len_blocks = a->len_blocks;
+    int checkpoint_interval = a->checkpoint_interval;
+    int id = a->id;
+    unsigned seed = a->seed;
+
+    vfs_fh fh = a->fh;
+
+    char buff_1[block_size];
+    char buff_2[block_size];
+    struct test_page *tp = (struct test_page *) buff_1;
+    struct test_page *tp2 = (struct test_page *) buff_2;
+
+    pthread_t self = pthread_self();
+
+    // make some changes
+    int update_ct = 0;
+    for (int i = 0; i < 25; i++) {
+//        usleep(rand_r(&seed) % 100000);
+        printf("thread %d (%lu) at iteration %d\n", id, self, i);
+        RC_OK(vfs_txn_begin(fh));
+        int cb = rand_r(&seed) % (len_blocks - 1);
+        size_t pos1 = cb * block_size;
+        size_t pos2 = (cb + 1) * block_size;
+        vfs_read(fh, buff_1, pos1, block_size);
+        vfs_read(fh, buff_2, pos2, block_size);
+        tp->id = rand_r(&seed);
+        tp2->prev_id = tp->id;
+        vfs_write(fh, buff_1, pos1, block_size);
+        vfs_write(fh, buff_2, pos2, block_size);
+        RC_OK(vfs_txn_commit(fh));
+        update_ct += 1;
+        if (update_ct % checkpoint_interval == 0) {
+            RC_OK(vfs_checkpoint(fh));
+        }
+    }
+    printf("thread %d (%lu) completed\n", id, self);
+    return NULL;
+}
+
+static void fuzz_updates_direct(void **state) {
+    vfs memvfs;
+    tvfs tcbl;
+
+    RC_OK(memvfs_allocate(&memvfs));
+    assert_non_null(memvfs);
+
+    vfs_fh fh;
+    tcbl_allocate(&tcbl, memvfs, TCBL_TEST_PAGE_SIZE);
+    RC_OK(vfs_open((vfs) tcbl, TCBL_TEST_FILENAME, &fh));
+
+    int num_fh = 1;
+
+    // each block must contain a copy of data from
+    // the previous block
+    size_t block_size = TCBL_TEST_PAGE_SIZE;
+    int len_blocks = 10;
+
+    char buff[block_size];
+    struct test_page *tp = (struct test_page *) buff;
+    unsigned int seed = 23823094;
+    size_t data_len = block_size - sizeof(struct test_page);
+    int prev_id = 0;
+    for (int i = 0; i < len_blocks; i++) {
+        tp->id = rand_r(&seed);
+        tp->prev_id = prev_id;
+        prep_data(tp->data, data_len, (uint64_t) rand_r(&seed));
+        RC_OK(vfs_write(fh, buff, i * block_size, block_size));
+        prev_id = tp->id;
+    }
+
+    // make this multithreaded
+    int checkpoint_interval = 13;
+    unsigned seed_seq = 123;
+    for (int n = 0; n < 10; n++) {
+        // verify integrity
+        printf("beginning integrity verfication\n");
+        prev_id = 0;
+        RC_OK(vfs_txn_begin(fh));
+        for (int i = 0; i < len_blocks; i++) {
+            RC_OK(vfs_read(fh, buff, i * block_size, block_size));
+            assert_int_equal(tp->prev_id, prev_id);
+            prev_id = tp->id;
+        }
+        RC_OK(vfs_txn_abort(fh));
+        printf("ended integrity verfication\n");
+
+        if (num_fh == 1) {
+            struct fuzz_update_args args;
+            args.fh = fh;
+            args.block_size = block_size;
+            args.len_blocks = len_blocks;
+            args.checkpoint_interval = checkpoint_interval;
+            args.id = 0;
+            args.seed = seed_seq;
+            seed_seq += 1;
+            fuzz_updates_changefn(&args);
+        } else {
+            // multithreaded execution
+            pthread_t threads[num_fh];
+            struct fuzz_update_args args[num_fh];
+            for (int i = 0; i < num_fh; i++) {
+                args[i].fh = fh;
+                args[i].block_size = block_size;
+                args[i].len_blocks = len_blocks;
+                args[i].checkpoint_interval = checkpoint_interval;
+                args[i].id = i;
+                args[i].seed = seed_seq;
+                seed_seq += 1;
+                pthread_create(&threads[i], NULL, fuzz_updates_changefn, &args[i]);
+            }
+            for (int i = 0; i < num_fh; i++) {
+                int rc = pthread_join(threads[i], NULL);
+                if (rc) {
+                    printf("error joining thread\n");
+                } else {
+                    printf("successfully joined thread %d\n", i);
+                }
+            }
+        }
+    }
+    RC_OK(vfs_free((vfs) tcbl));
+    RC_OK(vfs_free(memvfs));
 }
 
 static void test_tcbl_open_close(void **state)
@@ -819,7 +969,7 @@ static int tcbl_setup_2fh_2vfs(void **state)
     RC_OK(vfs_open((vfs) vfs1, test_filename, &env->fh[0]));
     RC_OK(vfs_open((vfs) vfs2, test_filename, &env->fh[1]));
 
-    env->test_vfs = 0;
+    env->test_vfs = NULL;
     *state = env;
     return 0;
 }
@@ -1608,26 +1758,44 @@ static int prepare_test_dir(const char *test_dir) {
     return TCBL_OK;
 }
 
-static int generic_setup_0fh(void **state)
-{
+static int generic_setup_0fh(void **state) {
     test_env env = *state;
     switch (env->test_mode) {
         case MemVfs:
-            RC_OK(memvfs_allocate((vfs*)&env->base_vfs));
+            assert_int_equal(env->num_test_vfs, 1);
+            RC_OK(memvfs_allocate((vfs *) &env->base_vfs));
             assert_non_null(env->base_vfs);
             env->test_vfs = env->base_vfs;
+            env->all_test_vfs[0] = env->test_vfs;
+            env->all_test_vfs[1] = NULL;
             env->has_txn = false;
             break;
         case TcblVfs:
-            RC_OK(memvfs_allocate((vfs*)&env->base_vfs));
+            // TESTING MODE
+
+            for (int i = 0; i < env->num_test_vfs; i++) {
+                RC_OK(memvfs_allocate((vfs *) &env->base_vfs));
+                assert_non_null(env->base_vfs);
+                RC_OK(tcbl_allocate((tvfs *) &env->all_test_vfs[i], (vfs) env->base_vfs, TCBL_TEST_PAGE_SIZE));
+            }
+            // END TESTING MODE
+            /*
+            RC_OK(memvfs_allocate((vfs *) &env->base_vfs));
             assert_non_null(env->base_vfs);
-            RC_OK(tcbl_allocate((tvfs*) &env->test_vfs, (vfs) env->base_vfs, TCBL_TEST_PAGE_SIZE));
+            for (int i = 0; i < env->num_test_vfs; i++) {
+                RC_OK(tcbl_allocate((tvfs *) &env->all_test_vfs[i], (vfs) env->base_vfs, TCBL_TEST_PAGE_SIZE));
+            }
+            */
+            env->test_vfs = env->all_test_vfs[0];
             env->has_txn = true;
             break;
         case UnixVfs:
+            assert_int_equal(env->num_test_vfs, 1);
             RC_OK(prepare_test_dir(TCBL_UNIX_TEST_DIR));
             RC_OK(unix_vfs_allocate(&env->base_vfs, TCBL_UNIX_TEST_DIR));
             env->test_vfs = env->base_vfs;
+            env->all_test_vfs[0] = env->test_vfs;
+            env->all_test_vfs[1] = NULL;
             env->has_txn = false;
             break;
         default:
@@ -1660,8 +1828,10 @@ static int generic_setup_2fh(void **state)
     }
 
     test_env env = *state;
-    RC_OK(vfs_open((vfs) env->test_vfs, TCBL_TEST_FILENAME, &env->fh[0]));
-    RC_OK(vfs_open((vfs) env->test_vfs, TCBL_TEST_FILENAME, &env->fh[1]));
+    for (int i = 0; i < 2; i++) {
+        RC_OK(vfs_open((vfs) env->all_test_vfs[i % env->num_test_vfs],
+                       TCBL_TEST_FILENAME, &env->fh[i]));
+    }
     env->num_fh = 2;
     return 0;
 }
@@ -1726,7 +1896,10 @@ static int generic_teardown(void **state)
     for (int i = 0; i < env->num_fh; i++) {
         RC_OK(vfs_close(env->fh[i]));
     }
-    RC_OK(vfs_free((vfs) env->test_vfs));
+    assert_ptr_equal(env->test_vfs, env->all_test_vfs[0]);
+    for (int i = 0; i < env->num_test_vfs; i++) {
+        RC_OK(vfs_free((vfs) env->all_test_vfs[i]));
+    }
     return 0;
 }
 
@@ -1736,6 +1909,7 @@ static int generic_pre_group_memvfs(void **state)
     *state = env;
     assert_non_null(env);
     env->test_mode = MemVfs;
+    env->num_test_vfs = 1;
     env->before_change = g_noop;
     env->after_change = g_noop;
     env->cleanup_change = g_noop;
@@ -1749,6 +1923,7 @@ static int generic_pre_group_unixvfs(void **state)
     *state = env;
     assert_non_null(env);
     env->test_mode = UnixVfs;
+    env->num_test_vfs = 1;
     env->before_change = g_noop;
     env->after_change = g_noop;
     env->cleanup_change = g_noop;
@@ -1762,6 +1937,7 @@ static int generic_pre_group_tcbl_txn(void **state)
     *state = env;
     assert_non_null(env);
     env->test_mode = TcblVfs;
+    env->num_test_vfs = 1;
     env->before_change = g_begin_txn_repeatok;
     env->after_change = g_noop;
     env->cleanup_change = g_abort_txn;
@@ -1775,6 +1951,7 @@ static int generic_pre_group_tcbl_commit(void **state)
     *state = env;
     assert_non_null(env);
     env->test_mode = TcblVfs;
+    env->num_test_vfs = 1;
     env->before_change = g_begin_txn;
     env->after_change = g_commit_txn;
     env->cleanup_change = g_noop;
@@ -1788,6 +1965,7 @@ static int generic_pre_group_tcbl_commit_concurrent(void **state)
     *state = env;
     assert_non_null(env);
     env->test_mode = TcblVfs;
+    env->num_test_vfs = 2;
     // TODO create a slow underlying vfs shim
     env->before_change = g_begin_txn;
     env->after_change = g_commit_txn;
@@ -1802,6 +1980,7 @@ static int generic_pre_group_tcbl_autocommit(void **state)
     *state = env;
     assert_non_null(env);
     env->test_mode = TcblVfs;
+    env->num_test_vfs = 1;
     env->before_change = g_noop;
     env->after_change = g_noop;
     env->cleanup_change = g_noop;
@@ -1815,6 +1994,7 @@ static int generic_pre_group_tcbl_checkpoint(void **state)
     *state = env;
     assert_non_null(env);
     env->test_mode = TcblVfs;
+    env->num_test_vfs = 1;
     env->before_change = g_begin_txn;
     env->after_change = g_end_txn_checkpoint;
     env->cleanup_change = g_noop;
@@ -1833,6 +2013,7 @@ int main(void)
 {
     int rc = 0;
     bool stop_on_error = true;
+/*
     const struct CMUnitTest base_vfs_tests[] = {
         cmocka_unit_test_setup_teardown(test_nothing, generic_setup_0fh, generic_teardown),
         cmocka_unit_test_setup_teardown(test_vfs_open, generic_setup_0fh, generic_teardown),
@@ -1915,12 +2096,17 @@ int main(void)
     rc = cmocka_run_group_tests(fuzz_vfs_tests, generic_pre_group_memvfs, generic_post_group);
     printf("\nfuzz tests - committed\n");
     rc = cmocka_run_group_tests(fuzz_vfs_tests, generic_pre_group_tcbl_commit, generic_post_group);
-
+*/
 //    const struct CMUnitTest fuzz_vfs_tests_concurrent[] = {
 //            cmocka_unit_test_setup_teardown(test_paired_updates, generic_setup_2fh, generic_teardown),
 //    };
 //    printf("\nfuzz tests - concurrent\n");
 //    rc = cmocka_run_group_tests(fuzz_vfs_tests_concurrent, generic_pre_group_tcbl_commit_concurrent, generic_post_group);
+
+    const struct CMUnitTest fuzz_direct_tests[] = {
+        cmocka_unit_test(fuzz_updates_direct),
+    };
+    rc = cmocka_run_group_tests(fuzz_direct_tests, NULL, NULL);
 
     return rc;
 }

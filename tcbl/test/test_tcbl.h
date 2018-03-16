@@ -8,6 +8,8 @@ enum TestMode { MemVfs = 1, TcblVfs = 2, UnixVfs = 3 };
 typedef struct test_env {
     enum TestMode test_mode;
     vfs test_vfs;
+    vfs all_test_vfs[2];
+    int num_test_vfs;
     vfs base_vfs;
     int (*before_change)(vfs_fh);
     int (*after_change)(vfs_fh);
