@@ -7,8 +7,10 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <pthread.h>
 
 #define TCBL_TEST_PAGE_SIZE 64
+#define TCBL_TEST_MAX_FH 2
 
 #include "tcbl_vfs.h"
 #include "test_tcbl.h"
@@ -206,7 +208,7 @@ static void test_partial_read(void **state) {
     assert_memory_equal(data_out, data_expected, sz2);
 
     exit:
-    RC_OK(memvfs_free(env->base_vfs));
+    RC_OK(env->cleanup(env));
 }
 
 static void test_tcbl_underlying_fidelity(void **state)
@@ -266,7 +268,7 @@ static void test_write_gap(void **state)
     RC_OK(vfs_read(fh, data_out, 0, expected_size));
     assert_memory_equal(data_out, data_expected, expected_size);
 
-    RC_OK(memvfs_free(env->base_vfs));
+    RC_OK(env->cleanup(env));
 }
 
 static void test_nothing(void **state)
@@ -547,26 +549,72 @@ static void test_truncate(void **state)
     RC_OK(env->cleanup(env));
 }
 
+struct test_page {
+    int id;
+    int prev_id;
+    char data[0];
+};
+
+struct paired_update_args {
+    test_env env;
+    size_t block_size;
+    int len_blocks;
+    int checkpoint_interval;
+    int id;
+    unsigned seed;
+};
+
+static void *test_paried_updates_changefn(void* args)
+{
+    struct paired_update_args *a = args;
+    test_env env = a->env;
+    size_t block_size = a->block_size;
+    int len_blocks = a->len_blocks;
+    int checkpoint_interval = a->checkpoint_interval;
+    int id = a->id;
+    unsigned seed = a->seed;
+
+    vfs_fh fh = env->fh[id];
+
+    char buff_1[block_size];
+    char buff_2[block_size];
+    struct test_page *tp = (struct test_page *) buff_1;
+    struct test_page *tp2 = (struct test_page *) buff_2;
+
+    // make some changes
+    int update_ct = 0;
+    for (int i = 0; i < 25; i++) {
+        if (env->has_txn) RC_OK(vfs_txn_begin(fh));
+        int cb = rand_r(&seed) % (len_blocks - 1);
+        size_t pos1 = cb * block_size;
+        size_t pos2 = (cb + 1) * block_size;
+        vfs_read(fh, buff_1, pos1, block_size);
+        vfs_read(fh, buff_2, pos2, block_size);
+        tp->id = rand_r(&seed);
+        tp2->prev_id = tp->id;
+        vfs_write(fh, buff_1, pos1, block_size);
+        vfs_write(fh, buff_2, pos2, block_size);
+        if (env->has_txn) RC_OK(vfs_txn_commit(fh));
+        update_ct += 1;
+        if (update_ct % checkpoint_interval == 0) {
+            if (env->has_txn) RC_OK(vfs_checkpoint(fh));
+        }
+    }
+    return NULL;
+}
+
 static void test_paired_updates(void **state)
 {
     test_env env = *state;
     vfs_fh fh = env->fh[0];
-
 
     // each block must contain a copy of data from
     // the previous block
     size_t block_size = TCBL_TEST_PAGE_SIZE;
     int len_blocks = 10;
 
-    char buff_1[block_size];
-    char buff_2[block_size];
-    struct test_page {
-        int id;
-        int prev_id;
-        char data[0];
-    };
-    struct test_page *tp = (struct test_page *) buff_1;
-    struct test_page *tp2 = (struct test_page *) buff_2;
+    char buff[block_size];
+    struct test_page *tp = (struct test_page *) buff;
     unsigned int seed = 23823094;
     size_t data_len = block_size - sizeof(struct test_page);
     int prev_id = 0;
@@ -574,40 +622,50 @@ static void test_paired_updates(void **state)
         tp->id = rand_r(&seed);
         tp->prev_id = prev_id;
         prep_data(tp->data, data_len, (uint64_t) rand_r(&seed));
-        RC_OK(vfs_write(fh, buff_1, i * block_size, block_size));
+        RC_OK(vfs_write(fh, buff, i * block_size, block_size));
         prev_id = tp->id;
     }
 
     // make this multithreaded
     int checkpoint_interval = 13;
-    int update_ct = 0;
+    unsigned seed_seq = 123;
     for (int n = 0; n < 10; n++) {
         // verify integrity
         prev_id = 0;
         if (env->has_txn) RC_OK(vfs_txn_begin(fh));
         for (int i = 0; i < len_blocks; i++) {
-            RC_OK(vfs_read(fh, buff_1, i * block_size, block_size));
+            RC_OK(vfs_read(fh, buff, i * block_size, block_size));
             assert_int_equal(tp->prev_id, prev_id);
             prev_id = tp->id;
         }
         if (env->has_txn) RC_OK(vfs_txn_abort(fh));
 
-        // make some changes
-        for (int i = 0; i < 25; i++) {
-            if (env->has_txn) RC_OK(vfs_txn_begin(fh));
-            int cb = rand_r(&seed) % (len_blocks - 1);
-            size_t pos1 = cb * block_size;
-            size_t pos2 = (cb + 1) * block_size;
-            vfs_read(fh, buff_1, pos1, block_size);
-            vfs_read(fh, buff_2, pos2, block_size);
-            tp->id = rand_r(&seed);
-            tp2->prev_id = tp->id;
-            vfs_write(fh, buff_1, pos1, block_size);
-            vfs_write(fh, buff_2, pos2, block_size);
-            if (env->has_txn) RC_OK(vfs_txn_commit(fh));
-            update_ct += 1;
-            if (update_ct % checkpoint_interval == 0) {
-                if (env->has_txn) RC_OK(vfs_checkpoint(fh));
+        if (env->num_fh == 1) {
+            struct paired_update_args args;
+            args.env = env;
+            args.block_size = block_size;
+            args.len_blocks = len_blocks;
+            args.checkpoint_interval = checkpoint_interval;
+            args.id = 0;
+            args.seed = seed_seq;
+            seed_seq += 1;
+            test_paried_updates_changefn(&args);
+        } else {
+            // multithreaded execution
+            pthread_t threads[env->num_fh];
+            struct paired_update_args args[env->num_fh];
+            for (int i = 0; i < env->num_fh; i++) {
+                args[i].env = env;
+                args[i].block_size = block_size;
+                args[i].len_blocks = len_blocks;
+                args[i].checkpoint_interval = checkpoint_interval;
+                args[i].id = 0;
+                args[i].seed = seed_seq;
+                seed_seq += 1;
+                pthread_create(&threads[i], NULL, test_paried_updates_changefn, &args[i]);
+            }
+            for (int i = 0; i < env->num_fh; i++) {
+                pthread_join(threads[i], NULL);
             }
         }
     }
@@ -1594,6 +1652,20 @@ static int generic_setup_1fh(void **state)
     return 0;
 }
 
+static int generic_setup_2fh(void **state)
+{
+    int rc = generic_setup_0fh(state);
+    if (rc) {
+        return rc;
+    }
+
+    test_env env = *state;
+    RC_OK(vfs_open((vfs) env->test_vfs, TCBL_TEST_FILENAME, &env->fh[0]));
+    RC_OK(vfs_open((vfs) env->test_vfs, TCBL_TEST_FILENAME, &env->fh[1]));
+    env->num_fh = 2;
+    return 0;
+}
+
 static int g_noop(vfs_fh fh) {
     return TCBL_OK;
 }
@@ -1648,23 +1720,19 @@ static int g_cleanup(test_env env)
     return TCBL_OK;
 }
 
-static int generic_teardown_0fh(void **state)
+static int generic_teardown(void **state)
 {
     test_env env = *state;
+    for (int i = 0; i < env->num_fh; i++) {
+        RC_OK(vfs_close(env->fh[i]));
+    }
     RC_OK(vfs_free((vfs) env->test_vfs));
     return 0;
 }
 
-static int generic_teardown_1fh(void **state)
-{
-    test_env env = *state;
-    RC_OK(vfs_close(env->fh[0]));
-    return generic_teardown_0fh(state);
-}
-
 static int generic_pre_group_memvfs(void **state)
 {
-    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + sizeof(vfs_fh));
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + TCBL_TEST_MAX_FH * sizeof(vfs_fh));
     *state = env;
     assert_non_null(env);
     env->test_mode = MemVfs;
@@ -1677,7 +1745,7 @@ static int generic_pre_group_memvfs(void **state)
 
 static int generic_pre_group_unixvfs(void **state)
 {
-    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + sizeof(vfs_fh));
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + TCBL_TEST_MAX_FH * sizeof(vfs_fh));
     *state = env;
     assert_non_null(env);
     env->test_mode = UnixVfs;
@@ -1690,7 +1758,7 @@ static int generic_pre_group_unixvfs(void **state)
 
 static int generic_pre_group_tcbl_txn(void **state)
 {
-    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + sizeof(vfs_fh));
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + TCBL_TEST_MAX_FH * sizeof(vfs_fh));
     *state = env;
     assert_non_null(env);
     env->test_mode = TcblVfs;
@@ -1703,7 +1771,7 @@ static int generic_pre_group_tcbl_txn(void **state)
 
 static int generic_pre_group_tcbl_commit(void **state)
 {
-    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + sizeof(vfs_fh));
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + TCBL_TEST_MAX_FH * sizeof(vfs_fh));
     *state = env;
     assert_non_null(env);
     env->test_mode = TcblVfs;
@@ -1714,9 +1782,23 @@ static int generic_pre_group_tcbl_commit(void **state)
     return 0;
 }
 
+static int generic_pre_group_tcbl_commit_concurrent(void **state)
+{
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + TCBL_TEST_MAX_FH * sizeof(vfs_fh));
+    *state = env;
+    assert_non_null(env);
+    env->test_mode = TcblVfs;
+    // TODO create a slow underlying vfs shim
+    env->before_change = g_begin_txn;
+    env->after_change = g_commit_txn;
+    env->cleanup_change = g_noop;
+    env->cleanup = g_cleanup;
+    return 0;
+}
+
 static int generic_pre_group_tcbl_autocommit(void **state)
 {
-    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + sizeof(vfs_fh));
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + TCBL_TEST_MAX_FH * sizeof(vfs_fh));
     *state = env;
     assert_non_null(env);
     env->test_mode = TcblVfs;
@@ -1729,7 +1811,7 @@ static int generic_pre_group_tcbl_autocommit(void **state)
 
 static int generic_pre_group_tcbl_checkpoint(void **state)
 {
-    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + sizeof(vfs_fh));
+    test_env env = tcbl_malloc(NULL, sizeof(struct test_env) + TCBL_TEST_MAX_FH * sizeof(vfs_fh));
     *state = env;
     assert_non_null(env);
     env->test_mode = TcblVfs;
@@ -1743,7 +1825,7 @@ static int generic_pre_group_tcbl_checkpoint(void **state)
 static int generic_post_group(void **state)
 {
     test_env env = *state;
-    tcbl_free(NULL, env, sizeof(struct test_env) + sizeof(vfs_fh));
+    tcbl_free(NULL, env, sizeof(struct test_env) + TCBL_TEST_MAX_FH * sizeof(vfs_fh));
     return 0;
 }
 
@@ -1752,36 +1834,39 @@ int main(void)
     int rc = 0;
     bool stop_on_error = true;
     const struct CMUnitTest base_vfs_tests[] = {
-        cmocka_unit_test_setup_teardown(test_nothing, generic_setup_0fh, generic_teardown_0fh),
-        cmocka_unit_test_setup_teardown(test_vfs_open, generic_setup_0fh, generic_teardown_0fh),
-        cmocka_unit_test_setup_teardown(test_vfs_exists, generic_setup_0fh, generic_teardown_0fh),
-        cmocka_unit_test_setup_teardown(test_vfs_write_read_multi_fh, generic_setup_0fh, generic_teardown_0fh),
-        cmocka_unit_test_setup_teardown(test_vfs_delete, generic_setup_0fh, generic_teardown_0fh),
-        cmocka_unit_test_setup_teardown(test_vfs_reopen, generic_setup_0fh, generic_teardown_0fh),
-        cmocka_unit_test_setup_teardown(test_vfs_two_files, generic_setup_0fh, generic_teardown_0fh)
+        cmocka_unit_test_setup_teardown(test_nothing, generic_setup_0fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_vfs_open, generic_setup_0fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_vfs_exists, generic_setup_0fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_vfs_write_read_multi_fh, generic_setup_0fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_vfs_delete, generic_setup_0fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_vfs_reopen, generic_setup_0fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_vfs_two_files, generic_setup_0fh, generic_teardown)
     };
-    printf("\nmemvfs tests\n");
+    printf("\nbase memvfs tests\n");
     rc = cmocka_run_group_tests(base_vfs_tests, generic_pre_group_memvfs, generic_post_group);
     if (stop_on_error && rc) return rc;
-    printf("\nunixvfs tests\n");
+    printf("\nbase unixvfs tests\n");
     rc = cmocka_run_group_tests(base_vfs_tests, generic_pre_group_unixvfs, generic_post_group);
     if (stop_on_error && rc) return rc;
 
     const struct CMUnitTest generic_vfs_tests[] = {
-        cmocka_unit_test_setup_teardown(test_nothing, generic_setup_1fh, generic_teardown_1fh),
-        cmocka_unit_test_setup_teardown(test_begin_end, generic_setup_1fh, generic_teardown_1fh),
-        cmocka_unit_test_setup_teardown(test_write_read, generic_setup_1fh, generic_teardown_1fh),
-        cmocka_unit_test_setup_teardown(test_write_read_by_char, generic_setup_1fh, generic_teardown_1fh),
-        cmocka_unit_test_setup_teardown(test_vfs_bounds, generic_setup_1fh, generic_teardown_1fh),
-        cmocka_unit_test_setup_teardown(test_read_unaligned, generic_setup_1fh, generic_teardown_1fh),
-        cmocka_unit_test_setup_teardown(test_write_unaligned, generic_setup_1fh, generic_teardown_1fh),
-        cmocka_unit_test_setup_teardown(test_partial_read, generic_setup_1fh, generic_teardown_1fh),
-        cmocka_unit_test_setup_teardown(test_write_gap, generic_setup_1fh, generic_teardown_1fh),
-        cmocka_unit_test_setup_teardown(test_truncate, generic_setup_1fh, generic_teardown_1fh),
-        cmocka_unit_test_setup_teardown(test_vfs_delete, generic_setup_0fh, generic_teardown_0fh),
+        cmocka_unit_test_setup_teardown(test_nothing, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_begin_end, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_write_read, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_write_read_by_char, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_vfs_bounds, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_read_unaligned, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_write_unaligned, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_partial_read, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_write_gap, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_truncate, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_vfs_delete, generic_setup_0fh, generic_teardown),
     };
     printf("\ngeneric tests - memvfs\n");
     rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_memvfs, generic_post_group);
+    if (stop_on_error && rc) return rc;
+    printf("\ngeneric tests - unixvfs\n");
+    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_unixvfs, generic_post_group);
     if (stop_on_error && rc) return rc;
     printf("\ngeneric tests - uncommitted\n");
     rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_txn, generic_post_group);
@@ -1797,26 +1882,26 @@ int main(void)
     if (stop_on_error && rc) return rc;
 
     const struct CMUnitTest tcbl_tests[] = {
-            cmocka_unit_test(test_tcbl_open_close),
-            cmocka_unit_test(test_tcbl_write_read),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_nothing_commit, tcbl_setup, tcbl_teardown),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_nothing_abort, tcbl_setup, tcbl_teardown),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_write_read_commit, tcbl_setup, tcbl_teardown),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_write_read_abort, tcbl_setup, tcbl_teardown),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_multiblock, tcbl_setup, tcbl_teardown),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_reopen, tcbl_setup, tcbl_teardown),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_overwrite, tcbl_setup, tcbl_teardown),
-            cmocka_unit_test_setup_teardown(test_tcbl_underlying_fidelity, tcbl_setup_1fh, tcbl_teardown_1fh),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_snapshot, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_overwrite, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_conflict, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_snapshot, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_overwrite, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_conflict, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint, tcbl_setup_1fh, tcbl_teardown_1fh),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity, tcbl_setup_1fh, tcbl_teardown_1fh),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
-            cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
+        cmocka_unit_test(test_tcbl_open_close),
+        cmocka_unit_test(test_tcbl_write_read),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_nothing_commit, tcbl_setup, tcbl_teardown),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_nothing_abort, tcbl_setup, tcbl_teardown),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_write_read_commit, tcbl_setup, tcbl_teardown),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_write_read_abort, tcbl_setup, tcbl_teardown),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_multiblock, tcbl_setup, tcbl_teardown),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_reopen, tcbl_setup, tcbl_teardown),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_overwrite, tcbl_setup, tcbl_teardown),
+        cmocka_unit_test_setup_teardown(test_tcbl_underlying_fidelity, tcbl_setup_1fh, tcbl_teardown_1fh),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_snapshot, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_overwrite, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_conflict, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_snapshot, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_overwrite, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_conflict, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint, tcbl_setup_1fh, tcbl_teardown_1fh),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity, tcbl_setup_1fh, tcbl_teardown_1fh),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
     };
     printf("\ntcbl tests\n");
     rc = cmocka_run_group_tests(tcbl_tests, NULL, NULL);
@@ -1824,13 +1909,18 @@ int main(void)
 
     printf("\nfuzz tests\n");
     const struct CMUnitTest fuzz_vfs_tests[] = {
-        cmocka_unit_test_setup_teardown(test_paired_updates, generic_setup_1fh, generic_teardown_1fh),
+        cmocka_unit_test_setup_teardown(test_paired_updates, generic_setup_1fh, generic_teardown),
     };
     printf("\nfuzz tests - memvfs\n");
     rc = cmocka_run_group_tests(fuzz_vfs_tests, generic_pre_group_memvfs, generic_post_group);
-
     printf("\nfuzz tests - committed\n");
     rc = cmocka_run_group_tests(fuzz_vfs_tests, generic_pre_group_tcbl_commit, generic_post_group);
+
+//    const struct CMUnitTest fuzz_vfs_tests_concurrent[] = {
+//            cmocka_unit_test_setup_teardown(test_paired_updates, generic_setup_2fh, generic_teardown),
+//    };
+//    printf("\nfuzz tests - concurrent\n");
+//    rc = cmocka_run_group_tests(fuzz_vfs_tests_concurrent, generic_pre_group_tcbl_commit_concurrent, generic_post_group);
 
     return rc;
 }

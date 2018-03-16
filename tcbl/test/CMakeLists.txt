@@ -1,3 +1,5 @@
+find_package (Threads)
+
 include_directories("${PROJECT_SOURCE_DIR}/src")
 add_executable(test_tcbl
         test_tcbl.h
@@ -13,7 +15,7 @@ add_executable(test_tcbl
         change_fh.h)
 add_dependencies(test_tcbl test_tcbl)
 add_test(test_tcbl test_tcbl)
-target_link_libraries(test_tcbl tcbl cmocka)
+target_link_libraries(test_tcbl tcbl cmocka ${CMAKE_THREAD_LIBS_INIT})
 
 include_directories(BEFORE /Users/johann/d/sqlite-autoconf-3220000)
 add_library(sqlite3tcbl SHARED

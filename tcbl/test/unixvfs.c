@@ -114,6 +114,7 @@ static int unix_vfs_read(vfs_fh vfs_fh, char *data, size_t offset, size_t len)
         ssize_t len_read = pread(fh->fd, pos, remaining, read_offset);
         if (len_read == 0) {
             // end of file
+            memset(pos, 0, remaining);
             return TCBL_BOUNDS_CHECK;
         }
         if (len_read == -1) {
@@ -175,6 +176,7 @@ int unix_vfs_free(vfs vfs)
         if (fh->fd) {
             // TODO check errors?
             close(fh->fd);
+            fh->fd = 0;
         }
         fh = fh->next;
     }
