@@ -767,7 +767,7 @@ static void *fuzz_updates_changefn(void* args)
         if (has_txn) RC_OK(vfs_txn_commit(fh));
         update_ct += 1;
         if (update_ct % checkpoint_interval == 0) {
-            RC_OK(vfs_checkpoint(fh));
+            if (has_txn) RC_OK(vfs_checkpoint(fh));
         }
     }
     printf("thread %d (%lu) completed\n", id, self);
@@ -777,9 +777,9 @@ static void *fuzz_updates_changefn(void* args)
 static void fuzz_updates_direct(void **state) {
 
     // begin configuration
-    bool shared_memvfs = false;
+    bool shared_memvfs = true;
     bool memvfs_only = false;
-    int num_testers = 10;
+    int num_testers = 2;
     // end configuration
 
     int tester_offset = shared_memvfs ? 1 : 0;
@@ -806,13 +806,15 @@ static void fuzz_updates_direct(void **state) {
             assert_non_null(memvfs[i]);
             fh_memvfs = memvfs[i];
         }
+        vfs fh_vfs;
         if (memvfs_only) {
-            tcbl[i] = fh_memvfs;
+            fh_vfs = fh_memvfs;
+            tcbl[i] = NULL;
         } else {
             RC_OK(tcbl_allocate(&tcbl[i], fh_memvfs, TCBL_TEST_PAGE_SIZE));
-            RC_OK(vfs_open((vfs) tcbl[i], TCBL_TEST_FILENAME, &fh[i]));
-
+            fh_vfs = tcbl[i];
         }
+        RC_OK(vfs_open(fh_vfs, TCBL_TEST_FILENAME, &fh[i]));
     }
 
 
@@ -828,7 +830,7 @@ static void fuzz_updates_direct(void **state) {
     // make this multithreaded
     int checkpoint_interval = 13;
     unsigned seed_seq = 123;
-    for (int n = 0; n < 10; n++) {
+    for (int n = 0; n < 100; n++) {
         // verify integrity
         if (verify) {
             for (int i = start_vfh; i < end_vfh; i++) {
@@ -872,9 +874,11 @@ static void fuzz_updates_direct(void **state) {
             }
         }
     }
-    for (int i = 0; i < num_fh; i++) {
-        RC_OK(vfs_free((vfs) tcbl[i]));
 
+    for (int i = 0; i < num_fh; i++) {
+        if (tcbl[i]) {
+            RC_OK(vfs_free((vfs) tcbl[i]));
+        }
     }
     for (int i = 0; i < num_memvfs; i++) {
         RC_OK(vfs_free(memvfs[i]));

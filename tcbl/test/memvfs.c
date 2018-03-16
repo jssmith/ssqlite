@@ -107,16 +107,18 @@ static int memvfs_find_file(memvfs memvfs, const char *name, memvfs_file *file_o
 
 static int memvfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
 {
+    lock((memvfs) vfs);
+    int rc = TCBL_OK;
     memvfs_fh fh = tcbl_malloc(NULL, sizeof(struct memvfs_fh));
     if (!fh) {
-        return TCBL_ALLOC_FAILURE;
+        rc = TCBL_ALLOC_FAILURE;
+        goto exit;
     }
     fh->vfs = (memvfs) vfs;
     fh->is_valid = true;
     *file_handle_out = (vfs_fh) fh;
 
-    lock((memvfs) vfs);
-    int rc = memvfs_find_file((memvfs) vfs, file_name, &fh->memvfs_file);
+    rc = memvfs_find_file((memvfs) vfs, file_name, &fh->memvfs_file);
     if (rc) {
         tcbl_free(NULL, fh, sizeof(struct memvfs_fh));
     } else {
@@ -124,14 +126,15 @@ static int memvfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
         fh->memvfs_file->ref_ct += 1;
     }
     unlock((memvfs) vfs);
+    exit:
     return rc;
 }
 
 static int memvfs_delete(vfs vfs, const char *file_name)
 {
     int rc = TCBL_OK;
-    memvfs_file f;
     lock((memvfs) vfs);
+    memvfs_file f;
     memvfs_find_existing_file((memvfs) vfs, file_name, &f);
     if (!f) {
         rc = TCBL_FILE_NOT_FOUND;
@@ -161,8 +164,8 @@ static int memvfs_exists(vfs vfs, const char* file_name, int *out)
 
 static int memvfs_close(vfs_fh file_handle)
 {
-    memvfs_file f = ((memvfs_fh) file_handle)->memvfs_file;
     lock((memvfs) file_handle->vfs);
+    memvfs_file f = ((memvfs_fh) file_handle)->memvfs_file;
     if (f) {
         f->ref_ct -= 1;
         if (f->ref_ct == 0) {
@@ -177,10 +180,10 @@ static int memvfs_close(vfs_fh file_handle)
 
 static int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len)
 {
+    lock((memvfs) file_handle->vfs);
     memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;
 
-    lock((memvfs) file_handle->vfs);
     if (f->len < offset + len) {
         if (offset < f->len) {
             size_t read_len = f->len - offset;
@@ -220,10 +223,10 @@ static int memvfs_ensure_alloc_len(memvfs_file f, size_t len)
 
 static int memvfs_write(vfs_fh file_handle, const void *buff, size_t offset, size_t len)
 {
+    lock((memvfs) file_handle->vfs);
     memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;
 
-    lock((memvfs) file_handle->vfs);
     memvfs_ensure_alloc_len(f, offset + len);
 
     memcpy(&f->data[offset], buff, len);
@@ -243,8 +246,8 @@ static int memvfs_write(vfs_fh file_handle, const void *buff, size_t offset, siz
 
 static int memvfs_file_size(vfs_fh file_handle, size_t* out)
 {
-    struct memvfs_fh *fh = (struct memvfs_fh *) file_handle;
     lock((memvfs) file_handle->vfs);
+    struct memvfs_fh *fh = (struct memvfs_fh *) file_handle;
     *out = fh->memvfs_file->len;
     unlock((memvfs) file_handle->vfs);
     return TCBL_OK;
@@ -253,9 +256,9 @@ static int memvfs_file_size(vfs_fh file_handle, size_t* out)
 static int memvfs_truncate(vfs_fh file_handle, size_t len)
 {
     int rc = TCBL_OK;
+    lock((memvfs) file_handle->vfs);
     memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;
-    lock((memvfs) file_handle->vfs);
     if (len > f->len) {
         rc = memvfs_ensure_alloc_len(f, len);
         if (rc) {
@@ -287,8 +290,8 @@ static void memvfs_free_file(memvfs_file f)
 int memvfs_free(vfs vfs)
 {
     memvfs memvfs = (struct memvfs *) vfs;
-    memvfs_fh fh = memvfs->file_handles;
     lock(memvfs);
+    memvfs_fh fh = memvfs->file_handles;
     while (fh) {
         fh->is_valid = false;
         fh = fh->next;
@@ -303,8 +306,8 @@ int memvfs_free(vfs vfs)
             memvfs_free_file_data(f);
         }
     }
-    // TODO HOW DO WE FREE memvfs itself?
     unlock(memvfs);
+    pthread_mutex_destroy(&memvfs->lock);
     return TCBL_OK;
 }
 
