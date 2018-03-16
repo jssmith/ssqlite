@@ -13,6 +13,7 @@ typedef struct test_env {
     int (*after_change)(vfs_fh);
     int (*cleanup_change)(vfs_fh);
     int (*cleanup)(struct test_env *);
+    bool has_txn;
     int num_fh;
     vfs_fh fh[0];
 } *test_env;

@@ -112,7 +112,6 @@ static int unix_vfs_read(vfs_fh vfs_fh, char *data, size_t offset, size_t len)
     size_t remaining = len;
     while (remaining > 0) {
         ssize_t len_read = pread(fh->fd, pos, remaining, read_offset);
-//        printf("read len %ld\n", len_read);
         if (len_read == 0) {
             // end of file
             return TCBL_BOUNDS_CHECK;

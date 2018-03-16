@@ -1,5 +1,6 @@
 include_directories("${PROJECT_SOURCE_DIR}/src")
 add_executable(test_tcbl
+        test_tcbl.h
         test_tcbl.c
         memvfs.h
         memvfs.c
