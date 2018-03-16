@@ -143,7 +143,7 @@ int memvfs_close(vfs_fh file_handle)
     return TCBL_OK;
 }
 
-int memvfs_read(vfs_fh file_handle, char *buff, size_t offset, size_t len)
+int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len)
 {
     memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;
@@ -184,7 +184,7 @@ static int memvfs_ensure_alloc_len(memvfs_file f, size_t len)
     return TCBL_OK;
 }
 
-int memvfs_write(vfs_fh file_handle, const char *buff, size_t offset, size_t len)
+int memvfs_write(vfs_fh file_handle, const void *buff, size_t offset, size_t len)
 {
     memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;

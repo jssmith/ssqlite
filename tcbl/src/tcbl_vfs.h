@@ -31,8 +31,8 @@ typedef struct vfs_info {
     int (*x_delete)(vfs, const char* file_name);
     int (*x_exists)(vfs, const char* file_name, int *out);
     int (*x_close)(vfs_fh);
-    int (*x_read)(vfs_fh, char *data, size_t offset, size_t len);
-    int (*x_write)(vfs_fh, const char *data, size_t offset, size_t len);
+    int (*x_read)(vfs_fh, void *data, size_t offset, size_t len);
+    int (*x_write)(vfs_fh, const void *data, size_t offset, size_t len);
     int (*x_file_size)(vfs_fh, size_t* size_out);
     int (*x_truncate)(vfs_fh, size_t len);
     int (*x_free)(vfs);

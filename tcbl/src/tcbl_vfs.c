@@ -229,7 +229,7 @@ static int tcbl_change_log_cmp(tcbl_change_log l1, tcbl_change_log l2) {
     return l1->offset < l2->offset ? -1 : l1->offset == l2->offset ? 0 : 1;
 }
 
-static int tcbl_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
+static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
 {
     int rc;
     tcbl_fh fh = (tcbl_fh) file_handle;
@@ -374,7 +374,7 @@ static int tcbl_truncate(vfs_fh file_handle, size_t len)
     return TCBL_NOT_IMPLEMENTED;
 }
 
-static int tcbl_write(vfs_fh file_handle, const char* data, size_t offset, size_t len)
+static int tcbl_write(vfs_fh file_handle, const void* data, size_t offset, size_t len)
 {
     int rc;
     tcbl_fh fh = (tcbl_fh) file_handle;

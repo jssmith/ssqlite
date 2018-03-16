@@ -103,7 +103,7 @@ static int unix_vfs_close(vfs_fh vfs_fh)
     return TCBL_OK;
 }
 
-static int unix_vfs_read(vfs_fh vfs_fh, char *data, size_t offset, size_t len)
+static int unix_vfs_read(vfs_fh vfs_fh, void *data, size_t offset, size_t len)
 {
     unixvfs_fh fh = (unixvfs_fh) vfs_fh;
 
@@ -127,7 +127,7 @@ static int unix_vfs_read(vfs_fh vfs_fh, char *data, size_t offset, size_t len)
     return TCBL_OK;
 }
 
-static int unix_vfs_write(vfs_fh vfs_fh, const char *data, size_t offset, size_t len)
+static int unix_vfs_write(vfs_fh vfs_fh, const void *data, size_t offset, size_t len)
 {
     unixvfs_fh fh = (unixvfs_fh) vfs_fh;
     const void* pos = data;
