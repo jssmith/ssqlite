@@ -777,7 +777,8 @@ static void *fuzz_updates_changefn(void* args)
 static void fuzz_updates_direct(void **state) {
 
     // begin configuration
-    bool shared_memvfs = true;
+    bool shared_memvfs = false;
+    bool memvfs_only = false;
     int num_testers = 10;
     // end configuration
 
@@ -786,12 +787,12 @@ static void fuzz_updates_direct(void **state) {
 
     int num_memvfs = shared_memvfs ? 1 : num_testers;
     vfs memvfs[num_memvfs];
-    tvfs tcbl[num_fh];
+    vfs tcbl[num_fh];
     vfs_fh fh[num_fh];
     int start_vfh = tester_offset;
     int end_vfh = num_testers;
-    bool has_txn = true;
-    bool verify = true;
+    bool has_txn = !memvfs_only;
+    bool verify = !memvfs_only;
     if (shared_memvfs) {
         RC_OK(memvfs_allocate(&memvfs[0]));
         assert_non_null(memvfs[0]);
@@ -805,9 +806,13 @@ static void fuzz_updates_direct(void **state) {
             assert_non_null(memvfs[i]);
             fh_memvfs = memvfs[i];
         }
+        if (memvfs_only) {
+            tcbl[i] = fh_memvfs;
+        } else {
+            RC_OK(tcbl_allocate(&tcbl[i], fh_memvfs, TCBL_TEST_PAGE_SIZE));
+            RC_OK(vfs_open((vfs) tcbl[i], TCBL_TEST_FILENAME, &fh[i]));
 
-        RC_OK(tcbl_allocate(&tcbl[i], fh_memvfs, TCBL_TEST_PAGE_SIZE));
-        RC_OK(vfs_open((vfs) tcbl[i], TCBL_TEST_FILENAME, &fh[i]));
+        }
     }
 
 
