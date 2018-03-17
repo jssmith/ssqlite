@@ -39,6 +39,7 @@ static inline void panic (char *cause)
 
 #include <buffer.h>
 #include <vector.h>
+#include <stdarg.h>
 
 static int parse_u64(buffer s, u64 *target)
 {
@@ -63,3 +64,4 @@ static status print_u64(buffer d, u64 s)
 
 
 #include <ticks.h>
+void vbprintf(buffer s, buffer fmt, va_list ap);

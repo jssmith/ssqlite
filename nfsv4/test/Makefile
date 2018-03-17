@@ -8,7 +8,7 @@ all: shell
 %.o : ../%.c
 	gcc -g -I. -I.. -std=gnu99 $< -c
 
-SHELLOBJ= shell.o 
+SHELLOBJ= shell.o md5.o
 
 shell: $(NFS4_OBJ) $(SHELLOBJ)
 	cc -g $^ -lm -o shell

@@ -269,7 +269,6 @@ static status read_until(nfs4 c, buffer b, u32 which)
         }
         u32 code = read_beu32(b);
         if (code != 0) return error(NFS4_EINVAL, codestring(nfsstatus, code));
-        eprintf ("read opcode %x\n", op);
         switch (op) {
         case OP_SEQUENCE:
             b->start += NFS4_SESSIONID_SIZE; // 16
@@ -495,9 +494,6 @@ status rpc_connection(nfs4 c)
     return reclaim_complete(c);
 }
 
-#define READ_PROPERTIES (NFS4_PROP_MODE  | NFS4_PROP_UID | NFS4_PROP_GID | NFS4_PROP_SIZE | NFS4_PROP_ACCESS_TIME | NFS4_PROP_MODIFY_TIME)
-
-
 status rpc_readdir(nfs4_dir d, buffer result)
 {
     // use file?
@@ -510,7 +506,7 @@ status rpc_readdir(nfs4_dir d, buffer result)
     push_bytes(r->b, d->verifier, sizeof(d->verifier));
     push_be32(r->b, 512); // entry length is..meh, this is the per entry length ? 512? wth
     push_be32(r->b, result->capacity);
-    push_fattr_mask(r, READ_PROPERTIES);
+    push_fattr_mask(r, STANDARD_PROPERTIES);
     check(transact(r, OP_READDIR, result));
     read_buffer(result, d->verifier, NFS4_VERIFIER_SIZE);
     return NFS4_OK;

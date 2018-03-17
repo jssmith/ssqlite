@@ -439,9 +439,9 @@ status read_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie)
 status parse_filehandle(buffer b, u8 *dest)
 {
     verify_and_adv(b, 0x80); // length
-    return read_buffer(b, dest, NFS4_FHSIZE);    
+    return read_buffer(b, dest, NFS4_FHSIZE);
+    return NFS4_OK;
 }
-
                         
 
 status discard_string(buffer b)

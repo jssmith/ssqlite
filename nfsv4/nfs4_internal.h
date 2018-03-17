@@ -174,6 +174,7 @@ static inline status read_buffer(buffer b, void *dest, u32 len)
     return NFS4_OK;
 }
 
+#define STANDARD_PROPERTIES (NFS4_PROP_MODE  | NFS4_PROP_UID | NFS4_PROP_GID | NFS4_PROP_SIZE | NFS4_PROP_ACCESS_TIME | NFS4_PROP_MODIFY_TIME)
 
 status create_session(nfs4 c);
 status exchange_id(nfs4 c);
@@ -194,3 +195,6 @@ status rpc_readdir(nfs4_dir d, buffer result);
 status read_fattr(buffer b, nfs4_properties p);
 status parse_filehandle(buffer b, u8 *dest);
 status read_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie);
+
+
+

@@ -2,183 +2,324 @@
 #include <runtime.h>
 #include <unistd.h>
 #include <stdio.h>
+#include <md5.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
+// it would be better if commands constructed lazy streams instead of immediates
 
 static buffer cwd;
 
-static boolean generator(buffer b, int len)
+#define ncheck(__c, __code) if ((__code) != NFS4_OK) error(nfs4_error_string(__c));
+
+static void print_int(buffer b, u64 n)
 {
-    u32 seed = 0;
-    boolean was = true; 
-    for (int i = b->start; i < len; i++) {
-        seed = (seed * 1103515245 + 12345) & ((1U << 31) - 1);
-        u8 rand = seed >> 21;
-        u8 *old = b->contents + b->start + i;
-        if (*old != rand) {
-            was = false;
-            *old = rand;
-        }
+    int log = 1;
+    for (; log < n; log *= 10);
+    if (n) log /= 10;
+    for (; log > 0; log /= 10)  {
+        int k = n/log;
+        push_character(b, k + '0');
+        n = n - k*log;
     }
 }
+
     
-static int create(nfs4 c, char *path, vector args)
+void error(char *fmt, ...)
+{
+    buffer b = allocate_buffer(0, 80);
+    va_list ap;
+    buffer f = alloca_wrap_buffer(fmt, strlen(fmt));
+    va_start (ap, fmt);
+    vbprintf(b, f, ap);
+    va_end(ap);
+    write(2, b->contents + b->start, length(b));
+    exit(-1);
+}
+
+// could actually support multiple servers
+char *server;
+
+buffer dispatch(nfs4 c, vector n);
+
+// destructively turn b->contents into a C string
+char *terminate(buffer b)
+{
+    push_character(b, 0);
+    return(b->contents);
+}
+
+buffer pop_path(vector v)
+{
+    buffer n = vector_pop(v);
+    if (n == 0) error("command requires integer argument");
+    return n;
+}
+
+u64 pop_integer_argument(vector v)
+{
+    buffer n = vector_pop(v);
+    if (n == 0) error("command requires pathname argument");
+    u64 result = 0;
+    foreach_character(i, n) result = (result * 10) + (i - '0');
+    return result;
+}
+
+char *relative_path(vector v)
+{
+    return terminate(pop_path(v));
+}
+
+static buffer compare(nfs4 c, vector args)
+{
+    buffer a = dispatch(c, args);
+    buffer b = dispatch(c, args);
+    if ((length(a) != length(b)) ||
+        (!memcpy(a->contents, b->contents, length(a))))
+        error("buffer mismatch");
+    return a;
+}
+
+// optional seed
+static buffer generate(nfs4 v, vector args)
+{
+    u32 seed = 0;
+    u64 len = pop_integer_argument(args);
+    buffer result = allocate_buffer(0, len);
+    
+    for (int i = 0; i < len; i++) {
+        seed = (seed * 1103515245 + 12345) & ((1U << 31) - 1);
+        u8 rand = seed >> 21;
+        *(u8 *)(result->contents + result->start + i) = rand;
+    }
+    result->end = len;
+    return result;
+}
+    
+static buffer create(nfs4 c, vector args)
 {
     // parse optionl mode arguments
     nfs4_file f;
     struct nfs4_properties p;
     p.mask = NFS4_PROP_MODE;
     p.mode = 0666;
-    int st = nfs4_open(c, path, NFS4_CREAT, &p, &f);
+    ncheck(c, nfs4_open(c, relative_path(args), NFS4_CREAT, &p, &f));
     nfs4_close(f);
-    return st;
+    return 0;
 }
 
-static int deletec(nfs4 c, char *path, vector args)
+static buffer delete(nfs4 c, vector args)
 {
-    return nfs4_unlink(c, path);
+    ncheck(c, nfs4_unlink(c, relative_path(args)));
+    return 0;
 }
 
-static int readc(nfs4 c, char *path, vector args)
+static buffer read_command(nfs4 c, vector args)
 {
-    u64 length; 
     nfs4_file f;
     struct nfs4_properties n;
-    int s = nfs4_open(c, path, NFS4_RDONLY, 0, &f);
-    if (s) return s;
-    s = nfs4_stat(c, path, &n);
-    if (s) return s;
-    buffer b = allocate_buffer(0, length);
-    s = nfs4_pread(f, b->contents, 0, length);
-    write(1, b->contents, length);
-    return s;
+    ncheck(c, nfs4_open(c, relative_path(args), NFS4_RDONLY, 0, &f));
+    ncheck(c, nfs4_fstat(f, &n));
+    buffer b = allocate_buffer(0, n.size);
+    ncheck(c, nfs4_pread(f, b->contents, 0, n.size));
+    b->end  = n.size;
+    return b;
 }
 
-static int writec(nfs4 c, char *path, vector args)
+static buffer set_mode(nfs4 c, vector args)
 {
-    nfs4_file f;
-    int st = nfs4_open(c, path, NFS4_CREAT | NFS4_WRONLY, 0, &f);
-    if (st) {
-        buffer c = vector_pop(args);
-        st = nfs4_pwrite(f, c->contents + c->start, 0, length(c));
-        nfs4_close(f);
-    }
-    return st;
 }
 
-static int readd(nfs4 c, char *path, vector args)
+static buffer set_owner(nfs4 c, vector args)
 {
-    u64 length; 
-    nfs4_file f;
-    parse_u64(vector_pop(args), &length);
-    buffer b = allocate_buffer(0, length);
-    int s = nfs4_open(c, path, NFS4_RDONLY, 0, &f);
-    if (s) return s;
-    s = nfs4_pread(f, b->contents, 0, length);
-    // check contents
-    return s;
 }
 
+static buffer md5_command(nfs4 c, vector args)
+{
+    MD5_CTX ctx;
+    buffer out = allocate_buffer(0, MD5_LENGTH);
+    buffer b = dispatch(c, args);
+    MD5_Init(&ctx)    ;
+    MD5_Update(&ctx, b->contents+b->start, length(b));
+    MD5_Final(out->contents, &ctx);
+    out->end = MD5_LENGTH;
+    return out;
+}
 
-static int writed(nfs4 c, char *path, vector args)
+static buffer write_command(nfs4 c, vector args)
 {
     nfs4_file f;
     struct nfs4_properties p;
     p.mask = NFS4_PROP_MODE;
     p.mode = 0666;
-    int s = nfs4_open(c, path, NFS4_WRONLY | NFS4_CREAT, &p, &f);
-    if (s) return s;
-    u64 length;
-    s = parse_u64(vector_pop(args), &length);
-    if (s) return s;    
-    buffer b = allocate_buffer(0, length);
-    generator(b, length);
-    b->end = length;
-    s = nfs4_pwrite(f, b->contents, 0, length);
-    if (s) return s;    
+    ncheck(c, nfs4_open(c, relative_path(args), NFS4_CREAT | NFS4_WRONLY, &p, &f));
+    // latent
+    buffer body = dispatch(c, args);
+    ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, length(body)));
     nfs4_close(f);
-    return s;
+    return body;
+}
+
+static buffer conn(nfs4 c, vector args)
+{
+    // we can support a set if its interesting
+    static nfs4 c2 = NULL;
+    if (c2 == NULL) {
+        ncheck(c2, nfs4_create(server, &c2));
+    }
+    dispatch(c2, args);
+}
+
+static status format_mode(buffer b, nfs4_properties p)
+{
+    push_character(b, (p->type == NF4DIR)?'d':'-');
+    for (int i = 8; i >= 0; i--) {
+        char m[] ="xwr";
+        if ((1<<i) & p->mode){
+            push_character(b, m[i%3]);
+        } else {
+            push_character(b,'-');
+        }
+    }
 }
 
 
-static int lsc(nfs4 c, char *path, vector args)
+static buffer ls(nfs4 c, vector args)
 {
     vector v = allocate_vector(0, 10);
     nfs4_dir d;
-    int s = nfs4_opendir(c, path, &d);
-    if (s) return s;
+    ncheck(c, nfs4_opendir(c, relative_path(args), &d));
     struct nfs4_properties k;
+    buffer line = allocate_buffer(0, 100);
+    int s = 0;
     while (!s) {
         s = nfs4_readdir(d, &k);
         if (!s) {
-            printf ("%s %lld\n", k.name, k.size);
+            line->start = line->end = 0;
+            format_mode(line, &k);
+            push_character(line, ' ');
+            print_int(line, k.size);
+            push_character(line, ' ');
+            push_bytes(line, k.name, strlen(k.name));
+            push_character(line, '\n');
+            write(1, line->contents + line->start, length(line));
         }
     }
     nfs4_closedir(d);
-    if (s != NFS4_ENOENT) return s;
+    if (s != NFS4_ENOENT) error("mkdir error: %s\n", nfs4_error_string(c));
     return NFS4_OK;
 }
 
-static int mkdirc(nfs4 c, char *path, vector args)
+static buffer mkdir_command (nfs4 c, vector args)
 {
     struct nfs4_properties p;
     p.mask = 0;
-    // default and null
-    return nfs4_mkdir(c, path, &p);
+    // merge properties default and null
+    ncheck(c, nfs4_mkdir(c, relative_path(args), &p));    
+    return allocate_buffer("", 0);
 }
 
-
-static int help(nfs4 c, char *path, vector args);
-
-static status format_mode(nfs4_mode_t x, buffer b)
+static buffer local_write(nfs4 c, vector args)
 {
-    for (int i = 8; i >= 0; i--) {
-        char m[] ="rwx";
-        if ((1<<i) & x)  push_character(b, m[i%3]);
-        //        else push_char(b,'-');
+    char *path = terminate(pop_path(args));
+    buffer b = dispatch(c, args);
+    int fd = open(path, O_CREAT|O_WRONLY|O_TRUNC, 0666);
+    if (fd < 0) error("couldn't open local %s for writing", path);
+    if (write(fd, b->contents, length(b) != length(b))){
+        error("failed write local %s", path);
     }
+    return NFS4_OK;
 }
 
-// directories
-static struct {char *name; int (*f)(nfs4, char*, vector); char *desc;} commands[] = {
-    {"create", create, ""},
-    {"writed", writed, ""},
-    {"readd", readd, ""},
-    {"write", writec, ""},
-    {"read", readc, ""},    
-    {"delete", deletec, ""},    
-    {"ls", lsc, ""},
-    {"mkdir", mkdirc, ""},
+static buffer local_read(nfs4 c, vector args)
+{
+    struct stat st;
+    char *x = terminate(pop_path(args));
+    int fd  = open(x, NFS4_RDONLY);
+    if (fd < 0) error("couldn't open local %s for readingx", x);    
+    fstat(fd, &st);
+    // reference counts
+    buffer b = allocate_buffer(b, st.st_size);
+    if (read(fd, b->contents, st.st_size) != st.st_size) {
+        error("failed read local %s", x);
+    }
+    b->end = st.st_size;
+}
+
+static buffer lock(nfs4 c, vector args)
+{
+    return allocate_buffer(0, 0);
+}
+
+static buffer unlock(nfs4 c, vector args)
+{
+    return allocate_buffer(0, 0);
+}
+
+static buffer help(nfs4 c, vector args);
+
+
+static struct {char *name; buffer (*f)(nfs4, vector); char *desc;} commands[] = {
+    {"create", create, "create an empty file"},
+    {"write", write_command, ""},
+    {"read", read_command, ""},
+    {"lwrite", local_write, ""},
+    {"lread", local_read, ""},    
+    {"md5", md5_command, ""},
+    {"rm", delete, ""},
+    {"generate", generate, ""},        
+    {"ls", ls, ""},
+    {"chmod", set_mode, ""},
+    {"chown", set_owner, ""},
+    {"conn", conn, ""},
+    {"compare", compare, ""},    
+    {"lock", lock, ""},
+    {"unlock", unlock, ""},                        
+    {"mkdir", mkdir_command, ""},
     {"?", help, "help"},
     {"help", help, "help"},    
     {"", 0}
 };
 
 
-static int help(nfs4 c, char *path, vector args)
+static buffer help(nfs4 c, vector args)
 {
     for (int i = 0; commands[i].name[0] ; i++) {
         if (commands[i].f != help)
             printf ("%s\n", commands[i].name);
     }
+    return 0;
 }
 
+buffer dispatch(nfs4 c, vector n)
+{
+    int i;
+    buffer command = vector_pop(n);
+    if (command) 
+        for (i = 0; commands[i].name[0] ; i++ )
+            if (strncmp(commands[i].name, command->contents, length(command)) == 0) 
+                return commands[i].f(c, n);
+
+    error("no such command %b\n", command);
+}
+
+             
 int main(int argc, char **argv)
 {
     nfs4 c;
     int s;
 
     if (argc == 1) {
-        char *server = getenv("NFS4_SERVER");
-        if (server) {
-            s = nfs4_create(server, &c);
-        } else {
-            char error[] ="must pass server as first argument or set NFS4_SERVER";
-            write (1, error, sizeof(error)-1);
-            exit(-1);
+        if (!(server = getenv("NFS4_SERVER"))) {
+            error("must pass server as first argument or set NFS4_SERVER");
         }
     } else {
-        s = nfs4_create(argv[1], &c);
+        server = argv[1];
     }
+
+    ncheck(c, nfs4_create(server, &c));
     buffer z = allocate_buffer(0, 100);
 
     if (s) {
@@ -199,36 +340,14 @@ int main(int argc, char **argv)
             if (length(z)){
                 vector v = allocate_vector(0, 10);
                 split(v, 0, z, ' ');
-                buffer command = vector_pop(v);
-                char *path;
-                vector fn = 0;
-                if (vector_length(v)) {
-                    buffer p = vector_pop(v);
-                    push_character(p, 0);
-                    path = p->contents;
-                }
-                
-                int i;
-                for (i = 0; commands[i].name[0] ; i++ ){
-                    if (strncmp(commands[i].name, command->contents, length(command)) == 0) {
-                        ticks start = ktime();
-                        int s = commands[i].f(c, path, v);
-                        if (s) {
-                            printf("error: %s\n", nfs4_error_string(c));
-                        } else {
-                            ticks total = ktime()- start;
-                            buffer b = allocate_buffer(0, 100);
-                            print_ticks(b, total);
-                            push_character(b, 0);
-                            printf ("%s\n", (char *)b->contents);
-                        }
-                        break;
-                    }
-                }
-                if (!commands[i].name[0]) {
-                    push_character(command, 0);
-                    printf ("no shell command %s\n", (char *)command->contents);
-                }
+                ticks start = ktime();
+                dispatch(c, v);
+                ticks total = ktime()- start;
+                // format with time
+                buffer b = allocate_buffer(0, 100);
+                print_ticks(b, total);
+                push_character(b, 0);
+                printf ("%s\n", (char *)b->contents);
                 z->start = z->end = 0;
                 write(1, "> ", 2);                
             }

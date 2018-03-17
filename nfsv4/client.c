@@ -69,13 +69,28 @@ int nfs4_stat(nfs4 c, char *path, nfs4_properties dest)
     push_op(r, OP_GETATTR);    
     buffer res = c->reverse;    
     st = transact(r, OP_GETATTR, res);
-    if (nfs4_is_error(st)) {
-        st = read_fattr(res, dest);
-    }
+    if (!nfs4_is_error(st)) st = read_fattr(res, dest);
     deallocate_rpc(r);    
     api_check(c, st);
     return NFS4_OK;
 }
+
+int nfs4_fstat(nfs4_file f, nfs4_properties dest)
+{
+    status st = NFS4_OK;
+    rpc r = allocate_rpc(f->c, r->c->forward);
+    push_sequence(r);
+    push_op(r, OP_PUTFH);
+    push_string(r->b, f->filehandle, NFS4_FHSIZE);    
+    push_op(r, OP_GETATTR);
+    push_fattr_mask(r, STANDARD_PROPERTIES);
+    buffer res = f->c->reverse;    
+    api_check(f->c, transact(r, OP_GETATTR, res));
+    if (!nfs4_is_error(st)) st = read_fattr(res, dest);
+    deallocate_rpc(r);    
+    api_check(f->c, st);
+    return NFS4_OK;
+}   
 
 int nfs4_unlink(nfs4 c, char *path)
 {

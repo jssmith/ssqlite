@@ -126,13 +126,12 @@ typedef struct nfs4_dir *nfs4_dir;
 int nfs4_opendir(nfs4, char *path, nfs4_dir *);
 int nfs4_readdir(nfs4_dir, nfs4_properties d);
 int nfs4_closedir(nfs4_dir);
-    
-// special length for entire file?
+
+#define NFS4_ENTIRE_FILE (-1ull)
+
+// upgrade?
 int lock_range(nfs4_file f, int locktype, bytes offset, bytes length);
 int unlock_range(nfs4_file f, int locktype, bytes offset, bytes length);
-int nfs4_setid(char *uid, char *gid);
-
-
 
 #ifndef eprintf
 #define eprintf(format, ...) fprintf (stdout, format, ## __VA_ARGS__); fflush(stdout)
