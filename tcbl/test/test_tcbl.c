@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <signal.h>
 
 #define TCBL_TEST_PAGE_SIZE 64
 #define TCBL_TEST_MAX_FH 2
@@ -23,6 +24,8 @@
 #define TCBL_UNIX_TEST_DIR "/tmp/test-tcbl"
 
 #define RC_OK(__x) assert_int_equal(__x, TCBL_OK)
+#define RC_OK_E(__x) { rc = __x; if (rc != TCBL_OK) goto exit; }
+#define RC_OK_R(__x) { rc = __x; if (rc != TCBL_OK) { raise(SIGINT); goto exit; } }
 #define RC_NOT_OK(__x) assert_int_not_equal(__x, TCBL_OK)
 #define RC_EQ(__x, __erc) assert_int_equal(__x, __erc)
 
@@ -693,7 +696,9 @@ struct fuzz_update_args {
     int checkpoint_interval;
     int id;
     bool has_txn;
+    bool ignore_checkpoint_failure;
     unsigned seed;
+    int rc;
 };
 
 static int fuzz_updates_initialize(vfs_fh fh, size_t block_size, int len_blocks)
@@ -739,6 +744,7 @@ static void *fuzz_updates_changefn(void* args)
     int id = a->id;
     unsigned seed = a->seed;
     bool has_txn = a->has_txn;
+    int rc;
 
     vfs_fh fh = a->fh;
 
@@ -753,24 +759,49 @@ static void *fuzz_updates_changefn(void* args)
     int update_ct = 0;
     for (int i = 0; i < 25; i++) {
 //        usleep(rand_r(&seed) % 100000);
-        printf("thread %d (%lu) at iteration %d\n", id, self, i);
-        if (has_txn) RC_OK(vfs_txn_begin(fh));
+//        printf("thread %d (%lu) at iteration %d\n", id, self, i);
+        if (has_txn) RC_OK_R(vfs_txn_begin(fh));
         int cb = rand_r(&seed) % (len_blocks - 1);
         size_t pos1 = cb * block_size;
         size_t pos2 = (cb + 1) * block_size;
-        vfs_read(fh, buff_1, pos1, block_size);
-        vfs_read(fh, buff_2, pos2, block_size);
+        RC_OK_R(vfs_read(fh, buff_1, pos1, block_size));
+        RC_OK_R(vfs_read(fh, buff_2, pos2, block_size));
         tp->id = rand_r(&seed);
         tp2->prev_id = tp->id;
-        vfs_write(fh, buff_1, pos1, block_size);
-        vfs_write(fh, buff_2, pos2, block_size);
-        if (has_txn) RC_OK(vfs_txn_commit(fh));
+        int retries = 10;
+        while (retries > 0) {
+            RC_OK_R(vfs_write(fh, buff_1, pos1, block_size));
+            RC_OK_R(vfs_write(fh, buff_2, pos2, block_size));
+            if (has_txn) {
+                rc = vfs_txn_commit(fh);
+                if (!rc) {
+                    break;
+                } else {
+                    if (rc == TCBL_CONFLICT_ABORT) {
+                        RC_OK_R(vfs_txn_begin(fh));
+                        retries -= 1;
+                    }
+                }
+            }
+        }
+        if (retries == 0) {
+            printf("failed to execute txn\n");
+        }
+//        if (has_txn) RC_OK_R(vfs_txn_abort(fh));
         update_ct += 1;
         if (update_ct % checkpoint_interval == 0) {
-            if (has_txn) RC_OK(vfs_checkpoint(fh));
+            if (has_txn) {
+                if (a->ignore_checkpoint_failure) {
+                    vfs_checkpoint(fh);
+                } else {
+                    RC_OK_E(vfs_checkpoint(fh));
+                }
+            }
         }
     }
-    printf("thread %d (%lu) completed\n", id, self);
+//    printf("thread %d (%lu) completed\n", id, self);
+    exit:
+    a->rc = rc;
     return NULL;
 }
 
@@ -779,7 +810,8 @@ static void fuzz_updates_direct(void **state) {
     // begin configuration
     bool shared_memvfs = true;
     bool memvfs_only = false;
-    int num_testers = 2;
+    bool ignore_checkpoint_failure = true;
+    int num_testers = 20;
     // end configuration
 
     int tester_offset = shared_memvfs ? 1 : 0;
@@ -858,6 +890,7 @@ static void fuzz_updates_direct(void **state) {
                 args[i].block_size = block_size;
                 args[i].len_blocks = len_blocks;
                 args[i].checkpoint_interval = checkpoint_interval;
+                args[i].ignore_checkpoint_failure = ignore_checkpoint_failure;
                 args[i].id = i;
                 args[i].seed = seed_seq;
                 args[i].has_txn = has_txn;
@@ -867,9 +900,10 @@ static void fuzz_updates_direct(void **state) {
             for (int i = 0; i < num_testers; i++) {
                 int rc = pthread_join(threads[i], NULL);
                 if (rc) {
-                    printf("error joining thread\n");
+//                    printf("error joining thread\n");
                 } else {
-                    printf("successfully joined thread %d\n", i);
+                    RC_OK(args[i].rc);
+//                    printf("successfully joined thread %d\n", i);
                 }
             }
         }
@@ -2071,6 +2105,66 @@ static int generic_post_group(void **state)
     return 0;
 }
 
+typedef struct tlog_test_env {
+    vfs memvfs;
+    tlog log;
+    int (*cleanup)(struct tlog_test_env*);
+} *tlog_test_env;
+
+static void test_tlog_do_nothing(void **state)
+{
+    tlog_test_env env = *state;
+    // Let the text fixture open and close the log. Do nothing here.
+    env->cleanup(env);
+}
+
+static void test_tlog_append_read(void **state)
+{
+    tlog_test_env env = *state;
+    tlog log = env->log;
+
+    uint64_t entry_ct;
+    RC_OK(tlog_entry_ct(log, &entry_ct));
+    assert_int_equal(entry_ct, 0);
+
+    size_t sz = TCBL_TEST_PAGE_SIZE;
+    char buff[sizeof(change_log_entry) + TCBL_TEST_PAGE_SIZE];
+    change_log_entry e = (change_log_entry) &buff;
+    e->offset = 0;
+    e->newlen = sz;
+    e->next = NULL;
+    prep_data(e->data, sz, 897);
+
+    RC_OK(tlog_append(env->log, e));
+
+    env->cleanup(env);
+}
+
+static int g_log_cleanup(tlog_test_env env)
+{
+    memvfs_free(env->memvfs);
+}
+
+static int tlog_setup(void **state)
+{
+    tlog_test_env env = tcbl_malloc(NULL, sizeof(struct tlog_test_env));
+    assert_non_null(env);
+    RC_OK(memvfs_allocate(&env->memvfs));
+    RC_OK(tlog_open_v1(env->memvfs, TCBL_TEST_FILENAME, TCBL_TEST_PAGE_SIZE, &env->log));
+    env->cleanup = g_log_cleanup;
+    *state = env;
+    return 0;
+}
+
+static int tlog_teardown(void **state)
+{
+    tlog_test_env env = *state;
+    RC_OK(tlog_close(env->log));
+    RC_OK(vfs_free(env->memvfs));
+    tcbl_free(NULL, env, sizeof(struct tlog_test_env));
+    return 0;
+}
+
 int main(void)
 {
     int rc = 0;
@@ -2149,7 +2243,14 @@ int main(void)
     printf("\ntcbl tests\n");
     rc = cmocka_run_group_tests(tcbl_tests, NULL, NULL);
     if (stop_on_error && rc) return rc;
-
+*/
+    const struct CMUnitTest tlog_tests[] = {
+            cmocka_unit_test_setup_teardown(test_tlog_do_nothing, tlog_setup, tlog_teardown),
+            cmocka_unit_test_setup_teardown(test_tlog_append_read, tlog_setup, tlog_teardown),
+//            cmocka_unit_test_setup_teardown(test_tlog_lsn_reads, tlog_setup, tlog_teardown)
+    };
+    rc = cmocka_run_group_tests(tlog_tests, NULL, NULL);
+/*
     printf("\nfuzz tests\n");
     const struct CMUnitTest fuzz_vfs_tests[] = {
         cmocka_unit_test_setup_teardown(test_paired_updates, generic_setup_1fh, generic_teardown),
@@ -2158,17 +2259,16 @@ int main(void)
     rc = cmocka_run_group_tests(fuzz_vfs_tests, generic_pre_group_memvfs, generic_post_group);
     printf("\nfuzz tests - committed\n");
     rc = cmocka_run_group_tests(fuzz_vfs_tests, generic_pre_group_tcbl_commit, generic_post_group);
-*/
-//    const struct CMUnitTest fuzz_vfs_tests_concurrent[] = {
-//            cmocka_unit_test_setup_teardown(test_paired_updates, generic_setup_2fh, generic_teardown),
-//    };
-//    printf("\nfuzz tests - concurrent\n");
-//    rc = cmocka_run_group_tests(fuzz_vfs_tests_concurrent, generic_pre_group_tcbl_commit_concurrent, generic_post_group);
 
-    const struct CMUnitTest fuzz_direct_tests[] = {
-        cmocka_unit_test(fuzz_updates_direct),
+    const struct CMUnitTest fuzz_vfs_tests_concurrent[] = {
+            cmocka_unit_test_setup_teardown(test_paired_updates, generic_setup_2fh, generic_teardown),
     };
-    rc = cmocka_run_group_tests(fuzz_direct_tests, NULL, NULL);
-
+    printf("\nfuzz tests - concurrent\n");
+    rc = cmocka_run_group_tests(fuzz_vfs_tests_concurrent, generic_pre_group_tcbl_commit_concurrent, generic_post_group);
+*/
+//    const struct CMUnitTest fuzz_direct_tests[] = {
+//        cmocka_unit_test(fuzz_updates_direct),
+//    };
+//    rc = cmocka_run_group_tests(fuzz_direct_tests, NULL, NULL);
     return rc;
 }

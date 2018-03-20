@@ -48,21 +48,13 @@ static void print_block(const char* data, size_t len)
 }
 #endif
 
-static inline int lock(memvfs memvfs)
-{
-    // TODO error checking
-    int rc = pthread_mutex_lock(&memvfs->lock);
-//    pthread_t self = pthread_self();
-//    printf("lock %p %lu %d\n", &memvfs->lock, self, rc);
-}
-
-static inline int unlock(memvfs memvfs)
-{
-    // TODO error checking
-//    pthread_t self = pthread_self();
-    int rc = pthread_mutex_unlock(&memvfs->lock);
-//    printf("unlock %p %lu %d\n", &memvfs->lock, self, rc);
-}
+#ifndef TCBL_MEMVFS_NOLOCKING
+#define lock(__memvfs) pthread_mutex_lock(&(__memvfs)->lock)
+#define unlock(__memvfs) pthread_mutex_unlock(&(__memvfs)->lock)
+#else
+#define lock(__memvfs)
+#define unlock(__memvfs)
+#endif
 
 static int file_name_comparator(memvfs_file f1, memvfs_file f2)
 {
@@ -181,6 +173,7 @@ static int memvfs_close(vfs_fh file_handle)
 static int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len)
 {
     lock((memvfs) file_handle->vfs);
+    int rc = TCBL_OK;
     memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;
 
@@ -192,15 +185,17 @@ static int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len
         } else {
             memset(buff, 0, len);
         }
-        return TCBL_BOUNDS_CHECK;
+        rc = TCBL_BOUNDS_CHECK;
+        goto exit;
     }
     memcpy(buff, &f->data[offset], len);
 #ifdef TCBL_MEMVFS_VERBOSE
     printf("memvfs read %s %lx %lx\n", f->name, offset, len);
     print_block(buff, len);
 #endif
+    exit:
     unlock((memvfs) file_handle->vfs);
-    return TCBL_OK;
+    return rc;
 }
 
 static int memvfs_ensure_alloc_len(memvfs_file f, size_t len)
