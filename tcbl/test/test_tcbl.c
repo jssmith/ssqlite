@@ -11,23 +11,14 @@
 #include <unistd.h>
 #include <signal.h>
 
-#define TCBL_TEST_PAGE_SIZE 64
-#define TCBL_TEST_MAX_FH 2
-
+#include "test_runtime.h"
 #include "tcbl_vfs.h"
 #include "test_tcbl.h"
 #include "memvfs.h"
 #include "unixvfs.h"
-#include "runtime.h"
 
 #define TCBL_TEST_FILENAME "/test-file"
 #define TCBL_UNIX_TEST_DIR "/tmp/test-tcbl"
-
-#define RC_OK(__x) assert_int_equal(__x, TCBL_OK)
-#define RC_OK_E(__x) { rc = __x; if (rc != TCBL_OK) goto exit; }
-#define RC_OK_R(__x) { rc = __x; if (rc != TCBL_OK) { raise(SIGINT); goto exit; } }
-#define RC_NOT_OK(__x) assert_int_not_equal(__x, TCBL_OK)
-#define RC_EQ(__x, __erc) assert_int_equal(__x, __erc)
 
 #define verify_length(__fh, __el) { size_t file_size; RC_OK(vfs_file_size(__fh, &file_size)); assert_int_equal(file_size, __el); }
 #define verify_data(__fh, __ed, __offs, __len) { char buff[__len]; RC_OK(vfs_read(__fh, buff, __offs, __len)); assert_memory_equal(buff, __ed, __len); }

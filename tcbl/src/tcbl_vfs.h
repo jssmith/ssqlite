@@ -5,20 +5,6 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TCBL_OK                 0x00
-#define TCBL_NOT_IMPLEMENTED    0x01
-#define TCBL_ALLOC_FAILURE      0x02
-#define TCBL_BAD_ARGUMENT       0x03
-#define TCBL_BOUNDS_CHECK       0x04
-#define TCBL_TXN_ACTIVE         0x05
-#define TCBL_NO_TXN_ACTIVE      0x06
-#define TCBL_INVALID_LOG        0x07
-#define TCBL_CONFLICT_ABORT     0x08
-#define TCBL_LOG_NOT_FOUND      0x09
-#define TCBL_SNAPSHOT_EXPIRED   0x0a
-#define TCBL_FILE_NOT_FOUND     0x0b
-#define TCBL_IO_ERROR           0x0c
-
 
 typedef struct vfs *vfs;
 typedef struct tvfs *tvfs;
@@ -88,6 +74,8 @@ typedef struct tcbl_fh {
 } *tcbl_fh;
 
 struct tlog_ops {
+    int (*x_txn_begin)(tlog);
+    int (*x_txn_commit)(tlog);
     int (*x_delete)(tlog);
     int (*x_close)(tlog);
     int (*x_entry_ct)(tlog, uint64_t *);
@@ -99,6 +87,10 @@ struct tlog_ops {
 };
 
 int tlog_open_v1(vfs, const char *file_name, size_t page_size, tlog *tlog);
+int tlog_txn_begin(tlog log); // xxx might want a read-only flag here
+int tlog_txn_commit(tlog log);
+int tlog_txn_abort(tlog log);
+
 int tlog_delete(tlog log);
 int tlog_close(tlog log);
 int tlog_entry_ct(tlog, uint64_t *log_entry_ct_out);

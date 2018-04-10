@@ -4,6 +4,21 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#define TCBL_OK                 0x00
+#define TCBL_NOT_IMPLEMENTED    0x01
+#define TCBL_ALLOC_FAILURE      0x02
+#define TCBL_BAD_ARGUMENT       0x03
+#define TCBL_BOUNDS_CHECK       0x04
+#define TCBL_TXN_ACTIVE         0x05
+#define TCBL_NO_TXN_ACTIVE      0x06
+#define TCBL_INVALID_LOG        0x07
+#define TCBL_CONFLICT_ABORT     0x08
+#define TCBL_LOG_NOT_FOUND      0x09
+#define TCBL_SNAPSHOT_EXPIRED   0x0a
+#define TCBL_FILE_NOT_FOUND     0x0b
+#define TCBL_IO_ERROR           0x0c
+#define TCBL_INTERNAL_ERROR     0x0d
+
 //#define TCBL_MEMVFS_VERBOSE
 
 //#define TCBL_MEMORY_TESTING

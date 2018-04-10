@@ -64,6 +64,17 @@ int tlog_entry_ct_v1(tlog log, uint64_t *log_entry_ct_out)
     return TCBL_NOT_IMPLEMENTED;
 }
 
+int tlog_begin_v1(tlog log)
+{
+
+}
+
+int tlog_commit_v1(tlog log)
+{
+
+}
+
+
 int tlog_find_block_v1(tlog log, bool *found_block, change_log_entry change_record, uint64_t log_entry_ct, size_t offset)
 {
     /*
@@ -217,6 +228,8 @@ int tlog_open_v1(vfs vfs, const char *file_name, size_t page_size, tlog *tlog)
     }
     log->file_name = file_name; // TODO maybe we should make a copy
     log->ops = (struct tlog_ops) {
+            tlog_begin_v1,
+            tlog_commit_v1,
             tlog_delete_v1,
             tlog_close_v1,
             tlog_entry_ct_v1,
@@ -229,6 +242,15 @@ int tlog_open_v1(vfs vfs, const char *file_name, size_t page_size, tlog *tlog)
     log->page_size = page_size;
     *tlog = log;
     return TCBL_OK;
+}
+
+int tlog_txn_begin(tlog log)
+{
+    return log->ops.x_txn_begin(log);
+}
+int tlog_txn_commit(tlog log)
+{
+    return log->ops.x_txn_commit(log);
 }
 
 int tlog_delete(tlog log)
@@ -246,7 +268,7 @@ int tlog_entry_ct(tlog log, uint64_t *log_entry_ct_out)
     // the entry count comes from the header
     char *log_header;
     vfs_read(log->root_fh, log_header, 0, sizeof(struct tcbl_change_log_header));
-    ((tcbl_change_log_header) log_header)->
+//    ((tcbl_change_log_header) log_header)->
     return log->ops.x_entry_ct(log, log_entry_ct_out);
 }
 

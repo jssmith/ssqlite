@@ -11,11 +11,21 @@ add_executable(test_tcbl
         ../src/sglib.h
         ../src/runtime.h
         ../src/tcbl_vfs.h
+        test_runtime.h
         change_fh.c
-        change_fh.h)
+        change_fh.h test_runtime.h)
 add_dependencies(test_tcbl test_tcbl)
 add_test(test_tcbl test_tcbl)
 target_link_libraries(test_tcbl tcbl cmocka ${CMAKE_THREAD_LIBS_INIT})
+
+add_executable(test_ll_log
+        ../src/ll_log.h
+        ../src/ll_log.c
+        test_runtime.h
+        ../src/runtime.h
+        test_ll_log.c)
+add_test(test_ll_log test_ll_log)
+target_link_libraries(test_ll_log tcbl cmocka)
 
 include_directories(BEFORE /Users/johann/d/sqlite-autoconf-3220000)
 add_library(sqlite3tcbl SHARED
