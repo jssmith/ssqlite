@@ -66,12 +66,12 @@ int tlog_entry_ct_v1(tlog log, uint64_t *log_entry_ct_out)
 
 int tlog_begin_v1(tlog log)
 {
-
+    return TCBL_NOT_IMPLEMENTED;
 }
 
 int tlog_commit_v1(tlog log)
 {
-
+    return TCBL_NOT_IMPLEMENTED;
 }
 
 
@@ -266,8 +266,8 @@ int tlog_close(tlog log)
 int tlog_entry_ct(tlog log, uint64_t *log_entry_ct_out)
 {
     // the entry count comes from the header
-    char *log_header;
-    vfs_read(log->root_fh, log_header, 0, sizeof(struct tcbl_change_log_header));
+//    char *log_header;
+//    vfs_read(log->root_fh, log_header, 0, sizeof(struct tcbl_change_log_header));
 //    ((tcbl_change_log_header) log_header)->
     return log->ops.x_entry_ct(log, log_entry_ct_out);
 }

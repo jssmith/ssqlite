@@ -3,7 +3,7 @@
 #include <sys/param.h>
 #include <sys/types.h>
 #include <pthread.h>
-#include <z3.h>
+//#include <z3.h>
 
 #include "memvfs.h"
 #include "sglib.h"

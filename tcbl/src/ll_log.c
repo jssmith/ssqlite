@@ -3,13 +3,35 @@
 #include "runtime.h"
 #include "ll_log.h"
 
+
+static void print_data(void* data, size_t len)
+{
+    char *d = data;
+    size_t i;
+    for (i = 0; i < len; i++) {
+        if (i > 0) {
+            if (i % 8 == 0) {
+                printf("\n");
+            } else {
+                printf(" ");
+            }
+        }
+        printf("%02x", d[i] & 0xff);
+    }
+    printf("\n");
+}
+
 int tcbl_mem_init(tcbl_mem mem, size_t len)
 {
-    void *data = tcbl_malloc(NULL, len);
-    if (data == NULL) {
-        return TCBL_ALLOC_FAILURE;
+    if (len > 0) {
+        void *data = tcbl_malloc(NULL, len);
+        if (data == NULL) {
+            return TCBL_ALLOC_FAILURE;
+        }
+        mem->data = data;
+    } else {
+        mem->data = NULL;
     }
-    mem->data = data;
     mem->len = len;
     return TCBL_OK;
 }
@@ -17,14 +39,16 @@ int tcbl_mem_init(tcbl_mem mem, size_t len)
 int tcbl_mem_ensure_capacity(tcbl_mem mem, size_t len)
 {
     if (mem->len < len) {
-        size_t newlen = MAX(2 * mem->len, len);
+        size_t newlen = MAX(2 * mem->len, MAX(64, len));
         void *newdata = tcbl_malloc(NULL, newlen);
         if (newdata == NULL) {
             return TCBL_ALLOC_FAILURE;
         }
-        memcpy(newdata, mem->data, mem->len);
-        memset(&newdata[mem->len], 0, newlen - mem->len);
-        tcbl_free(NULL, mem->data, mem->len);
+        if (mem->data) {
+            memcpy(newdata, mem->data, mem->len);
+            tcbl_free(NULL, mem->data, mem->len);
+        }
+        memset(&((char *) newdata)[mem->len], 0, newlen - mem->len);
         mem->data = newdata;
         mem->len = newlen;
     }
@@ -35,7 +59,7 @@ int tcbl_mem_free(tcbl_mem mem)
 {
     if (mem->data) {
         tcbl_free(NULL, mem->data, mem->len);
-        mem->data = 0;
+        mem->data = NULL;
         mem->len = 0;
     }
     return TCBL_OK;
@@ -45,11 +69,11 @@ int tcbl_mem_free(tcbl_mem mem)
 int tcbl_mem_log_init(tcbl_base_mem_log l) {
     l->n_entries = 0;
     int rc;
-    rc = tcbl_mem_init(&l->cum_sizes, 100);
+    rc = tcbl_mem_init(&l->cum_sizes, 10);
     if (rc) {
         return rc;
     }
-    rc = tcbl_mem_init(&l->entries, 1000);
+    rc = tcbl_mem_init(&l->entries, 100);
     if (rc) {
         tcbl_mem_free(&l->cum_sizes);
         return rc;
@@ -71,10 +95,10 @@ static size_t _tcbl_mem_data_size(tcbl_base_mem_log l)
 int tcbl_mem_log_append(tcbl_base_mem_log l, void* data, size_t len)
 {
     size_t pre_size = _tcbl_mem_data_size(l);
-    tcbl_mem_ensure_capacity(&l->cum_sizes, l->n_entries + sizeof(size_t));
+    tcbl_mem_ensure_capacity(&l->cum_sizes, (l->n_entries + 1) * sizeof(size_t));
     tcbl_mem_ensure_capacity(&l->entries, pre_size + len);
+
     ((size_t *)l->cum_sizes.data)[l->n_entries] = pre_size + len;
-    // xx is this legal array indexing?
     memcpy(&((char *)l->entries.data)[pre_size], data, len);
     l->n_entries += 1;
     return TCBL_OK;
@@ -89,7 +113,7 @@ int tcbl_mem_log_length(tcbl_base_mem_log l, size_t *len_out)
 int tcbl_mem_log_concat(tcbl_base_mem_log l1, tcbl_base_mem_log l2)
 {
     int rc;
-    rc = tcbl_mem_ensure_capacity(&l1->cum_sizes, l1->n_entries + l2->n_entries);
+    rc = tcbl_mem_ensure_capacity(&l1->cum_sizes, (l1->n_entries + l2->n_entries) * sizeof(size_t));
     if (rc) return rc;
 
     size_t pre_size_1 = _tcbl_mem_data_size(l1);
@@ -97,11 +121,12 @@ int tcbl_mem_log_concat(tcbl_base_mem_log l1, tcbl_base_mem_log l2)
     rc = tcbl_mem_ensure_capacity(&l1->entries, pre_size_1 + pre_size_2);
     if (rc) return rc;
 
-    size_t *pbegin = &((size_t *) &l1->cum_sizes.data)[l1->cum_sizes.len];
-    size_t *psrc = (size_t *) &l2->cum_sizes.data;
+    size_t *pbegin = &((size_t *) l1->cum_sizes.data)[l1->n_entries];
+    size_t *psrc = l2->cum_sizes.data;
     for (size_t *pdst = pbegin; pdst < &pbegin[l2->n_entries]; pdst++, psrc++) {
         *pdst = *psrc + pre_size_1;
     }
+
     memcpy(&((char *) l1->entries.data)[pre_size_1], l2->entries.data, pre_size_2);
     l1->n_entries += l2->n_entries;
     return TCBL_OK;
@@ -118,7 +143,7 @@ int tcbl_mem_log_get(tcbl_base_mem_log l, size_t index, void** out_data, size_t 
     } else {
         data_offs = ((size_t *) l->cum_sizes.data)[index - 1];
     }
-    *out_data = &l->entries.data[data_offs];
+    *out_data = &((char *) l->entries.data)[data_offs];
     if (out_len != NULL) {
         size_t data_len = ((size_t *) l->cum_sizes.data)[index - 1] - data_offs;
         *out_len = data_len;
@@ -210,7 +235,7 @@ int tcbl_log_append_mem(tcbl_log_h lh, tcbl_log_entry entry)
 {
     tcbl_log_h_mem h = (tcbl_log_h_mem) lh;
     size_t sz = log_entry_size(lh->log, entry);
-    // xxx update position to end
+    // xxx maybe update position to end
     return tcbl_mem_log_append(&h->added_entries, entry, sz);
 }
 

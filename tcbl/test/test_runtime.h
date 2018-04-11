@@ -2,6 +2,8 @@
 #define TCBL_TEST_RUNTIME_H
 
 #include "runtime.h"
+#include <stdarg.h>
+#include <stddef.h>
 #include <setjmp.h>
 #include "cmocka.h"
 
