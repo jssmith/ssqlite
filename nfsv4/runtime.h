@@ -65,3 +65,4 @@ static status print_u64(buffer d, u64 s)
 
 #include <ticks.h>
 void vbprintf(buffer s, buffer fmt, va_list ap);
+buffer aprintf(heap h, char *fmt, ...);

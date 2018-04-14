@@ -1,5 +1,5 @@
 #include <nfs4_internal.h>
-#include <sys/time.h>
+#include <time.h>
 
 #define api_check(__d, __st) \
     if (nfs4_is_error(__st)) {\
@@ -81,7 +81,7 @@ int nfs4_fstat(nfs4_file f, nfs4_properties dest)
     rpc r = allocate_rpc(f->c, r->c->forward);
     push_sequence(r);
     push_op(r, OP_PUTFH);
-    push_string(r->b, f->filehandle, NFS4_FHSIZE);    
+    push_buffer(r->b, f->filehandle);
     push_op(r, OP_GETATTR);
     push_fattr_mask(r, STANDARD_PROPERTIES);
     buffer res = f->c->reverse;    

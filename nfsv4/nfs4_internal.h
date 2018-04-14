@@ -51,7 +51,7 @@ typedef struct  stateid {
 struct nfs4_file {
     nfs4 c;
     char *path;  // should be used for diagnostics only
-    u8 filehandle[NFS4_FHSIZE];
+    buffer filehandle;
     struct stateid latest_sid;
     struct stateid open_sid;
     
@@ -60,8 +60,7 @@ struct nfs4_file {
 #define DIR_FILE_BATCH_SIZE 32
 struct nfs4_dir {
     nfs4 c;
-    // does this need an open reservation?
-    u8 filehandle[NFS4_FHSIZE];    
+    buffer filehandle;
     u64 cookie;
     u8 verifier[NFS4_VERIFIER_SIZE];
     struct nfs4_properties props[DIR_FILE_BATCH_SIZE];
@@ -193,7 +192,7 @@ status push_fattr_mask(rpc r, u64 mask);
 status push_create(rpc r, nfs4_properties p);
 status rpc_readdir(nfs4_dir d, buffer result);
 status read_fattr(buffer b, nfs4_properties p);
-status parse_filehandle(buffer b, u8 *dest);
+status parse_filehandle(buffer b, buffer dest);
 status read_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie);
 
 

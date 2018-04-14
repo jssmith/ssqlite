@@ -295,7 +295,7 @@ rpc file_rpc(nfs4_file f)
     push_sequence(r);
 
     push_op(r, OP_PUTFH);
-    push_string(r->b, f->filehandle, NFS4_FHSIZE);
+    push_buffer(r->b, f->filehandle);
     return (r);
 }
 

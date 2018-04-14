@@ -8,11 +8,26 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-// it would be better if commands constructed lazy streams instead of immediates
-
 static buffer cwd;
 
-#define ncheck(__c, __code) if ((__code) != NFS4_OK) error(nfs4_error_string(__c));
+// have 7 of these in the low bit hack
+#define BUFFER_TAG 1
+#define ERROR_TAG 2
+#define FILE_TAG 3
+#define PATH_TAG 5
+
+
+char *tagnames[6] = {"invalid", "buffer", "error", "file", "path"};
+typedef void *value;
+
+#define tagof(__x) (((u64)__x)&7)
+#define valueof(__x) ((void *)(((u64)__x)&~7)))
+
+#define TAG(__X, __Y) ((void *)((unsigned long)__X | __Y))
+#define CHECK(__X, __Y) (tagof(x) == tag)?x:TAG(aprintf(0, "error"), ERROR_TAG)
+
+
+#define ncheck(__c, __code) if ((__code) != NFS4_OK) return(TAG(nfs4_error_string(__c), ERROR_TAG));
 
 static void print_int(buffer b, u64 n)
 {
@@ -44,6 +59,13 @@ char *server;
 
 buffer dispatch(nfs4 c, vector n);
 
+void *dispatch_tag(nfs4 c, int tag, vector n)
+{
+    void *x = dispatch(c, n);
+    return CHECK(x, tag);
+}
+
+
 // destructively turn b->contents into a C string
 char *terminate(buffer b)
 {
@@ -72,7 +94,7 @@ char *relative_path(vector v)
     return terminate(pop_path(v));
 }
 
-static buffer compare(nfs4 c, vector args)
+static value compare(nfs4 c, vector args)
 {
     buffer a = dispatch(c, args);
     buffer b = dispatch(c, args);
@@ -83,7 +105,7 @@ static buffer compare(nfs4 c, vector args)
 }
 
 // optional seed
-static buffer generate(nfs4 v, vector args)
+static value generate(nfs4 v, vector args)
 {
     u32 seed = 0;
     u64 len = pop_integer_argument(args);
@@ -98,7 +120,7 @@ static buffer generate(nfs4 v, vector args)
     return result;
 }
     
-static buffer create(nfs4 c, vector args)
+static value create(nfs4 c, vector args)
 {
     // parse optionl mode arguments
     nfs4_file f;
@@ -110,17 +132,23 @@ static buffer create(nfs4 c, vector args)
     return 0;
 }
 
-static buffer delete(nfs4 c, vector args)
+static value delete(nfs4 c, vector args)
 {
     ncheck(c, nfs4_unlink(c, relative_path(args)));
     return 0;
 }
 
-static buffer read_command(nfs4 c, vector args)
+static value open_command(nfs4 c, vector args)
 {
     nfs4_file f;
-    struct nfs4_properties n;
     ncheck(c, nfs4_open(c, relative_path(args), NFS4_RDONLY, 0, &f));
+    return TAG(f, FILE_TAG);
+}
+
+static value read_command(nfs4 c, vector args)
+{
+    nfs4_file f = dispatch_tag(c, FILE_TAG, args);
+    struct nfs4_properties n;
     ncheck(c, nfs4_fstat(f, &n));
     buffer b = allocate_buffer(0, n.size);
     ncheck(c, nfs4_pread(f, b->contents, 0, n.size));
@@ -128,15 +156,15 @@ static buffer read_command(nfs4 c, vector args)
     return b;
 }
 
-static buffer set_mode(nfs4 c, vector args)
+static value set_mode(nfs4 c, vector args)
 {
 }
 
-static buffer set_owner(nfs4 c, vector args)
+static value set_owner(nfs4 c, vector args)
 {
 }
 
-static buffer md5_command(nfs4 c, vector args)
+static value md5_command(nfs4 c, vector args)
 {
     MD5_CTX ctx;
     buffer out = allocate_buffer(0, MD5_LENGTH);
@@ -148,7 +176,7 @@ static buffer md5_command(nfs4 c, vector args)
     return out;
 }
 
-static buffer write_command(nfs4 c, vector args)
+static value write_command(nfs4 c, vector args)
 {
     nfs4_file f;
     struct nfs4_properties p;
@@ -162,7 +190,7 @@ static buffer write_command(nfs4 c, vector args)
     return body;
 }
 
-static buffer conn(nfs4 c, vector args)
+static value conn(nfs4 c, vector args)
 {
     // we can support a set if its interesting
     static nfs4 c2 = NULL;
@@ -186,7 +214,7 @@ static status format_mode(buffer b, nfs4_properties p)
 }
 
 
-static buffer ls(nfs4 c, vector args)
+static value ls(nfs4 c, vector args)
 {
     vector v = allocate_vector(0, 10);
     nfs4_dir d;
@@ -212,7 +240,7 @@ static buffer ls(nfs4 c, vector args)
     return NFS4_OK;
 }
 
-static buffer mkdir_command (nfs4 c, vector args)
+static value mkdir_command (nfs4 c, vector args)
 {
     struct nfs4_properties p;
     p.mask = 0;
@@ -221,7 +249,7 @@ static buffer mkdir_command (nfs4 c, vector args)
     return allocate_buffer("", 0);
 }
 
-static buffer local_write(nfs4 c, vector args)
+static value local_write(nfs4 c, vector args)
 {
     char *path = terminate(pop_path(args));
     buffer b = dispatch(c, args);
@@ -233,7 +261,7 @@ static buffer local_write(nfs4 c, vector args)
     return NFS4_OK;
 }
 
-static buffer local_read(nfs4 c, vector args)
+static value local_read(nfs4 c, vector args)
 {
     struct stat st;
     char *x = terminate(pop_path(args));
@@ -248,20 +276,26 @@ static buffer local_read(nfs4 c, vector args)
     b->end = st.st_size;
 }
 
-static buffer lock(nfs4 c, vector args)
+static value lock(nfs4 c, vector args)
 {
-    return allocate_buffer(0, 0);
+    u64 from = pop_integer_argument(args);
+    u64 to = pop_integer_argument(args);
+    nfs4_file f = dispatch_tag(c, FILE_TAG, args);
+    ncheck(c, nfs4_lock_range(f, WRITE, from, to));
 }
 
-static buffer unlock(nfs4 c, vector args)
+static value unlock(nfs4 c, vector args)
 {
-    return allocate_buffer(0, 0);
+    u64 from = pop_integer_argument(args);
+    u64 to = pop_integer_argument(args);
+    nfs4_file f = dispatch_tag(c, FILE_TAG, args);
+    ncheck(c, nfs4_unlock_range(f, WRITE_LT, from, to));
 }
 
-static buffer help(nfs4 c, vector args);
+static value help(nfs4 c, vector args);
 
 
-static struct {char *name; buffer (*f)(nfs4, vector); char *desc;} commands[] = {
+static struct {char *name; value (*f)(nfs4, vector); char *desc;} commands[] = {
     {"create", create, "create an empty file"},
     {"write", write_command, ""},
     {"read", read_command, ""},
@@ -271,6 +305,8 @@ static struct {char *name; buffer (*f)(nfs4, vector); char *desc;} commands[] = 
     {"rm", delete, ""},
     {"generate", generate, ""},        
     {"ls", ls, ""},
+    {"cd", cd, ""},
+    {"open", open_command, ""},        
     {"chmod", set_mode, ""},
     {"chown", set_owner, ""},
     {"conn", conn, ""},
@@ -284,7 +320,7 @@ static struct {char *name; buffer (*f)(nfs4, vector); char *desc;} commands[] = 
 };
 
 
-static buffer help(nfs4 c, vector args)
+static value help(nfs4 c, vector args)
 {
     for (int i = 0; commands[i].name[0] ; i++) {
         if (commands[i].f != help)
@@ -293,7 +329,7 @@ static buffer help(nfs4 c, vector args)
     return 0;
 }
 
-buffer dispatch(nfs4 c, vector n)
+value dispatch(nfs4 c, vector n)
 {
     int i;
     buffer command = vector_pop(n);
