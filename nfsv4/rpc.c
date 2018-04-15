@@ -295,7 +295,7 @@ rpc file_rpc(nfs4_file f)
     push_sequence(r);
 
     push_op(r, OP_PUTFH);
-    push_buffer(r->b, f->filehandle);
+    push_string(r->b, f->filehandle->contents, length(f->filehandle));
     return (r);
 }
 
@@ -500,7 +500,7 @@ status rpc_readdir(nfs4_dir d, buffer result)
     rpc r = allocate_rpc(d->c, d->c->forward);
     push_sequence(r);
     push_op(r, OP_PUTFH);
-    push_string(r->b, d->filehandle, NFS4_FHSIZE);    
+    push_string(r->b, d->filehandle->contents, NFS4_FHSIZE);    
     push_op(r, OP_READDIR);
     push_be64(r->b, d->cookie); 
     push_bytes(r->b, d->verifier, sizeof(d->verifier));

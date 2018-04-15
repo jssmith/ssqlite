@@ -130,8 +130,8 @@ int nfs4_closedir(nfs4_dir);
 #define NFS4_ENTIRE_FILE (-1ull)
 
 // upgrade?
-int lock_range(nfs4_file f, int locktype, bytes offset, bytes length);
-int unlock_range(nfs4_file f, int locktype, bytes offset, bytes length);
+int nfs4_lock_range(nfs4_file f, int locktype, bytes offset, bytes length);
+int nfs4_unlock_range(nfs4_file f, int locktype, bytes offset, bytes length);
 
 #ifndef eprintf
 #define eprintf(format, ...) fprintf (stdout, format, ## __VA_ARGS__); fflush(stdout)

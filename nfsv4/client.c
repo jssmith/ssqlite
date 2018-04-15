@@ -45,7 +45,7 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
         if (!nfs4_is_error(st)) {
             // xxx - checky
             res->start += 8;
-            st = parse_filehandle(res, (char *)&f->filehandle);
+            st = parse_filehandle(res, f->filehandle);
         }
     }
     deallocate_rpc(r);
@@ -81,7 +81,7 @@ int nfs4_fstat(nfs4_file f, nfs4_properties dest)
     rpc r = allocate_rpc(f->c, r->c->forward);
     push_sequence(r);
     push_op(r, OP_PUTFH);
-    push_buffer(r->b, f->filehandle);
+    push_string(r->b, buffer_ref(f->filehandle, 0), length(f->filehandle));
     push_op(r, OP_GETATTR);
     push_fattr_mask(r, STANDARD_PROPERTIES);
     buffer res = f->c->reverse;    

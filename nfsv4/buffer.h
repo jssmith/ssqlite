@@ -30,6 +30,11 @@ static bytes length(buffer b)
     return b->end - b->start;
 }
 
+static inline void *buffer_ref(buffer b, u64 offset)
+{
+    return b->contents + b->start;
+}
+
 static buffer allocate_buffer(heap h, bytes capacity){
     buffer b = allocate(h, sizeof(struct buffer));
     memset(b, 0, sizeof(struct buffer));    
@@ -70,8 +75,8 @@ static inline status push_bytes(buffer b, void *x, int length)
 
 // utf
 #define push_character(__b, __x)\
-    {buffer_extend(__b, 1);                     \
-        *(u8 *)(__b->contents + __b->end++) = __x;}
+    {buffer_extend((__b), 1);                           \
+        *(u8 *)((__b)->contents + (__b)->end++) = __x;}
 
 #define check_push_char(__b, __x)({\
     check(buffer_extend(__b, 1));\
