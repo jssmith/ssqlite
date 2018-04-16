@@ -41,6 +41,7 @@ struct nfs4 {
     buffer hostname;
     vector outstanding; // should be a map
     buffer error_string;
+    buffer root_filehandle;
 };
 
 typedef struct  stateid {
@@ -196,4 +197,16 @@ status parse_filehandle(buffer b, buffer dest);
 status read_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie);
 
 
+static const char charset[] = "-_0123456789"
+    "abcdefghijklmnopqrstuvwxyz"
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+static void fill_random(char* buffer, size_t len)
+{
+    for (int i = 0; i < len; i++) {
+        buffer[i] = charset[rand() % len];
+    }
+}
+
+void push_auth_sys(rpc r);
+status parse_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie);

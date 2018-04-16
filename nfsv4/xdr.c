@@ -52,7 +52,7 @@ void push_create_session(rpc r)
 {
     push_op(r, OP_CREATE_SESSION);
     push_client_id(r);
-    push_be32(r->b, r->c->server_sequence);
+    push_be32(r->b, r->c->server_sequence++);
     push_be32(r->b, CREATE_SESSION4_FLAG_PERSIST);
     push_channel_attrs(r); //forward
     push_channel_attrs(r); //return
@@ -65,6 +65,22 @@ void push_create_session(rpc r)
         if (config_boolean("NFS_TRACE", false)) eprintf ("nfs server downgraded "#__x" from %ld to %ld\n", (u64)__c->__x, (u64)__x); \
         __c->__x = __x;                                                 \
     }
+
+
+
+void push_auth_sys(rpc r)
+{
+    push_be32(r->b, 1);     // enum - AUTH_SYS
+    buffer temp = allocate_buffer(0, 24);
+    push_be32(temp, 0x01063369); // stamp
+    char host[] = "ip-172-31-27-113";
+    push_string(temp, host, sizeof(host)-1); // stamp 
+    push_be32(temp, 1000); // uid // not in the prop space ?
+    push_be32(temp, 1000); // gid
+    push_be32(temp, 0); // gids
+    push_string(r->b, temp->contents, length(temp));
+}
+
 
 status parse_create_session(nfs4 c, buffer b)
 {
@@ -94,11 +110,12 @@ status parse_create_session(nfs4 c, buffer b)
 void push_sequence(rpc r)
 {
     push_op(r, OP_SEQUENCE);
+    printf ("push sequence: %d\n", r->c->sequence);
     push_session_id(r, r->c->session);
     push_be32(r->b, r->c->sequence);
     push_be32(r->b, 0x00000000);  // slotid
     push_be32(r->b, 0x00000000);  // highest slotid
-    push_be32(r->b, 0x00000000);  // sa_cachethis
+    push_be32(r->b, 0x00000001);  // sa_cachethis
     r->c->sequence++;
 }
 
@@ -268,15 +285,16 @@ void push_exchange_id(rpc r)
     // spans multiple invocations of the same logical instance...
     // either expose in create_client or assume we will never
     // try to reclaim locks
-    char co_owner_id[] = "sqlite.ip-172-31-27-113";
-    // change this to something more appropriate
-    char author[] = "kernel.org";
-    char version[] = "Linux 4.4.0-1038-aws.#47-Ubuntu.SMP Thu Sep 28 20:05:35 UTC.2017 x86_64";
+    char co_owner_id[16];
+    // For now we are populating with random data    
+    fill_random(co_owner_id, sizeof(co_owner_id));    
+    char author[] = "edu.berkeley";
+    char version[] = "NFS for Serverless v. 0.1-snapshot";
     push_op(r, OP_EXCHANGE_ID);
 
     // clientowner4
     push_bytes(r->b, r->c->instance_verifier, NFS4_VERIFIER_SIZE);
-    push_string(r->b, co_owner_id, sizeof(co_owner_id) - 1);
+    push_string(r->b, co_owner_id, sizeof(co_owner_id));
 
     push_be32(r->b, 0); // flags
 
@@ -415,31 +433,13 @@ status read_fattr(buffer b, nfs4_properties p)
     return NFS4_OK;
 }
 
-// this is a pretty sad iteration
-status read_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie)
-{
-    if (length(b) == 0) {
-        *more = 1;
-    } else {
-        u32 present = read_beu32(b);
-        if (!present) {
-            *more = 1;
-            boolean eof = read_beu32(b);
-            if (eof) *more = 2;            
-        } else {
-            *cookie = read_beu64(b);
-            check(read_cstring(b, p->name, sizeof(p->name)));
-            read_fattr(b, p);
-            *more = 0;
-        }
-    }
-    return NFS4_OK;
-}
-
 status parse_filehandle(buffer b, buffer dest)
 {
-    verify_and_adv(b, 0x80); // length
-    return read_buffer(b, dest, NFS4_FHSIZE);
+    u32 len = read_beu32(b);
+    if (len > NFS4_FHSIZE) return error(NFS4_PROTOCOL, "filehandle too large");
+    if ((b->capacity - length(dest)) < len) return error(NFS4_PROTOCOL, "filehandle too large");    
+    dest->end += len;
+    read_buffer(b, dest->contents, len);
     return NFS4_OK;
 }
                         
@@ -480,7 +480,13 @@ char *push_initial_path(rpc r, char *path)
 
 void push_resolution(rpc r, char *path)
 {
-    push_op(r, OP_PUTROOTFH);
+    if (config_boolean("NFS_USE_ROOTFH", true)) {
+        push_op(r, OP_PUTROOTFH);
+    } else {
+        push_op(r, OP_PUTFH);
+        push_string(r->b, r->c->root_filehandle->contents, length(r->c->root_filehandle));
+    }
+
     int start = 0;
     if (path[0] == '/') path++;
     int i;
@@ -501,3 +507,17 @@ void push_resolution(rpc r, char *path)
     }
 }
 
+status parse_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie)
+{
+    u32 present = read_beu32(b);
+    if (!present) {
+        boolean eof = read_beu32(b);
+        if (eof) *more = 0;            
+    } else {
+        *cookie = read_beu64(b);
+        check(read_cstring(b, p->name, sizeof(p->name)));
+        read_fattr(b, p);
+        *more = 1;
+    }
+    return NFS4_OK;
+}

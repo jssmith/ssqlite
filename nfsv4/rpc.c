@@ -101,8 +101,13 @@ rpc allocate_rpc(nfs4 c, buffer b)
     push_be32(b, NFS_PROGRAM);
     push_be32(b, 4); //version
     push_be32(b, 1); //proc
-    push_be32(b, 0); //auth
-    push_be32(b, 0); //authbody
+    if (config_boolean("NFS_AUTH_NULL", false)) {
+        push_be32(b, 0); //auth
+        push_be32(b, 0); //authbody
+    } else {
+        push_auth_sys(r);
+    }
+
     push_be32(b, 0); //verf
     push_be32(b, 0); //verf body kernel client passed the auth_sys structure
 
@@ -171,6 +176,7 @@ status parse_rpc(nfs4 c, buffer b, boolean *badsession)
             eprintf("nfs rpc error %s\n", codestring(nfsstatus, nstatus));
 
         if (nstatus == NFS4ERR_BADSESSION) {
+            printf ("Bad session\n");
             *badsession = true;
         }
         return error(NFS4_EINVAL, codestring(nfsstatus, nstatus));
@@ -338,14 +344,33 @@ status exchange_id(nfs4 c)
     return NFS4_OK;
 }
 
-                  
+
+status get_root_fh(nfs4 c)
+{
+    rpc r = allocate_rpc(c, c->reverse);
+    push_sequence(r);
+    push_op(r, OP_PUTROOTFH);
+    push_op(r, OP_GETFH);
+    buffer res = c->reverse;
+    boolean bs2;
+    status st = base_transact(r, OP_GETFH, res, &bs2);
+    if (!nfs4_is_error(st)) {
+        deallocate_rpc(r);
+        return st;
+    }
+    r->c->root_filehandle = allocate_buffer(0, NFS4_FHSIZE);
+    parse_filehandle(res, r->c->root_filehandle);
+    deallocate_rpc(r);
+    if (!nfs4_is_error(st)) return st;
+    return NFS4_OK;
+}
+
 status create_session(nfs4 c)
 {
     rpc r = allocate_rpc(c, c->reverse);
     r->c->sequence = 1;  // 18.36.4 says that a new session starts at 1 implicitly
     r->c->lock_sequence = 1;
     push_create_session(r);
-    r->c->server_sequence++;    
     buffer res = c->reverse;
     status st = transact(r, OP_CREATE_SESSION, res);
     if (st) {
@@ -496,11 +521,10 @@ status rpc_connection(nfs4 c)
 
 status rpc_readdir(nfs4_dir d, buffer result)
 {
-    // use file?
     rpc r = allocate_rpc(d->c, d->c->forward);
     push_sequence(r);
     push_op(r, OP_PUTFH);
-    push_string(r->b, d->filehandle->contents, NFS4_FHSIZE);    
+    push_string(r->b, d->filehandle->contents, length(d->filehandle));
     push_op(r, OP_READDIR);
     push_be64(r->b, d->cookie); 
     push_bytes(r->b, d->verifier, sizeof(d->verifier));
@@ -511,3 +535,5 @@ status rpc_readdir(nfs4_dir d, buffer result)
     read_buffer(result, d->verifier, NFS4_VERIFIER_SIZE);
     return NFS4_OK;
 }
+
+

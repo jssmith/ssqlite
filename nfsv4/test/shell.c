@@ -73,6 +73,7 @@ void error(char *fmt, ...)
     vbprintf(b, f, ap);
     va_end(ap);
     write(2, b->contents + b->start, length(b));
+    write(2, "\n", 1);
     exit(-1);
 }
 
@@ -126,7 +127,7 @@ char *relative_path(client c, vector v)
             push_character(&b, '/');             
             buffer_concat(&b, i);
         }
-    } else  push_character(&b, '/');             
+    } else push_character(&b, '/');             
     if (vector_length(v)) {
         buffer p = pop_path(v);
         // split
@@ -419,14 +420,9 @@ int main(int argc, char **argv)
     }
 
     if (nfs4_create(server, &c->c)) {
-        printf ("server create fail\n");
+        printf ("open client fail\n");
     }
     buffer z = allocate_buffer(0, 100);
-
-    if (s) {
-        printf ("open client failed\n");
-        exit(-1);
-    }
 
     write(1, "> ", 2);
 

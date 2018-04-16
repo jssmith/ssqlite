@@ -694,3 +694,7 @@ enum layouttype4 {
         LAYOUT4_OSD2_OBJECTS    = 0x2,
         LAYOUT4_BLOCK_VOLUME    = 0x3
 };
+
+#define AUTH_NONE 0
+#define AUTH_SYS 1
+

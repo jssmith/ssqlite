@@ -2,10 +2,13 @@
 #include <time.h>
 
 #define api_check(__d, __st) \
-    if (nfs4_is_error(__st)) {\
-        __d->error_string = __st->description;   \
-        return __st->error;                     \
-    }
+    {\
+        status __s = __st;\
+       if (nfs4_is_error(__s)) {\
+           __d->error_string = __s->description;   \
+           return __s->error;                     \
+     }\
+   }
 
 
 char *nfs4_error_string(nfs4 n)
@@ -116,6 +119,7 @@ int nfs4_opendir(nfs4 c, char *path, nfs4_dir *dest)
     buffer res = c->reverse;    
     api_check(c, transact(r, OP_GETFH, res));
     nfs4_dir d = allocate(0, sizeof(struct nfs4_dir));
+    d->filehandle = allocate_buffer(0, NFS4_FHSIZE);
     d->entries = allocate_buffer(c->h, 4096);
     api_check(c, parse_filehandle(res, d->filehandle));
     d->cookie = 0;
@@ -128,14 +132,13 @@ int nfs4_opendir(nfs4 c, char *path, nfs4_dir *dest)
 int nfs4_readdir(nfs4_dir d, nfs4_properties dest)
 {
    int more;
-   while (1) {
-       api_check(d->c, read_dirent(d->entries, dest, &more, &d->cookie));
-       if (more == 0) return NFS4_OK;
-       if (more == 2) return NFS4_ENOENT;
-       if (more == 1) {
-           api_check(d->c, rpc_readdir(d, d->entries));
-       }
+   if (d->complete) return NFS4_ENOENT;
+   if (length(d->entries)  == 0) {
+       api_check(d->c, rpc_readdir(d, d->entries));
    }
+   // more could be in status
+   api_check(d->c, parse_dirent(d->entries, dest, &more, &d->cookie));
+   if (!more) d->complete = true;
 }
 
 int nfs4_closedir(nfs4_dir d)
