@@ -138,3 +138,5 @@ int nfs4_unlock_range(nfs4_file f, int locktype, bytes offset, bytes length);
 #define eprintf(format, ...) fprintf (stdout, format, ## __VA_ARGS__); fflush(stdout)
 #endif
 
+#define NFS4_ID_ANONYMOUS 65534
+int nfs4_change_properties(nfs4 c, char *path, nfs4_properties p);

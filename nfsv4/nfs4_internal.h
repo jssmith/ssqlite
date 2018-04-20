@@ -24,7 +24,7 @@ static inline status error(int code, char* description, ...)
 struct nfs4 {
     int fd;
     heap h;
-    u32 xid;
+    u32 xid; // should be per slot
     u32 address;
     u64 clientid;
     u8 session[NFS4_SESSIONID_SIZE];
@@ -42,6 +42,8 @@ struct nfs4 {
     vector outstanding; // should be a map
     buffer error_string;
     buffer root_filehandle;
+    struct nfs4_properties default_properties;
+    u32 gid, uid;
 };
 
 typedef struct stateid {
@@ -216,6 +218,6 @@ static void fill_random(char* buffer, size_t len)
 
 status parse_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie);
 
-void push_auth_sys(buffer b);
 void push_auth_null(buffer b);
 status base_transact(rpc r, int op, buffer result, boolean *badsession);
+void push_auth_sys(buffer b, u32 uid, u32 gid);

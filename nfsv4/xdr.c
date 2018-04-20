@@ -75,7 +75,7 @@ void push_auth_null(buffer b)
     push_be32(b, 0); // auth null body length
 }
 
-void push_auth_sys(buffer b)
+void push_auth_sys(buffer b, u32 uid, u32 gid)
 {
     char hostname[256];
     gethostname(hostname, sizeof(hostname));
@@ -86,10 +86,9 @@ void push_auth_sys(buffer b)
     // The "stamp" is an arbitrary ID which the caller machine may generate.
     push_be32(b, 0x01063369); 
     push_string(b, hostname, strlen(hostname));
-    push_be32(b, 1000); // uid // not in the prop space ?
-    push_be32(b, 1000); // gid
-    push_be32(b, 1); // auxilliary gid set
-    push_be32(b, 0); // linux client did this (?)
+    push_be32(b, uid); 
+    push_be32(b, gid); 
+    push_be32(b, 0); // linux client sends a set containing zero
     // wrap me
     *(u32 *)(b->contents + b->start + start -4) = htonl(length(b) - start);
 }

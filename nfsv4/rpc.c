@@ -34,7 +34,7 @@ rpc allocate_rpc(nfs4 c, buffer b)
     if (config_boolean("NFS_AUTH_NULL", false)) {
         push_auth_null(r->b);
     } else {
-        push_auth_sys(r->b);
+        push_auth_sys(r->b, c->uid, c->gid);
     }
     push_auth_null(r->b); // verf
 

@@ -146,12 +146,13 @@ static value cd(client c, vector args)
 
 static value compare(client c, vector args)
 {
-    buffer a = dispatch(c, args);
-    buffer b = dispatch(c, args);
+    buffer a = dispatch_tag(c, BUFFER_TAG, args);
+    buffer b = dispatch_tag(c, BUFFER_TAG, args);
     if ((length(a) != length(b)) ||
         (!memcpy(a->contents, b->contents, length(a))))
+        // be able to generate our own errors
         error("buffer mismatch");
-    return a;
+    return 0;
 }
 
 // optional seed
@@ -227,6 +228,21 @@ static value md5_command(client c, vector args)
 }
 
 static value write_command(client c, vector args)
+{
+    nfs4_file f;
+    struct nfs4_properties p;
+    p.mask = NFS4_PROP_MODE;
+    p.mode = 0666;
+    ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_CREAT | NFS4_WRONLY, &p, &f));
+    // could wire these up monadically
+    buffer body = dispatch_tag(c, BUFFER_TAG, args);
+    ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, length(body)));
+    nfs4_close(f);
+    return TAG(body, BUFFER_TAG);
+}
+
+// dup, of above write_command, dont want to break fixed arity model
+static value asynch_write_command(client c, vector args)
 {
     nfs4_file f;
     struct nfs4_properties p;
@@ -329,6 +345,15 @@ static value ls(client c, vector args)
     return NFS4_OK;
 }
 
+static value truncate_command (client c, vector args)
+{
+    struct nfs4_properties p;
+    p.mask = NFS4_PROP_SIZE;
+    p.size = 0;
+    ncheck(c, nfs4_change_properties(c->c, relative_path(c, args), &p));
+    return NFS4_OK;
+}
+
 static value mkdir_command (client c, vector args)
 {
     struct nfs4_properties p;
@@ -362,6 +387,7 @@ static value help(client c, vector args);
 static struct command nfs_commands[] = {
     {"create", create, "create an empty file"},
     {"write", write_command, ""},
+    {"awrite", asynch_write_command, ""},    
     {"read", read_command, ""},
     {"md5", md5_command, ""},
     {"rm", delete, ""},
@@ -375,7 +401,8 @@ static struct command nfs_commands[] = {
     {"local", local, ""},    
     {"compare", compare, ""},    
     {"lock", lock, ""},
-    {"unlock", unlock, ""},                        
+    {"truncate", truncate_command, ""},                        
+    {"unlock", unlock, ""},                            
     {"mkdir", mkdir_command, ""},
     {"?", help, "help"},
     {"help", help, "help"},    

@@ -12,7 +12,7 @@
 #define api_checkr(__r, __st) \
     ({                       \
         status __s = __st;\
-        if (nfs4_is_error(__s))  {__r->c->error_string = __s->description; deallocate_rpc(r); return __s->error;} \
+        if (nfs4_is_error(__s))  {__r->c->error_string = __s->description; deallocate_rpc(__r); return __s->error;} \
     })
 
 
@@ -167,7 +167,8 @@ int nfs4_closedir(nfs4_dir d)
     deallocate_buffer(d->entries);
 }
 
-// path in properties?
+// new filename in properties? could also take the mode from there
+// this folds in with open 
 int nfs4_mkdir(nfs4 c, char *path, nfs4_properties p)
 {
     struct nfs4_properties real;
@@ -197,8 +198,22 @@ int nfs4_synch(nfs4 c)
     return NFS4_OK;
 }
 
-int nfs4_change_properties(char *path, nfs4_properties p)
+// length -> 0 means truncate
+// rename should also be here
+int nfs4_change_properties(nfs4 c, char *path, nfs4_properties p)
 {
+    rpc r = allocate_rpc(c, c->forward);
+    push_sequence(r);
+    push_resolution(r, path);
+    push_op(r, OP_SETATTR);
+    push_fattr(r, p);
+    api_checkr(r, transact(r, OP_SETATTR, c->reverse));
+    return NFS4_OK;
+}
+
+int nfs4_default_properties(nfs4 c, nfs4_properties p)
+{
+    c->default_properties = *p;
 }
 
 int nfs4_lock_range(nfs4_file f, int locktype, bytes offset, bytes length)
@@ -255,6 +270,8 @@ int nfs4_create(char *hostname, nfs4 *dest)
     c->maxreqs = config_u64("NFS_REQUESTS_LIMIT", 32);
     c->forward = allocate_buffer(0, 16384);
     c->reverse = allocate_buffer(0, 16384);
+    c->uid = NFS4_ID_ANONYMOUS;
+    c->gid = NFS4_ID_ANONYMOUS;    
 
     // xxx - we're actually using very few bits from tv_usec, make a better
     // instance id
