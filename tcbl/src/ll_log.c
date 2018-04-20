@@ -215,7 +215,24 @@ int tcbl_log_meld_mem(tcbl_log_h lh)
     return tcbl_log_reset_mem(lh);
 }
 
-size_t log_entry_size(tcbl_log log, tcbl_log_entry entry)
+int tcbl_log_meld_offs_mem(tcbl_log_h lh, size_t offs)
+{
+    int rc;
+    tcbl_log_h_mem h = (tcbl_log_h_mem) lh;
+
+
+    tcbl_log_offs current_base_len;
+    rc = tcbl_mem_log_length(&((tcbl_log_mem) h->log)->entries, &current_base_len);
+    if (rc) return rc;
+
+    if (current_base_len != h->base_len) {
+        return TCBL_CONFLICT_ABORT;
+    } else {
+        return tcbl_log_meld(lh);
+    }
+}
+
+size_t ll_log_entry_size(tcbl_log log, ll_log_entry entry)
 {
     switch (entry->entry_type) {
         case LL_LOG_ENTRY_READ:
@@ -231,10 +248,10 @@ size_t log_entry_size(tcbl_log log, tcbl_log_entry entry)
     }
 }
 
-int tcbl_log_append_mem(tcbl_log_h lh, tcbl_log_entry entry)
+int tcbl_log_append_mem(tcbl_log_h lh, ll_log_entry entry)
 {
     tcbl_log_h_mem h = (tcbl_log_h_mem) lh;
-    size_t sz = log_entry_size(lh->log, entry);
+    size_t sz = ll_log_entry_size(lh->log, entry);
     // xxx maybe update position to end
     return tcbl_mem_log_append(&h->added_entries, entry, sz);
 }
@@ -255,7 +272,7 @@ int tcbl_log_seek_mem(tcbl_log_h lh, tcbl_log_offs seek_pos)
     return TCBL_OK;
 }
 
-int tcbl_log_next_mem(tcbl_log_h lh, tcbl_log_entry *out_entry)
+int tcbl_log_next_mem(tcbl_log_h lh, ll_log_entry *out_entry)
 {
     int rc;
     tcbl_log_h_mem h = (tcbl_log_h_mem) lh;
@@ -297,6 +314,7 @@ int tcbl_log_init_mem(tcbl_log log, size_t block_size)
         tcbl_log_open_mem,
         tcbl_log_length_mem,
         tcbl_log_meld_mem,
+        tcbl_log_meld_offs_mem,
         tcbl_log_reset_mem,
         tcbl_log_append_mem,
         tcbl_log_seek_mem,
@@ -309,6 +327,117 @@ int tcbl_log_init_mem(tcbl_log log, size_t block_size)
     memcpy(&log->ops, &ops, sizeof(struct tcbl_log_ops));
     return tcbl_mem_log_init(&((tcbl_log_mem) log)->entries);
 }
+//////////////////////////
+//////////////////////////
+
+/*
+int vector_ensure_capacity(vector v, size_t capacity)
+{
+
+}
+
+int vector_init(vector v, size_t elem_sz, size_t initial_capacity)
+{
+    v
+}
+
+int vector_reset(vector v, size_t min_capacity, size_t max_capacity);
+int vector_append(vector v, void* data, size_t offs_out);
+int vector_get(vector v, size_t offs, void **data_out);
+*/
+
+
+static int tcbl_log_open_ser(tcbl_log log, tcbl_log_h log_h)
+{
+    tcbl_log_serializable log_ser = (tcbl_log_serializable) log;
+    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
+
+    tcbl_log_open(log_ser->underlying_log, log_h_ser->underlying_log_h);
+    log_h_ser->log = log;
+
+    return TCBL_OK;
+}
+
+static int tcbl_log_length_ser(tcbl_log log_h, tcbl_log_offs *offs)
+{
+
+}
+
+static int tcbl_log_meld_ser(tcbl_log_h log_h)
+{
+    // We check our read set against the writes that have occurred
+    // in the log since we started.
+    tcbl_log_serializable log_ser = (tcbl_log_serializable) log_h->log;
+    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
+
+    tcbl_log_open(log_ser->underlying_log, log_h_ser->underlying_log_h);
+}
+
+static int tcbl_log_meld_offs_ser(tcbl_log_h log_h, size_t offs)
+{
+    return TCBL_NOT_IMPLEMENTED;
+}
+
+static int tcbl_log_reset_ser(tcbl_log_h log_h)
+{
+
+}
+
+static int tcbl_log_append_ser(tcbl_log_h log_h, ll_log_entry log_entry)
+{
+    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
+    return tcbl_log_append(log_h_ser->underlying_log_h, log_entry);
+}
+
+static int tcbl_log_seek_ser(tcbl_log_h log_h, tcbl_log_offs offs)
+{
+    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
+    return tcbl_log_seek(log_h_ser->underlying_log_h, offs);
+}
+
+static int tcbl_log_next_ser(tcbl_log_h log_h, ll_log_entry * entry)
+{
+    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
+    return tcbl_log_next(log_h_ser->underlying_log_h, entry);
+}
+
+static int tcbl_log_close_ser(tcbl_log_h log_h)
+{
+    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
+    return tcbl_log_close(log_h_ser->underlying_log_h);
+}
+
+static int tcbl_log_free_ser(tcbl_log log)
+{
+    // TODO implement here
+    return TCBL_OK;
+}
+
+
+int tcbl_log_init_serializable(tcbl_log log, size_t block_size, tcbl_log underlying_log)
+{
+    static struct tcbl_log_ops ops = {
+            tcbl_log_open_ser,
+            tcbl_log_length_ser,
+            tcbl_log_meld_ser,
+            tcbl_log_meld_offs_ser,
+            tcbl_log_reset_ser,
+            tcbl_log_append_ser,
+            tcbl_log_seek_ser,
+            tcbl_log_next_ser,
+            tcbl_log_close_ser,
+            tcbl_log_free_ser
+    };
+    log->block_size = block_size;
+    log->log_h_size = sizeof(struct tcbl_log_h_serializable) + underlying_log->log_h_size;
+    memcpy(&log->ops, &ops, sizeof(struct tcbl_log_ops));
+    ((tcbl_log_serializable) log)->underlying_log = underlying_log;
+    return TCBL_OK;
+}
+
+
+//////////////////////////
+//////////////////////////
 
 int tcbl_log_open(tcbl_log log, tcbl_log_h lh)
 {
@@ -320,12 +449,17 @@ int tcbl_log_meld(tcbl_log_h lh)
     return lh->log->ops.x_meld(lh);
 }
 
+int tcbl_log_meld_offs(tcbl_log_h lh, size_t offs)
+{
+    return lh->log->ops.x_meld_offs(lh, offs);
+}
+
 int tcbl_log_reset(tcbl_log_h lh)
 {
     return lh->log->ops.x_reset(lh);
 };
 
-int tcbl_log_append(tcbl_log_h lh, tcbl_log_entry entry)
+int tcbl_log_append(tcbl_log_h lh, ll_log_entry entry)
 {
     return lh->log->ops.x_append(lh, entry);
 }
@@ -335,7 +469,7 @@ int tcbl_log_seek(tcbl_log_h lh, tcbl_log_offs offs)
     return lh->log->ops.x_seek(lh, offs);
 }
 
-int tcbl_log_next(tcbl_log_h lh, tcbl_log_entry *out_entry)
+int tcbl_log_next(tcbl_log_h lh, ll_log_entry *out_entry)
 {
     return lh->log->ops.x_next(lh, out_entry);
 }
@@ -352,4 +486,121 @@ int tcbl_log_close(tcbl_log_h lh)
 
 int tcbl_log_free(tcbl_log log) {
     return log->ops.x_free(log);
+}
+
+//////////////////////////
+
+
+int bc_log_create(bc_log l)
+{
+
+}
+
+int bc_log_txn_begin(bc_log l, bc_log_h h)
+{
+    int rc;
+    h->log = l;
+    rc = tcbl_log_open(l->log, h->log_h);
+    return rc;
+}
+
+int bc_log_txn_commit(bc_log_h h)
+{
+    int rc;
+    rc = tcbl_log_meld(h->log_h);
+    tcbl_log_close(h->log_h);
+    return rc;
+}
+
+int bc_log_txn_abort(bc_log_h h)
+{
+    int rc;
+    rc = tcbl_log_reset(h->log_h);
+    tcbl_log_close(h->log_h);
+    return rc;
+}
+
+int bc_log_write(bc_log_h h, size_t offs, void* data, size_t newlen)
+{
+    size_t page_size = h->log->page_size;
+    if (offs % page_size != 0) {
+        return TCBL_BAD_ARGUMENT;
+    }
+    char e_buff[sizeof(struct ll_log_entry_write) + page_size];
+    ll_log_entry_write e = (ll_log_entry_write) &e_buff;
+    e->entry_type = LL_LOG_ENTRY_WRITE;
+    e->offset = offs;
+    e->newlen = newlen;
+    // TODO set up LSN or next
+    memcpy(e->data, data, page_size);
+    tcbl_log_append(h->log_h, (ll_log_entry) e);
+    return TCBL_OK;
+}
+
+int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data)
+{
+    size_t page_size = h->log->page_size;
+    if (offs % page_size != 0) {
+        return TCBL_BAD_ARGUMENT;
+    }
+
+    char e_buff [sizeof(struct ll_log_entry_read) + page_size];
+    ll_log_entry_read re = (ll_log_entry_read) &e_buff;
+    re->entry_type = LL_LOG_ENTRY_READ;
+    re->offset = offs;
+
+    // scanning implementation
+    tcbl_log_seek(h->log_h, 0);
+    int rc;
+    ll_log_entry e;
+    rc = tcbl_log_next(h->log_h, &e);
+    if (rc) return rc;
+    void* last_found = NULL;
+    while (e != NULL) {
+        if (e->entry_type == LL_LOG_ENTRY_WRITE) {
+            ll_log_entry_write we = (ll_log_entry_write) e;
+            if (we->offset == offs) {
+                last_found = we->data;
+            }
+        }
+        rc = tcbl_log_next(h->log_h, &e);
+        if (rc) return rc;
+    }
+    if (last_found) {
+        *out_data = last_found;
+        *found_data = true;
+    } else {
+        *found_data = false;
+    }
+    return TCBL_OK;
+}
+
+int bc_log_length(bc_log_h h, bool *found_size, size_t *out_size)
+{
+    // We do not log a read on length
+
+    // scanning implementation
+    tcbl_log_seek(h->log_h, 0);
+    int rc;
+    ll_log_entry e;
+    rc = tcbl_log_next(h->log_h, &e);
+    if (rc) return rc;
+    bool search_found_len = false;
+    size_t search_len = 0;
+    while (e != NULL) {
+        if (e->entry_type == LL_LOG_ENTRY_WRITE) {
+            ll_log_entry_write we = (ll_log_entry_write) e;
+            search_found_len = true;
+            search_len = we->newlen;
+        }
+        rc = tcbl_log_next(h->log_h, &e);
+        if (rc) return rc;
+    }
+    if (search_found_len) {
+        *out_size = search_len;
+        *found_size = true;
+    } else {
+        *found_size = false;
+    }
+    return TCBL_OK;
 }

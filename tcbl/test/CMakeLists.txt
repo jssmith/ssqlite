@@ -12,6 +12,7 @@ add_executable(test_tcbl
         ../src/runtime.h
         ../src/tcbl_vfs.h
         test_runtime.h
+        test_util.c
         change_fh.c
         change_fh.h test_runtime.h)
 add_dependencies(test_tcbl test_tcbl)
@@ -22,6 +23,7 @@ add_executable(test_ll_log
         ../src/ll_log.h
         ../src/ll_log.c
         test_runtime.h
+        test_util.c
         ../src/runtime.h
         test_ll_log.c)
 add_test(test_ll_log test_ll_log)
@@ -36,6 +38,8 @@ add_library(sqlite3tcbl SHARED
         unixvfs.c
         ../src/tcbl_vfs.c
         ../src/tcbl_vfs.h
+        ../src/ll_log.h
+        ../src/ll_log.c
         ../src/runtime.h
         ../src/sglib.h)
 

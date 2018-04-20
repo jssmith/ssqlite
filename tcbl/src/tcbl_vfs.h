@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "ll_log.h"
 
 typedef struct vfs *vfs;
 typedef struct tvfs *tvfs;
@@ -50,9 +51,10 @@ typedef struct tcbl_vfs {
     tvfs_info tvfs_info;
     size_t page_size;
     vfs underlying_vfs;
+    bc_log log;
 } *tcbl_vfs;
 
-typedef struct tlog *tlog;
+//typedef struct tlog *tlog;
 
 typedef struct change_log_entry {
     size_t offset;
@@ -67,12 +69,12 @@ typedef struct change_log_entry {
 typedef struct tcbl_fh {
     vfs vfs;
     vfs_fh underlying_fh;
-    tlog log;
+    bc_log_h txn_log_h;
     bool txn_active;
-    uint64_t txn_begin_log_entry_ct;
-    change_log_entry change_log;
+//    uint64_t txn_begin_log_entry_ct;
+//    change_log_entry change_log;
 } *tcbl_fh;
-
+/*
 struct tlog_ops {
     int (*x_txn_begin)(tlog);
     int (*x_txn_commit)(tlog);
@@ -99,7 +101,7 @@ int tlog_file_size(tlog, bool *found_size, size_t *size_out, uint64_t log_entry_
 int tlog_append(tlog, change_log_entry change_records);
 int tlog_checkpoint(tlog, vfs_fh underlying_fh);
 int tlog_free(tlog log);
-
+*/
 int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size);
 
 int vfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out);

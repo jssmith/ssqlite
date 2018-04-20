@@ -25,18 +25,6 @@
 #define verify_file(__fh, __ed, __el) { verify_length(__fh, __el); verify_data(__fh, __ed, 0, __el); }
 
 
-void prep_data(char* data, size_t data_len, uint64_t seed)
-{
-    // TODO make sure this is good
-    uint64_t m = ((uint64_t) 2)<<32;
-    uint64_t a = 1103515245;
-    uint64_t c = 12345;
-    for (int i = 0; i < data_len; i++) {
-        seed = (a * seed + c) % m;
-        data[i] = (char) seed;
-    }
-}
-
 static void test_vfs_open(void **state)
 {
     test_env env = *state;
@@ -2096,46 +2084,7 @@ static int generic_post_group(void **state)
     return 0;
 }
 
-typedef struct tlog_test_env {
-    vfs memvfs;
-    tlog log;
-    int (*cleanup)(struct tlog_test_env*);
-} *tlog_test_env;
-
-static void test_tlog_do_nothing(void **state)
-{
-    tlog_test_env env = *state;
-    // Let the text fixture open and close the log. Do nothing here.
-    env->cleanup(env);
-}
-
-static void test_tlog_append_read(void **state)
-{
-    tlog_test_env env = *state;
-    tlog log = env->log;
-
-    uint64_t entry_ct;
-    RC_OK(tlog_entry_ct(log, &entry_ct));
-    assert_int_equal(entry_ct, 0);
-
-    size_t sz = TCBL_TEST_PAGE_SIZE;
-    char buff[sizeof(change_log_entry) + TCBL_TEST_PAGE_SIZE];
-    change_log_entry e = (change_log_entry) &buff;
-    e->offset = 0;
-    e->newlen = sz;
-    e->next = NULL;
-    prep_data(e->data, sz, 897);
-
-    RC_OK(tlog_append(env->log, e));
-
-    env->cleanup(env);
-}
-
-static int g_log_cleanup(tlog_test_env env)
-{
-    memvfs_free(env->memvfs);
-}
-
+/*
 static int tlog_setup(void **state)
 {
     tlog_test_env env = tcbl_malloc(NULL, sizeof(struct tlog_test_env));
@@ -2155,6 +2104,7 @@ static int tlog_teardown(void **state)
     tcbl_free(NULL, env, sizeof(struct tlog_test_env));
     return 0;
 }
+*/
 
 int main(void)
 {
@@ -2235,12 +2185,7 @@ int main(void)
     rc = cmocka_run_group_tests(tcbl_tests, NULL, NULL);
     if (stop_on_error && rc) return rc;
 */
-    const struct CMUnitTest tlog_tests[] = {
-            cmocka_unit_test_setup_teardown(test_tlog_do_nothing, tlog_setup, tlog_teardown),
-            cmocka_unit_test_setup_teardown(test_tlog_append_read, tlog_setup, tlog_teardown),
-//            cmocka_unit_test_setup_teardown(test_tlog_lsn_reads, tlog_setup, tlog_teardown)
-    };
-    rc = cmocka_run_group_tests(tlog_tests, NULL, NULL);
+
 /*
     printf("\nfuzz tests\n");
     const struct CMUnitTest fuzz_vfs_tests[] = {
