@@ -127,9 +127,11 @@ char *relative_path(client c, vector v)
             push_character(&b, '/');             
             buffer_concat(&b, i);
         }
-    } else push_character(&b, '/');             
+    }
     if (vector_length(v)) {
-        buffer p = pop_path(v);
+        buffer p = pop_path(v);        
+        if (*(u8 *)(p->contents + p->start) != '/')
+            push_character(&b, '/');             
         // split
         buffer_concat(&b, p);
     }
@@ -319,6 +321,8 @@ static value ls(client c, vector args)
             line->start = line->end = 0;
             format_mode(line, &k);
             push_character(line, ' ');
+            push_bytes(line, k.user, strlen(k.user));
+            push_character(line, ' ');            
             print_int(line, k.size);
             push_character(line, ' ');
             push_bytes(line, k.name, strlen(k.name));

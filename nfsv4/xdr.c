@@ -512,7 +512,6 @@ void push_resolution(rpc r, char *path)
         if (path[i] == '/')  {
             push_op(r, OP_LOOKUP);
             push_string(r->b, path+start, i-start);
-        } else {
             start = i + 1;
         }
     }
