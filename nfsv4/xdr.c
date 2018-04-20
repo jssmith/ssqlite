@@ -351,25 +351,30 @@ status push_fattr_mask(rpc r, u64 mask)
 // just like in stat, we never set ino, size, access time or modify time
 status push_fattr(rpc r, nfs4_properties p)
 {
+    buffer u = alloca_buffer(20);
+    buffer g = alloca_buffer(20);    
     // filter by supported types
     push_fattr_mask(r, p->mask);
     u64 len = 0;
 
     // a more general map of length functions, or an intermediate buffer
     if (p->mask & NFS4_PROP_MODE) len += 4;
-    if (p->mask & NFS4_PROP_UID) len += 4 + pad(strlen(p->user), 4);
-    if (p->mask & NFS4_PROP_GID) len += 4 + pad(strlen(p->group), 4);
-    push_be32(r->b, len);
-    
-    if (p->mask & NFS4_PROP_MODE) {
-        push_be32(r->b, p->mode);
-    }
+    if (p->mask & NFS4_PROP_TYPE) len += 4;    
     if (p->mask & NFS4_PROP_UID) {
-        push_string(r->b, p->user, strlen(p->user));
+        format_number(u, p->user, 10, 1);
+        len += 4 + pad(length(u), 4);
     }
     if (p->mask & NFS4_PROP_GID) {
-        push_string(r->b, p->group, strlen(p->group));
+        format_number(g, p->group, 10, 1);
+        len += 4 + pad(length(g), 4);
     }
+    push_be32(r->b, len);
+    
+    if (p->mask & NFS4_PROP_TYPE) push_be32(r->b, p->type);
+    if (p->mask & NFS4_PROP_MODE) push_be32(r->b, p->mode);
+    if (p->mask & NFS4_PROP_UID)  push_string(r->b, u->contents, length(u));
+    if (p->mask & NFS4_PROP_GID)  push_string(r->b, g->contents, length(g));
+
     return NFS4_OK;
 }
 
@@ -402,6 +407,30 @@ status read_cstring(buffer b, char *dest, int len)
     return NFS4_OK;
 }
 
+static inline s8 digit_of(u8 x)
+{
+    if ((x <= 'f') && (x >= 'a')) return(x - 'a' + 10);
+    if ((x <= 'F') && (x >= 'A')) return(x - 'A' + 10);
+    if ((x <= '9') && (x >= '0')) return(x - '0');
+    return(-1);
+}
+
+status parse_int(buffer b, u32 *result)
+{
+  *result = 0;
+  int len = read_beu32(b);
+
+  for (int i = 0; i < len ; i++) {
+      int v = digit_of(*(u8 *) (b->contents + b->start + i));
+      if (v >= 0) 
+          *result = (*result * 10) + v;
+      else
+          return error(NFS4_EINVAL, "bad digit");
+  }
+  b->start += pad(len, 4);
+  return NFS4_OK;
+}
+
 status read_fattr(buffer b, nfs4_properties p)
 {
     int masklen = read_beu32(b);
@@ -420,15 +449,20 @@ status read_fattr(buffer b, nfs4_properties p)
             case NFS4_PROP_MODE:
                 p->mode = read_beu32(b);
                 break;
+                // nfs4 sends these as strings, but expects them in rpc
+                // as ints..and they are always strings of ints
             case NFS4_PROP_UID:
-                read_cstring(b, p->user, sizeof(p->user));
+                check(parse_int(b, &p->user));
                 break;
             case NFS4_PROP_GID:
-                read_cstring(b, p->group, sizeof(p->group));
+                check(parse_int(b, &p->group));
                 break;
             case NFS4_PROP_SIZE:
                 p->size = read_beu64(b);
                 break;
+            case NFS4_PROP_TYPE:
+                p->type = read_beu32(b);
+                break;                
             case NFS4_PROP_ACCESS_TIME:
                 check(read_time(b, (ticks *)&p->access_time));
                 break;

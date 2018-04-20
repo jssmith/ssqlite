@@ -15,6 +15,16 @@ typedef struct buffer {
 } *buffer;
 
 
+#define alloca_buffer(__l) ({\
+        buffer b = alloca(sizeof(struct buffer));    \
+        b->contents =(void *)alloca(__l);            \
+        b->end = 0;                  \
+        b->start  =0 ;                               \
+        b->h = 0;                                    \
+        b;                                           \
+})
+    
+                      
 #define alloca_wrap_buffer(__b, __l) ({           \
             buffer b = alloca(sizeof(struct buffer));   \
             b->contents =(void *) __b;                  \

@@ -5,110 +5,7 @@
 #include <netinet/tcp.h>
 #include <errno.h>
 
-static struct codepoint nfsops[] = {
-{"ACCESS"               , 3},
-{"CLOSE"                , 4},
-{"COMMIT"               , 5},
-{"CREATE"               , 6},
-{"DELEGPURGE"           , 7},
-{"DELEGRETURN"          , 8},
-{"GETATTR"              , 9},
-{"GETFH"                , 10},
-{"LINK"                 , 11},
-{"LOCK"                 , 12},
-{"LOCKT"                , 13},
-{"LOCKU"                , 14},
-{"LOOKUP"               , 15},
-{"LOOKUPP"              , 16},
-{"NVERIFY"              , 17},
-{"OPEN"                 , 18},
-{"OPENATTR"             , 19},
-{"OPEN_CONFIRM"         , 20},
-{"OPEN_DOWNGRADE"       , 21},
-{"PUTFH"                , 22},
-{"PUTPUBFH"             , 23},
-{"PUTROOTFH"            , 24},
-{"READ"                 , 25},
-{"READDIR"              , 26},
-{"READLINK"             , 27},
-{"REMOVE"               , 28},
-{"RENAME"               , 29},
-{"RENEW"                , 30}, 
-{"RESTOREFH"            , 31},
-{"SAVEFH"               , 32},
-{"SECINFO"              , 33},
-{"SETATTR"              , 34},
-{"SETCLIENTID"          , 35}, 
-{"SETCLIENTID_CONFIRM"  , 36}, 
-{"VERIFY"               , 37},
-{"WRITE"                , 38},
-{"RELEASE_LOCKOWNER"    , 39}, 
-{"BACKCHANNEL_CTL"      , 40},
-{"BIND_CONN_TO_SESSION" , 41},
-{"EXCHANGE_ID"          , 42},
-{"CREATE_SESSION"       , 43},
-{"DESTROY_SESSION"      , 44},
-{"FREE_STATEID"         , 45},
-{"GET_DIR_DELEGATION"   , 46},
-{"GETDEVICEINFO"        , 47},
-{"GETDEVICELIST"        , 48},
-{"LAYOUTCOMMIT"         , 49},
-{"LAYOUTGET"            , 50},
-{"LAYOUTRETURN"         , 51},
-{"SECINFO_NO_NAME"      , 52},
-{"SEQUENCE"             , 53},
-{"SET_SSV"              , 54},
-{"TEST_STATEID"         , 55},
-{"WANT_DELEGATION"      , 56},
-{"DESTROY_CLIENTID"     , 57},
-{"RECLAIM_COMPLETE"     , 58},
-{"ALLOCATE"             , 59},
-{"COPY"                 , 60},
-{"COPY_NOTIFY"          , 61},
-{"DEALLOCATE"           , 62},
-{"IO_ADVISE"            , 63},
-{"LAYOUTERROR"          , 64},
-{"LAYOUTSTATS"          , 65},
-{"OFFLOAD_CANCEL"       , 66},
-{"OFFLOAD_STATUS"       , 67},
-{"READ_PLUS"            , 68},
-{"SEEK"                 , 69},
-{"WRITE_SAME"           , 70},
-{"CLONE"                , 71},
-{"ILLEGAL"              , 10044},
-{"", 0}};
-
-
-struct codepoint nfserrs[] = {
-    {"NFS4_OK",                                          0},
-    {"NFS4_EPERM    Operation not permitted",           -1},
-    {"NFS4_ENOENT   No such file or directory",         -2},
-    {"NFS4_EIO      I/O error",                         -5},
-    {"NFS4_ENXIO    No such device or address",         -6},
-    {"NFS4_EBADF    Bad file number",                   -9},
-    {"NFS4_EAGAIN   Try again",                        -11},
-    {"NFS4_ENOMEM   Out of memory",                    -12},
-    {"NFS4_EACCES   Permission denied",                -13},
-    {"NFS4_EFAULT   Bad address",                      -14},
-    {"NFS4_ENOTBLK  Block device required",            -15},
-    {"NFS4_EBUSY    Device or resource busy",          -16},
-    {"NFS4_EEXIST   File exists",                      -17},
-    {"NFS4_EXDEV    Cross-device link",                -18},
-    {"NFS4_ENODEV   No such device",                   -19},
-    {"NFS4_ENOTDIR  Not a directory",                  -20},
-    {"NFS4_EISDIR   Is a directory",                   -21},
-    {"NFS4_EINVAL   Invalid argument",                 -22},
-    {"NFS4_ENFILE   File table overflow",              -23},
-    {"NFS4_EMFILE   Too many open files",              -24},
-    {"NFS4_ETXTBSY  Text file busy",                   -26},
-    {"NFS4_EFBIG    File too large",                   -27},
-    {"NFS4_ENOSPC   No space left on device",          -28},
-    {"NFS4_ESPIPE   Illegal seek",                     -29},
-    {"NFS4_EROFS    Read-only file system",            -30},
-    {"NFS4_EMLINK   Too many links",                   -31},
-    {"NFS4_PROTOCOL protocol/framing error",           -32},
-    {"", 0}};
-
+extern struct codepoint nfsops[];
 
 static void toggle(void *a, buffer b)
 {
@@ -357,60 +254,6 @@ status base_transact(rpc r, int op, buffer result, boolean *badsession)
     return error(NFS4_EINVAL, codestring(nfsstatus, code));    
 }
 
-status exchange_id(nfs4 c)
-{
-    rpc r = allocate_rpc(c, c->reverse);
-    push_exchange_id(r);
-    buffer res = c->reverse;
-    boolean bs;
-    status st = base_transact(r, OP_EXCHANGE_ID, res, &bs);
-    if (st) {
-        deallocate_rpc(r);    
-        return st;
-    }
-    st = parse_exchange_id(c, res);
-    if (st) return st;
-    deallocate_rpc(r);
-    return NFS4_OK;
-}
-
-
-status get_root_fh(nfs4 c, buffer b)
-{
-    rpc r = allocate_rpc(c, c->reverse);
-    push_sequence(r);
-    push_op(r, OP_PUTROOTFH);
-    push_op(r, OP_GETFH);
-    buffer res = c->reverse;
-    boolean bs2;
-    status st = base_transact(r, OP_GETFH, res, &bs2);
-    if (nfs4_is_error(st)) {
-        deallocate_rpc(r);
-        return st;
-    }
-    parse_filehandle(res, b);
-    deallocate_rpc(r);
-    if (!nfs4_is_error(st)) return st;
-    return NFS4_OK;
-}
-
-status create_session(nfs4 c)
-{
-    rpc r = allocate_rpc(c, c->reverse);
-    r->c->sequence = 1;  // 18.36.4 says that a new session starts at 1 implicitly
-    r->c->lock_sequence = 1;
-    push_create_session(r);
-    buffer res = c->reverse;
-    status st = transact(r, OP_CREATE_SESSION, res);
-    if (st) {
-        deallocate_rpc(r);    
-        return st;
-    }    
-    st = parse_create_session(c, res);
-    if (st) return st;
-    deallocate_rpc(r);
-    return NFS4_OK;
-}
 
 static status replay_rpc(rpc r)
 {
@@ -425,15 +268,6 @@ static status replay_rpc(rpc r)
     memcpy(r->b->contents + offset + NFS4_SESSIONID_SIZE, &nseq, 4);
     u32 nxid = htonl(++r->c->xid);
     memcpy(r->b->contents + 4, &nxid, 4);    
-}
-
-static status destroy_session(nfs4 c)
-{
-    rpc r = allocate_rpc(c, c->reverse);
-    push_op(r, OP_DESTROY_SESSION);
-    push_session_id(r, c->session);
-    boolean bs2;
-    return base_transact(r, OP_DESTROY_SESSION, c->reverse, &bs2);
 }
 
 status transact(rpc r, int op, buffer result)
@@ -457,100 +291,6 @@ status transact(rpc r, int op, buffer result)
     return s;
 }
 
-status file_size(nfs4_file f, u64 *dest)
-{
-    rpc r = file_rpc(f);
-    push_op(r, OP_GETATTR);
-    push_be32(r->b, 1); 
-    u32 mask = 1<<FATTR4_SIZE;
-    push_be32(r->b, mask);
-    buffer res =f->c->reverse;
-    status s = transact(r, OP_GETATTR, res);
-    if (s) return s;
-    // demux attr more better
-    res->start = res->end - 8;
-    u64 x = 0;
-    *dest = read_beu64(res);  
-    return NFS4_OK;
-}
-
-// we can actually use the framing length to delineate 
-// header and data, and read directly into the dest buffer
-// because the data is always at the end
-status read_chunk(nfs4_file f, void *dest, u64 offset, u32 length)
-{
-    rpc r = file_rpc(f);
-    push_op(r, OP_READ);
-    push_stateid(r, &f->latest_sid);
-    push_be64(r->b, offset);
-    push_be32(r->b, length);
-    buffer res = f->c->reverse;
-    status s = transact(r, OP_READ, res);
-    if (s) return s;
-    // we dont care if its the end of file -- we might for a single round trip read entire
-    res->start += 4; 
-    u32 len = read_beu32(res);
-    // guard against len != length
-    memcpy(dest, res->contents+res->start, len);
-    return NFS4_OK;
-}
-
-// if we break transact, can writev with the header and 
-// source buffer as two fragments
-// add synch
-status write_chunk(nfs4_file f, void *source, u64 offset, u32 length)
-{
-    rpc r = file_rpc(f);
-    push_op(r, OP_WRITE);
-    push_stateid(r, &f->latest_sid);
-    push_be64(r->b, offset);
-    push_be32(r->b, FILE_SYNC4);
-    push_string(r->b, source, length);
-    buffer b = f->c->reverse;
-    return transact(r, OP_WRITE, b);
-}
-
-
-status segment(status (*each)(nfs4_file, void *, u64, u32),
-            int chunksize,
-            nfs4_file f,
-            void *x,
-            u64 offset,
-            u32 length)
-{
-    for (u32 done = 0; done < length;) {
-        u32 xfer = MIN(length - done, chunksize);
-        status s = each(f, x + done, offset+done, xfer);
-        if (s) return s;
-        done += xfer;
-    }
-    return NFS4_OK;
-}
-
-status reclaim_complete(nfs4 c)
-{
-    rpc r = allocate_rpc(c, c->reverse);
-    push_sequence(r);
-    push_op(r, OP_RECLAIM_COMPLETE);
-    push_be32(r->b, 0);
-    boolean bs;
-    status st = base_transact(r, OP_RECLAIM_COMPLETE, c->reverse, &bs);
-    deallocate_rpc(r);        
-    return st;
-}
-
-
-status rpc_connection(nfs4 c)
-{
-    check(nfs4_connect(c));
-    check(exchange_id(c));
-    check(create_session(c));
-    if (!config_boolean("NFS_USE_PUTROOTFH", false)) {
-        c->root_filehandle = allocate_buffer(0, NFS4_FHSIZE);
-        get_root_fh(c, c->root_filehandle);
-    }
-    return reclaim_complete(c);
-}
 
 status rpc_readdir(nfs4_dir d, buffer result)
 {
@@ -568,5 +308,3 @@ status rpc_readdir(nfs4_dir d, buffer result)
     read_buffer(result, d->verifier, NFS4_VERIFIER_SIZE);
     return NFS4_OK;
 }
-
-

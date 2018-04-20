@@ -80,6 +80,7 @@ typedef enum nfs_ftype4 {
 #define MODE4_WOTH  0x002;  /* write permission: other */
 #define MODE4_XOTH  0x001;  /* execute permission: other */
 
+#define NFS4_PROP_TYPE (1ull<<1)
 #define NFS4_PROP_INO (1ull<<19)
 #define NFS4_PROP_MODE (1ull<<33)
 #define NFS4_PROP_UID (1ull<<36)
@@ -102,8 +103,8 @@ typedef struct nfs4_properties {
     nfs4_ino_t     ino;
     nfs4_mode_t    mode;        /* protection */
     int            nlink;       /* number of hard links */
-    char           user[64];    /* user ID of owner */
-    char           group[64];    /* group ID of owner */
+    unsigned int   user;        /* user ID of owner */
+    unsigned int   group;       /* group ID of owner */
     bytes          size;        /* total size, in bytes */
     nfs_ftype4     type; 
     nfs4_time      access_time;  /* time of last access */

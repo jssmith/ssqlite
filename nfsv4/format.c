@@ -208,6 +208,15 @@ buffer aprintf(heap h, char *fmt, ...)
     return(b);
 }
 
+void bprintf(buffer b, char *fmt, ...)
+{
+    va_list ap;
+    buffer f = alloca_wrap_buffer(fmt, strlen(fmt));
+    va_start (ap, fmt);
+    vbprintf(b, f, ap);
+    va_end(ap);
+}
+
 void bbprintf(buffer b, buffer fmt, ...)
 {
     va_list ap;

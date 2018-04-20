@@ -16,6 +16,7 @@ typedef struct status {
 typedef int boolean;
 
 typedef unsigned char u8;
+typedef char s8;
 typedef unsigned int u32;
 typedef unsigned long u64;
 typedef void *heap;
@@ -72,3 +73,6 @@ buffer aprintf(heap h, char *fmt, ...);
         write(2, b->contents, length(b));               \
     }
 
+
+void bprintf(buffer b, char *fmt, ...);
+void format_number(buffer s, u64 x, int base, int pad);

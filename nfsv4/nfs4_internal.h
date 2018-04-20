@@ -174,7 +174,13 @@ static inline status read_buffer(buffer b, void *dest, u32 len)
     return NFS4_OK;
 }
 
-#define STANDARD_PROPERTIES (NFS4_PROP_MODE  | NFS4_PROP_UID | NFS4_PROP_GID | NFS4_PROP_SIZE | NFS4_PROP_ACCESS_TIME | NFS4_PROP_MODIFY_TIME)
+#define STANDARD_PROPERTIES (NFS4_PROP_MODE |\
+                             NFS4_PROP_TYPE |\
+                             NFS4_PROP_UID |\
+                             NFS4_PROP_GID |\
+                             NFS4_PROP_SIZE |\
+                             NFS4_PROP_ACCESS_TIME |\
+                             NFS4_PROP_MODIFY_TIME)
 
 status create_session(nfs4 c);
 status exchange_id(nfs4 c);
@@ -208,8 +214,8 @@ static void fill_random(char* buffer, size_t len)
     }
 }
 
-
 status parse_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie);
 
 void push_auth_sys(buffer b);
 void push_auth_null(buffer b);
+status base_transact(rpc r, int op, buffer result, boolean *badsession);

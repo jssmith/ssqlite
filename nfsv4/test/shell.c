@@ -320,13 +320,7 @@ static value ls(client c, vector args)
         if (!s) {
             line->start = line->end = 0;
             format_mode(line, &k);
-            push_character(line, ' ');
-            push_bytes(line, k.user, strlen(k.user));
-            push_character(line, ' ');            
-            print_int(line, k.size);
-            push_character(line, ' ');
-            push_bytes(line, k.name, strlen(k.name));
-            push_character(line, '\n');
+            bprintf(line, " %d %d %s\n", k.user, k.size, k.name);
             write(1, line->contents + line->start, length(line));
         }
     }
@@ -412,6 +406,8 @@ value dispatch(client c, vector n)
 
 void print_value(value v)
 {
+    if (v == 0) return;
+    
     switch(tagof(v)) {
     case ERROR_TAG:
         printf ("error: %s\n", (char *) valueof(v));
