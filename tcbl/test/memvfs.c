@@ -16,6 +16,7 @@ typedef struct memvfs_file {
     size_t len;
     size_t alloc_len;
     uint64_t ref_ct;
+    pthread_rwlock_t lock;
     struct memvfs_file *next_file;
 } *memvfs_file;
 
@@ -23,6 +24,7 @@ typedef struct memvfs_fh {
     struct memvfs *vfs;
     struct memvfs_file *memvfs_file;
     bool is_valid;
+    int lock_mode;
     struct memvfs_fh *next;
 } *memvfs_fh;
 
@@ -91,6 +93,7 @@ static int memvfs_find_file(memvfs memvfs, const char *name, memvfs_file *file_o
     f->alloc_len = 0;
     f->next_file = NULL; // TODO is this necessary?
     f->ref_ct = 1;
+    pthread_rwlock_init(&f->lock, NULL);
     *file_out = f;
 
     SGLIB_LIST_ADD(struct memvfs_file, memvfs->files, f, next_file);
@@ -108,6 +111,7 @@ static int memvfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
     }
     fh->vfs = (memvfs) vfs;
     fh->is_valid = true;
+    fh->lock_mode = 0;
     *file_handle_out = (vfs_fh) fh;
 
     rc = memvfs_find_file((memvfs) vfs, file_name, &fh->memvfs_file);
@@ -239,6 +243,42 @@ static int memvfs_write(vfs_fh file_handle, const void *buff, size_t offset, siz
     return TCBL_OK;
 }
 
+static int memvfs_lock(vfs_fh file_handle, int lock_operation)
+{
+    lock((memvfs) file_handle->vfs);
+    int rc;
+    struct memvfs_fh *fh = (struct memvfs_fh *) file_handle;
+    if (lock_operation & VFS_LOCK_UN) {
+        // unlock
+        int lock_op_req = lock_operation & 0x03;
+        if (fh->lock_mode == lock_op_req) {
+            rc = pthread_rwlock_unlock(&fh->memvfs_file->lock);
+            if (rc) return TCBL_IO_ERROR;
+            fh->lock_mode = 0;
+        } else {
+            return TCBL_BAD_ARGUMENT;
+        }
+    } else {
+        // lock
+        int lock_op_req = lock_operation & 0x03;
+        if (fh->lock_mode == 0) {
+            if (lock_op_req == VFS_LOCK_SH) {
+                rc = pthread_rwlock_rdlock(&fh->memvfs_file->lock);
+                if (rc) return TCBL_IO_ERROR;
+            } else if (lock_op_req == VFS_LOCK_EX) {
+                rc = pthread_rwlock_wrlock(&fh->memvfs_file->lock);
+                if (rc) return TCBL_IO_ERROR;
+            }
+            fh->lock_mode = lock_op_req;
+        } else {
+            return TCBL_BAD_ARGUMENT;
+        }
+        return TCBL_NOT_IMPLEMENTED;
+
+    }
+    unlock((memvfs) file_handle->vfs);
+}
+
 static int memvfs_file_size(vfs_fh file_handle, size_t* out)
 {
     lock((memvfs) file_handle->vfs);
@@ -279,6 +319,7 @@ static void memvfs_free_file(memvfs_file f)
 {
     tcbl_free(NULL, f->name, f->name_alloc_len);
     memvfs_free_file_data(f);
+    pthread_rwlock_destroy(&f->lock);
     tcbl_free(NULL, f, sizeof(struct memvfs_file));
 }
 
@@ -317,6 +358,7 @@ int memvfs_allocate(vfs *vfs)
             memvfs_close,
             memvfs_read,
             memvfs_write,
+            memvfs_lock,
             memvfs_file_size,
             memvfs_truncate,
             memvfs_free

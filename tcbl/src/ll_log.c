@@ -2,8 +2,9 @@
 #include <sys/param.h>
 #include "runtime.h"
 #include "ll_log.h"
+#include "sglib.h"
 
-
+#ifdef DEBUG_PRINT
 static void print_data(void* data, size_t len)
 {
     char *d = data;
@@ -20,6 +21,7 @@ static void print_data(void* data, size_t len)
     }
     printf("\n");
 }
+#endif
 
 int tcbl_mem_init(tcbl_mem mem, size_t len)
 {
@@ -327,113 +329,6 @@ int tcbl_log_init_mem(tcbl_log log, size_t block_size)
     memcpy(&log->ops, &ops, sizeof(struct tcbl_log_ops));
     return tcbl_mem_log_init(&((tcbl_log_mem) log)->entries);
 }
-//////////////////////////
-//////////////////////////
-
-/*
-int vector_ensure_capacity(vector v, size_t capacity)
-{
-
-}
-
-int vector_init(vector v, size_t elem_sz, size_t initial_capacity)
-{
-    v
-}
-
-int vector_reset(vector v, size_t min_capacity, size_t max_capacity);
-int vector_append(vector v, void* data, size_t offs_out);
-int vector_get(vector v, size_t offs, void **data_out);
-*/
-
-
-static int tcbl_log_open_ser(tcbl_log log, tcbl_log_h log_h)
-{
-    tcbl_log_serializable log_ser = (tcbl_log_serializable) log;
-    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
-
-    tcbl_log_open(log_ser->underlying_log, log_h_ser->underlying_log_h);
-    log_h_ser->log = log;
-
-    return TCBL_OK;
-}
-
-static int tcbl_log_length_ser(tcbl_log log_h, tcbl_log_offs *offs)
-{
-
-}
-
-static int tcbl_log_meld_ser(tcbl_log_h log_h)
-{
-    // We check our read set against the writes that have occurred
-    // in the log since we started.
-    tcbl_log_serializable log_ser = (tcbl_log_serializable) log_h->log;
-    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
-
-    tcbl_log_open(log_ser->underlying_log, log_h_ser->underlying_log_h);
-}
-
-static int tcbl_log_meld_offs_ser(tcbl_log_h log_h, size_t offs)
-{
-    return TCBL_NOT_IMPLEMENTED;
-}
-
-static int tcbl_log_reset_ser(tcbl_log_h log_h)
-{
-
-}
-
-static int tcbl_log_append_ser(tcbl_log_h log_h, ll_log_entry log_entry)
-{
-    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
-    return tcbl_log_append(log_h_ser->underlying_log_h, log_entry);
-}
-
-static int tcbl_log_seek_ser(tcbl_log_h log_h, tcbl_log_offs offs)
-{
-    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
-    return tcbl_log_seek(log_h_ser->underlying_log_h, offs);
-}
-
-static int tcbl_log_next_ser(tcbl_log_h log_h, ll_log_entry * entry)
-{
-    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
-    return tcbl_log_next(log_h_ser->underlying_log_h, entry);
-}
-
-static int tcbl_log_close_ser(tcbl_log_h log_h)
-{
-    tcbl_log_h_serializable log_h_ser = (tcbl_log_h_serializable) log_h;
-    return tcbl_log_close(log_h_ser->underlying_log_h);
-}
-
-static int tcbl_log_free_ser(tcbl_log log)
-{
-    // TODO implement here
-    return TCBL_OK;
-}
-
-
-int tcbl_log_init_serializable(tcbl_log log, size_t block_size, tcbl_log underlying_log)
-{
-    static struct tcbl_log_ops ops = {
-            tcbl_log_open_ser,
-            tcbl_log_length_ser,
-            tcbl_log_meld_ser,
-            tcbl_log_meld_offs_ser,
-            tcbl_log_reset_ser,
-            tcbl_log_append_ser,
-            tcbl_log_seek_ser,
-            tcbl_log_next_ser,
-            tcbl_log_close_ser,
-            tcbl_log_free_ser
-    };
-    log->block_size = block_size;
-    log->log_h_size = sizeof(struct tcbl_log_h_serializable) + underlying_log->log_h_size;
-    memcpy(&log->ops, &ops, sizeof(struct tcbl_log_ops));
-    ((tcbl_log_serializable) log)->underlying_log = underlying_log;
-    return TCBL_OK;
-}
 
 
 //////////////////////////
@@ -491,9 +386,16 @@ int tcbl_log_free(tcbl_log log) {
 //////////////////////////
 
 
-int bc_log_create(bc_log l, size_t page_size)
+int bc_log_create(bc_log l, const char *name, size_t page_size)
 {
     l->page_size = page_size;
+    size_t name_sz = strlen(name);
+    l->log_name = tcbl_malloc(NULL, name_sz + 5);
+    if (l->log_name == NULL) {
+        return TCBL_ALLOC_FAILURE;
+    }
+    memcpy(l->log_name, name, name_sz);
+    memcpy(&l->log_name[name_sz], ".log", 4);
     return TCBL_OK;
 }
 
@@ -506,23 +408,62 @@ int bc_log_txn_begin(bc_log l, bc_log_h h)
 {
     int rc;
     h->log = l;
-    rc = tcbl_log_open(l->log, h->log_h);
+    h->added_entries = NULL;
+    vfs_open(l->vfs, l->log_name, &h->log_fh);
+    size_t log_size;
+    rc = vfs_file_size(h->log_fh, &log_size);
+    if (rc) return rc;
+    // TODO if last record is not commit then have to go back to find that point
+    // read offset of the last committed record
+    h->txn_offset = log_size;
+    h->read_entry = tcbl_malloc(NULL, sizeof(struct bc_log_entry) + l->page_size);
     return rc;
 }
 
 int bc_log_txn_commit(bc_log_h h)
 {
     int rc;
-    rc = tcbl_log_meld(h->log_h);
-    tcbl_log_close(h->log_h);
+    size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
+    // Write out everything
+    SGLIB_LIST_REVERSE(struct bc_log_entry, h->added_entries, next);
+
+    char buff[log_entry_size];
+    bc_log_entry we = (bc_log_entry) buff;
+    size_t write_offs = h->txn_offset;
+    bc_log_entry e;
+    do {
+        e = h->added_entries;
+        SGLIB_LIST_DELETE(struct bc_log_entry, h->added_entries, e, next);
+        // TODO go faster by merging writes
+        memcpy(we, e, log_entry_size);
+        we->lsn = 1;
+        if (!e->next) {
+            we->commit_flag = 1;
+        }
+        rc = vfs_write(h->log_fh, buff, write_offs, log_entry_size);
+        write_offs += log_entry_size;
+        bc_log_entry n = e->next;
+        tcbl_free(NULL, e, log_entry_size);
+        e = n;
+        if (rc) goto exit;
+    } while (e != NULL);
+    exit:
+    rc = vfs_lock(h->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
     return rc;
 }
 
 int bc_log_txn_abort(bc_log_h h)
 {
     int rc;
-    rc = tcbl_log_reset(h->log_h);
-    tcbl_log_close(h->log_h);
+    size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
+    bc_log_entry e;
+
+    while (h->added_entries) {
+        e = h->added_entries;
+        SGLIB_LIST_DELETE(struct bc_log_entry, h->added_entries, e, next);
+        tcbl_free(NULL, e, log_entry_size);
+    }
+    rc = vfs_lock(h->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
     return rc;
 }
 
@@ -532,15 +473,31 @@ int bc_log_write(bc_log_h h, size_t offs, void* data, size_t newlen)
     if (offs % page_size != 0) {
         return TCBL_BAD_ARGUMENT;
     }
-    char e_buff[sizeof(struct ll_log_entry_write) + page_size];
-    ll_log_entry_write e = (ll_log_entry_write) &e_buff;
-    e->entry_type = LL_LOG_ENTRY_WRITE;
+    if (h->added_entries == NULL) {
+        vfs_lock(h->log_fh, VFS_LOCK_EX);
+    }
+    int rc = TCBL_OK;
+    bc_log_entry e = tcbl_malloc(NULL, sizeof(struct bc_log_entry) + page_size);
+    if (e == NULL) {
+        rc = TCBL_ALLOC_FAILURE;
+        goto exit;
+    }
     e->offset = offs;
     e->newlen = newlen;
-    // TODO set up LSN or next
+    e->commit_flag = 0;
+    e->next = NULL;
     memcpy(e->data, data, page_size);
-    tcbl_log_append(h->log_h, (ll_log_entry) e);
-    return TCBL_OK;
+    SGLIB_LIST_ADD(struct bc_log_entry, h->added_entries, e, next);
+    exit:
+    if (rc) {
+        vfs_lock(h->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
+    }
+    return rc;
+}
+
+int log_entry_comparator(bc_log_entry e1, bc_log_entry e2)
+{
+    return (e1->offset < e2->offset) ? -1 : (e1->offset == e2->offset) ? 0 : 1;
 }
 
 int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data)
@@ -549,62 +506,60 @@ int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data)
     if (offs % page_size != 0) {
         return TCBL_BAD_ARGUMENT;
     }
+    size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
 
-    char e_buff [sizeof(struct ll_log_entry_read) + page_size];
-    ll_log_entry_read re = (ll_log_entry_read) &e_buff;
-    re->entry_type = LL_LOG_ENTRY_READ;
-    re->offset = offs;
 
-    // scanning implementation
-    tcbl_log_seek(h->log_h, 0);
-    int rc;
-    ll_log_entry e;
-    rc = tcbl_log_next(h->log_h, &e);
-    if (rc) return rc;
-    void* last_found = NULL;
-    while (e != NULL) {
-        if (e->entry_type == LL_LOG_ENTRY_WRITE) {
-            ll_log_entry_write we = (ll_log_entry_write) e;
-            if (we->offset == offs) {
-                last_found = we->data;
-            }
-        }
-        rc = tcbl_log_next(h->log_h, &e);
-        if (rc) return rc;
-    }
-    if (last_found) {
-        *out_data = last_found;
+    bc_log_entry found_entry;
+    struct bc_log_entry search_entry = {
+        offs
+    };
+    // search the added entries
+    SGLIB_LIST_FIND_MEMBER(struct bc_log_entry, h->added_entries, &search_entry, log_entry_comparator, next, found_entry);
+
+    if (found_entry) {
+        out_data = (void**) found_entry->data;
         *found_data = true;
+        return TCBL_OK;
+    }
+
+    // read from the log file
+    int rc;
+    size_t read_offs = 0;
+    char buff[log_entry_size];
+    bc_log_entry e = (bc_log_entry) buff;
+    bool found = false;
+    while (read_offs < h->txn_offset) {
+        rc = vfs_read(h->log_fh, buff, read_offs, log_entry_size);
+        if (rc) return rc;
+        if (e->offset == offs) {
+            found = true;
+            memcpy(h->read_entry, buff, log_entry_size);
+        }
+        read_offs += log_entry_size;
+    }
+    if (found) {
+        *found_data = true;
+        *out_data = &h->read_entry->data;
     } else {
         *found_data = false;
+        *out_data = NULL;
     }
     return TCBL_OK;
 }
 
 int bc_log_length(bc_log_h h, bool *found_size, size_t *out_size)
 {
-    // We do not log a read on length
-
-    // scanning implementation
-    tcbl_log_seek(h->log_h, 0);
     int rc;
-    ll_log_entry e;
-    rc = tcbl_log_next(h->log_h, &e);
-    if (rc) return rc;
-    bool search_found_len = false;
-    size_t search_len = 0;
-    while (e != NULL) {
-        if (e->entry_type == LL_LOG_ENTRY_WRITE) {
-            ll_log_entry_write we = (ll_log_entry_write) e;
-            search_found_len = true;
-            search_len = we->newlen;
-        }
-        rc = tcbl_log_next(h->log_h, &e);
-        if (rc) return rc;
-    }
-    if (search_found_len) {
-        *out_size = search_len;
+    if (h->added_entries) {
         *found_size = true;
+        *out_size = h->added_entries->newlen;
+    } else if (h->txn_offset > 0) {
+        size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
+        char buff[log_entry_size];
+        rc = vfs_read(h->log_fh, buff, h->txn_offset - log_entry_size, log_entry_size);
+        if (rc) return rc;
+        *found_size = true;
+        *out_size = ((bc_log_entry) buff)->newlen;
     } else {
         *found_size = false;
     }

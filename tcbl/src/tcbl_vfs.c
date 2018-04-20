@@ -434,6 +434,8 @@ static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
     fh->vfs = vfs;
     fh->underlying_fh = NULL;
 //    fh->txn_log_h = NULL;
+    bc_log_create(&fh->txn_log, file_name, tcbl_vfs->page_size);
+
     fh->txn_active = NULL;
 
     rc = vfs_open(tcbl_vfs->underlying_vfs, file_name, &fh->underlying_fh);
@@ -735,7 +737,6 @@ static int tcbl_write(vfs_fh file_handle, const void* data, size_t offset, size_
     return rc;
 }
 
-
 static int tcbl_txn_begin(vfs_fh file_handle)
 {
     int rc;
@@ -744,7 +745,7 @@ static int tcbl_txn_begin(vfs_fh file_handle)
         return TCBL_TXN_ACTIVE;
     }
 
-    rc = bc_log_txn_begin(&((tcbl_vfs) fh->vfs)->log, &fh->txn_log_h);
+    rc = bc_log_txn_begin(&fh->txn_log, &fh->txn_log_h);
     if (rc) return rc;
 
     fh->txn_active = true;
@@ -823,7 +824,8 @@ static int tcbl_checkpoint(vfs_fh file_handle)
         // for bugs.
         return TCBL_TXN_ACTIVE;
     }
-    return bc_log_checkpoint(&((tcbl_vfs) fh->vfs)->log);
+//    return bc_log_checkpoint(&((tcbl_vfs) fh->vfs)->log);
+    return TCBL_NOT_IMPLEMENTED;
 }
 
 static int tcbl_freevfs(vfs vfs)
@@ -836,7 +838,7 @@ int vfs_free(vfs vfs)
     if (vfs->vfs_info->x_free) {
         vfs->vfs_info->x_free(vfs);
     }
-    tcbl_free(NULL, vfs, vfs->vfs_size);
+    tcbl_free(NULL, vfs, vfs->vfs_info->vfs_obj_size);
     return TCBL_OK;
 }
 
@@ -870,7 +872,6 @@ int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size)
     tcbl_vfs->tvfs_info = &tcbl_tvfs_info;
     tcbl_vfs->underlying_vfs = underlying_vfs;
     tcbl_vfs->page_size = page_size;
-    bc_log_create(&tcbl_vfs->log, page_size);
     *tvfs = (struct tvfs *) tcbl_vfs;
     return TCBL_OK;
 }
@@ -903,6 +904,11 @@ int vfs_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
 int vfs_write(vfs_fh file_handle, const char* data, size_t offset, size_t len)
 {
     return file_handle->vfs->vfs_info->x_write(file_handle, data, offset, len);
+}
+
+int vfs_lock(vfs_fh file_handle, int lock_operation)
+{
+    return file_handle->vfs->vfs_info->x_lock(file_handle, lock_operation);
 }
 
 int vfs_file_size(vfs_fh file_handle, size_t *out)

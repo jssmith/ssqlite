@@ -25,7 +25,7 @@
 
 #ifndef TCBL_MEMORY_TESTING
 #define tcbl_malloc(__h, __b) (malloc(__b))
-#define tcbl_free(__h, __x, __len) (free(__x))
+#define tcbl_free(__h, __x, __len) ((void)(__len),free(__x))
 #else
 extern void* _test_malloc(const size_t size, const char* file, const int line);
 extern void _test_free(void* const ptr, const char* file, const int line);

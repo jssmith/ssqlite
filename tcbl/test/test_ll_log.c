@@ -9,7 +9,6 @@
 
 typedef struct ll_log_test_env {
     struct tcbl_log_mem log_mem;
-    struct tcbl_log_serializable log_ser;
     tcbl_log_h h[MAX_HANDLES];
     tcbl_log log;
     int config_handles;
@@ -288,24 +287,10 @@ static void g_configure_mem(ll_log_test_env env)
     create_file_handles(env);
 }
 
-static void g_configure_ser(ll_log_test_env env)
-{
-    tcbl_log_init_mem((tcbl_log) &env->log_mem, TCBL_TEST_PAGE_SIZE);
-    tcbl_log_init_serializable((tcbl_log) &env->log_ser, TCBL_TEST_PAGE_SIZE, (tcbl_log) &env->log_mem);
-    env->log = (tcbl_log) &env->log_ser;
-    create_file_handles(env);
-}
-
 static void g_cleanup_mem(ll_log_test_env env)
 {
     cleanup_file_handles(env);
     tcbl_log_free((tcbl_log) &env->log_mem);
-}
-
-static void g_cleanup_ser(ll_log_test_env env)
-{
-    g_cleanup_mem(env);
-    tcbl_log_free((tcbl_log) &env->log_ser);
 }
 
 static int generic_setup_1h(void **state)
@@ -350,15 +335,6 @@ static int generic_pre_group_mem(void **state)
     return 0;
 }
 
-static int generic_pre_group_ser(void **state)
-{
-    generic_pre_group(state);
-    ll_log_test_env env = (ll_log_test_env) *state;
-    env->configure = g_configure_ser;
-    env->cleanup = g_cleanup_ser;
-    env->log = (tcbl_log) &env->log_ser;
-    return 0;
-}
 
 static int generic_post_group(void **state)
 {
@@ -381,11 +357,5 @@ int main(void) {
     rc = cmocka_run_group_tests(ll_log_tests, generic_pre_group_mem, generic_post_group);
     if (stop_on_error && rc) return rc;
 
-    const struct CMUnitTest ll_log_ser_tests[] = {
-            cmocka_unit_test_setup_teardown(test_nothing, NULL, NULL),
-            cmocka_unit_test_setup_teardown(test_ser_no_conflict, generic_setup_2h, NULL),
-            cmocka_unit_test_setup_teardown(test_ser_conflict, generic_setup_2h, NULL),
-    };
-    rc = cmocka_run_group_tests(ll_log_ser_tests, generic_pre_group_ser, generic_post_group);
     return rc;
 }

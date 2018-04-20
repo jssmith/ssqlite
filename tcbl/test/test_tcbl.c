@@ -996,7 +996,7 @@ static int tcbl_teardown_1fh(void **state)
     RC_OK(vfs_close(env->fh[0]));
     RC_OK(vfs_free((vfs) env->test_vfs));
     RC_OK(vfs_free((vfs) env->base_vfs));
-    tcbl_free(NULL, env, sizeof(struct test_env + sizeof(vfs_fh)));
+    tcbl_free(NULL, env, sizeof(struct test_env) + sizeof(vfs_fh));
     return 0;
 }
 
