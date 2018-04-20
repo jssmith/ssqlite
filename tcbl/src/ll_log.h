@@ -164,7 +164,8 @@ typedef struct tcbl_log_h_serializable {
 int tcbl_log_init_serializable(tcbl_log, size_t block_size, tcbl_log underlying_log);
 
 /*
- * The block change log adds access by block id
+ * The block change log provides access by block id. For now we have just one simple
+ * implementation based on files.
  */
 
 typedef struct bc_log {
@@ -188,13 +189,12 @@ typedef struct bc_log_h {
     tcbl_log_h log_h;
 } *bc_log_h;
 
-int bc_log_create(bc_log);
+int bc_log_create(bc_log, size_t page_size);
+int bc_log_checkpoint(bc_log);
 int bc_log_txn_begin(bc_log, bc_log_h);
 int bc_log_txn_commit(bc_log_h);
 int bc_log_txn_abort(bc_log_h);
 int bc_log_write(bc_log_h, size_t offs, void* data, size_t newlen);
-// TODO should newlen be here?
-// TODO should we just have a write length rather than assume block size?
 int bc_log_read(bc_log_h, size_t offs, bool *found_data, void** out_data);
 int bc_log_length(bc_log_h, bool *found_size, size_t *out_size);
 

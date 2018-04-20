@@ -491,9 +491,15 @@ int tcbl_log_free(tcbl_log log) {
 //////////////////////////
 
 
-int bc_log_create(bc_log l)
+int bc_log_create(bc_log l, size_t page_size)
 {
+    l->page_size = page_size;
+    return TCBL_OK;
+}
 
+int bc_log_checkpoint(bc_log l)
+{
+    return TCBL_NOT_IMPLEMENTED;
 }
 
 int bc_log_txn_begin(bc_log l, bc_log_h h)

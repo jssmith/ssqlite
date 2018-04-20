@@ -5,6 +5,7 @@
 #include <runtime.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/file.h>
 #include <fcntl.h>
 
 #include <errno.h>
@@ -145,6 +146,19 @@ static int unix_vfs_write(vfs_fh vfs_fh, const void *data, size_t offset, size_t
     return TCBL_OK;
 }
 
+static int unix_vfs_lock(vfs_fh vfs_fh, int lock_operation)
+{
+    unixvfs_fh fh = (unixvfs_fh) vfs_fh;
+    if (lock_operation & 0xb != lock_operation) {
+        return TCBL_BAD_ARGUMENT;
+    }
+    int rc = flock(fh->fd, lock_operation);
+    if (rc) {
+        return TCBL_IO_ERROR;
+    }
+    return TCBL_OK;
+}
+
 static int unix_vfs_file_size(vfs_fh vfs_fh, size_t* size_out)
 {
     unixvfs_fh fh = (unixvfs_fh) vfs_fh;
@@ -194,6 +208,7 @@ int unix_vfs_allocate(vfs *vfs, const char* root_path)
             unix_vfs_close,
             unix_vfs_read,
             unix_vfs_write,
+            unix_vfs_lock,
             unix_vfs_file_size,
             unix_vfs_truncate,
             unix_vfs_free
