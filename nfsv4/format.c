@@ -3,6 +3,8 @@
 typedef u8 character;
 static char *hex_digits="0123456789abcdef";
 
+extern struct codepoint nfserrs[];
+
 void format_number(buffer s, u64 x, int base, int pad)
 {
     if ((x > 0) || (pad > 0)) {
@@ -134,6 +136,7 @@ void vbprintf(buffer s, buffer fmt, va_list ap)
 
             case 'o':
                 if (base == 10) base=8;
+                
             case 'u':
                 {
                     unsigned int x = va_arg(ap, unsigned int);
@@ -141,10 +144,37 @@ void vbprintf(buffer s, buffer fmt, va_list ap)
                     break;
                 }
 
-                //            case 'X':
-                //                print_hex_buffer(s, va_arg(ap, buffer));
-                //                break;
-
+            case 'C':
+                {
+                    codepoint c = va_arg(ap, codepoint);
+                    u64 v = va_arg(ap, u64);
+                    char *cp = codestring(c, v);
+                    push_bytes(s, cp, strlen(cp));
+                    break;
+                }
+                
+            case 'X':
+                {
+                    buffer b = va_arg(ap, buffer);
+                    for (int i = 0; i < length(b); i++) {
+                        u8 c = *(u8 *)(b->contents + b->start + i);
+                        push_character(s, hex_digits[c>>4]);
+                        push_character(s, hex_digits[c&15]);
+                    }
+                    break;
+                }
+            case 'e':
+                {
+                    status st = va_arg(ap, status);
+                    if (st) {
+                        char *cp = codestring(nfserrs, st->error);
+                        push_bytes(s, cp, strlen(cp));
+                        push_character(s, ' ');
+                        push_bytes(s, st->description->contents, length(st->description));
+                    } else  push_bytes(s, "OK", 2);
+                    break;                    
+                }
+                
             case 'd': case 'i':
                 {
                     int x = va_arg(ap, int);

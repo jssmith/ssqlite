@@ -24,6 +24,15 @@ typedef struct buffer {
             b;\
         })
 
+#define wrap_string(__h, __s) ({                         \
+            buffer b = allocate(__h, sizeof(struct buffer));     \
+            b->contents =(void *) __s;                  \
+            b->end = b->capacity = strlen(__s);         \
+            b->start  =0 ;\
+            b->h = __h;\
+            b;\
+        })
+
 
 static bytes length(buffer b) 
 {

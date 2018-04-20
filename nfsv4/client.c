@@ -1,14 +1,19 @@
 #include <nfs4_internal.h>
 #include <time.h>
 
+// api check can take an r i think
 #define api_check(__d, __st) \
-    {\
+    ({                       \
         status __s = __st;\
-       if (nfs4_is_error(__s)) {\
-           __d->error_string = __s->description;   \
-           return __s->error;                     \
-     }\
-   }
+        if (nfs4_is_error(__s))  __d->error_string = __s->description;  \
+        (__s)?(__s)->error:0;                                         \
+    })
+
+#define api_checkr(__r, __st) \
+    ({                       \
+        status __s = __st;\
+        if (nfs4_is_error(__s))  {__r->c->error_string = __s->description; deallocate_rpc(r); return __s->error;} \
+    })
 
 
 char *nfs4_error_string(nfs4 n)
@@ -24,16 +29,42 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes length)
     return NFS4_OK;
 }
 
-int nfs4_pwrite(nfs4_file f, void *dest, bytes offset, bytes length)
+int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
 {
     // size calc off by the headers
-    api_check(f->c, segment(write_chunk, f->c->maxreq, f, dest, offset, length));
+    api_check(f->c, segment(write_chunk, f->c->maxreq, f, source, offset, length));
     return NFS4_OK;    
+}
+
+
+int nfs4_append(nfs4_file f, void *source, bytes length)
+{
+    // an atomic append has to be .. atomic, so it has to
+    // fit in an option. it would be nice if we could
+    // bound this exactly. use a flag so that large
+    // non-contiguous or non-contending writes can proceed?
+    if (length > (f->c->maxreq - 100)) {
+        return api_check(f->c, error(NFS4_EFBIG, "request too large to preserve atomicity"));
+    }
+    
+    rpc r = allocate_rpc(f->c, f->c->forward);
+    push_op(r, OP_VERIFY);
+    struct nfs4_properties p;
+    push_fattr(r, &p);
+    buffer res = f->c->reverse;
+    api_check(f->c, transact(r, OP_WRITE, res));    
+}
+
+static status parse_filehandle_open(buffer b, buffer fh)
+{
+    verify_and_adv(b, OP_GETFH);
+    verify_and_adv(b, 0);
+    return parse_filehandle(b, fh);
 }
 
 int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
 {
-    nfs4_file f = allocate(s->h, sizeof(struct nfs4_file));
+    nfs4_file f = allocate(c->h, sizeof(struct nfs4_file));
     f->path = path;
     f->c = c;
     rpc r = allocate_rpc(f->c, f->c->forward);
@@ -42,17 +73,11 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
     push_open(r, final, flags, p);
     push_op(r, OP_GETFH);
     buffer res = f->c->reverse;    
-    status st = transact(r, OP_OPEN, res);
-    if (!nfs4_is_error(st)) {
-        st = parse_open(f, res);
-        if (!nfs4_is_error(st)) {
-            // xxx - checky
-            res->start += 8;
-            st = parse_filehandle(res, f->filehandle);
-        }
-    }
+    api_checkr(r, transact(r, OP_OPEN, res));
+    api_checkr(r, parse_open(f, res));
+    f->filehandle = allocate_buffer(c->h, NFS4_FHSIZE);
+    api_checkr(r, parse_filehandle_open(res, f->filehandle));
     deallocate_rpc(r);
-    api_check(c, st);
     *dest = f;
     return NFS4_OK;
 }
@@ -60,7 +85,6 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
 int nfs4_close(nfs4_file f)
 {
     deallocate(0, f, sizeof(struct nfs4_file));
-    
 }
 
 int nfs4_stat(nfs4 c, char *path, nfs4_properties dest)
@@ -71,27 +95,22 @@ int nfs4_stat(nfs4 c, char *path, nfs4_properties dest)
     push_resolution(r, path);
     push_op(r, OP_GETATTR);    
     buffer res = c->reverse;    
-    st = transact(r, OP_GETATTR, res);
-    if (!nfs4_is_error(st)) st = read_fattr(res, dest);
+    api_checkr(r, transact(r, OP_GETATTR, res));
+    api_checkr(r, read_fattr(res, dest));
     deallocate_rpc(r);    
-    api_check(c, st);
     return NFS4_OK;
 }
 
 int nfs4_fstat(nfs4_file f, nfs4_properties dest)
 {
-    status st = NFS4_OK;
-    rpc r = allocate_rpc(f->c, r->c->forward);
-    push_sequence(r);
-    push_op(r, OP_PUTFH);
-    push_string(r->b, buffer_ref(f->filehandle, 0), length(f->filehandle));
+    rpc r = file_rpc(f);
     push_op(r, OP_GETATTR);
     push_fattr_mask(r, STANDARD_PROPERTIES);
-    buffer res = f->c->reverse;    
-    api_check(f->c, transact(r, OP_GETATTR, res));
-    if (!nfs4_is_error(st)) st = read_fattr(res, dest);
+    buffer res = f->c->reverse;
+    // wrap reclaim rpc
+    api_checkr(r, transact(r, OP_GETATTR, res));
+    api_checkr(r, read_fattr(res, dest));
     deallocate_rpc(r);    
-    api_check(f->c, st);
     return NFS4_OK;
 }   
 
@@ -103,9 +122,8 @@ int nfs4_unlink(nfs4 c, char *path)
     push_op(r, OP_REMOVE);
     push_string(r->b, final, strlen(final));
     buffer res = r->c->reverse;
-    status s = transact(r, OP_REMOVE, res);
-    deallocate_rpc(r);
-    api_check(c, s);    
+    api_checkr(r, transact(r, OP_REMOVE, res));
+    deallocate_rpc(r);    
     return NFS4_OK;
 }
 
@@ -117,28 +135,31 @@ int nfs4_opendir(nfs4 c, char *path, nfs4_dir *dest)
     push_resolution(r, path);
     push_op(r, OP_GETFH);
     buffer res = c->reverse;    
-    api_check(c, transact(r, OP_GETFH, res));
+    api_checkr(r, transact(r, OP_GETFH, res));
     nfs4_dir d = allocate(0, sizeof(struct nfs4_dir));
     d->filehandle = allocate_buffer(0, NFS4_FHSIZE);
     d->entries = allocate_buffer(c->h, 4096);
-    api_check(c, parse_filehandle(res, d->filehandle));
+    api_checkr(r, parse_filehandle(res, d->filehandle));
     d->cookie = 0;
     memset(d->verifier, 0, sizeof(d->verifier));
     d->c = c;
     *dest = d;
+    deallocate_rpc(r);    
     return NFS4_OK;
 }
                       
 int nfs4_readdir(nfs4_dir d, nfs4_properties dest)
 {
-   int more;
-   if (d->complete) return NFS4_ENOENT;
-   if (length(d->entries)  == 0) {
-       api_check(d->c, rpc_readdir(d, d->entries));
-   }
-   // more could be in status
-   api_check(d->c, parse_dirent(d->entries, dest, &more, &d->cookie));
-   if (!more) d->complete = true;
+    int more = 1;
+    if (!d->complete)  {
+        if (length(d->entries)  == 0) 
+            api_check(d->c, rpc_readdir(d, d->entries));
+        // more could be in status
+        api_check(d->c, parse_dirent(d->entries, dest, &more, &d->cookie));
+        if (more) return NFS4_OK;
+        d->complete = true;
+    }
+    return NFS4_ENOENT;   
 }
 
 int nfs4_closedir(nfs4_dir d)
@@ -158,7 +179,8 @@ int nfs4_mkdir(nfs4 c, char *path, nfs4_properties p)
     char *term = push_initial_path(r, path);
     strncpy(real.name, term, strlen(term) + 1);
     push_create(r, &real);
-    api_check(c, transact(r, OP_CREATE, c->reverse));
+    api_checkr(r, transact(r, OP_CREATE, c->reverse));
+    deallocate_rpc(r);    
     return NFS4_OK;
 }
 
@@ -195,8 +217,9 @@ int nfs4_lock_range(nfs4_file f, int locktype, bytes offset, bytes length)
     push_owner(r);
 
     buffer res = f->c->reverse;
-    api_check(f->c, transact(r, OP_LOCK, res));
+    api_checkr(r, transact(r, OP_LOCK, res));
     parse_stateid(f->c, res, &f->latest_sid);
+    deallocate_rpc(r);
     return NFS4_OK;
 }
 
@@ -211,8 +234,9 @@ int nfs4_unlock_range(nfs4_file f, int locktype, bytes offset, bytes length)
     push_be64(r->b, offset);
     push_be64(r->b, length);
     buffer res = f->c->reverse;
-    api_check(f->c, transact(r, OP_LOCKU, res));
-    api_check(f->c, parse_stateid(f->c, res, &f->latest_sid));
+    api_checkr(r, transact(r, OP_LOCKU, res));
+    api_checkr(r, parse_stateid(f->c, res, &f->latest_sid));
+    deallocate_rpc(r);    
     return NFS4_OK;
 }
 

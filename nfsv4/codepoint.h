@@ -25,8 +25,8 @@ static inline char *codepoint_set_string(codepoint set, unsigned long flags)
 
 static inline char *codestring(codepoint set, unsigned int value)
 {
-    int i;
-    for (i=0; (set[i].description != "") && (set[i].value != value) ; i++);
+    int i = 0;
+    for ( i=0; (set[i].description != "") && (set[i].value != value) ; i++);
     if (set[i].description == ""){
         return "unknown error";
     } else {

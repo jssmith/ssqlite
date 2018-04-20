@@ -75,7 +75,40 @@ static struct codepoint nfsops[] = {
 {"SEEK"                 , 69},
 {"WRITE_SAME"           , 70},
 {"CLONE"                , 71},
-{"ILLEGAL"              , 10044}};
+{"ILLEGAL"              , 10044},
+{"", 0}};
+
+
+struct codepoint nfserrs[] = {
+    {"NFS4_OK",                                          0},
+    {"NFS4_EPERM    Operation not permitted",           -1},
+    {"NFS4_ENOENT   No such file or directory",         -2},
+    {"NFS4_EIO      I/O error",                         -5},
+    {"NFS4_ENXIO    No such device or address",         -6},
+    {"NFS4_EBADF    Bad file number",                   -9},
+    {"NFS4_EAGAIN   Try again",                        -11},
+    {"NFS4_ENOMEM   Out of memory",                    -12},
+    {"NFS4_EACCES   Permission denied",                -13},
+    {"NFS4_EFAULT   Bad address",                      -14},
+    {"NFS4_ENOTBLK  Block device required",            -15},
+    {"NFS4_EBUSY    Device or resource busy",          -16},
+    {"NFS4_EEXIST   File exists",                      -17},
+    {"NFS4_EXDEV    Cross-device link",                -18},
+    {"NFS4_ENODEV   No such device",                   -19},
+    {"NFS4_ENOTDIR  Not a directory",                  -20},
+    {"NFS4_EISDIR   Is a directory",                   -21},
+    {"NFS4_EINVAL   Invalid argument",                 -22},
+    {"NFS4_ENFILE   File table overflow",              -23},
+    {"NFS4_EMFILE   Too many open files",              -24},
+    {"NFS4_ETXTBSY  Text file busy",                   -26},
+    {"NFS4_EFBIG    File too large",                   -27},
+    {"NFS4_ENOSPC   No space left on device",          -28},
+    {"NFS4_ESPIPE   Illegal seek",                     -29},
+    {"NFS4_EROFS    Read-only file system",            -30},
+    {"NFS4_EMLINK   Too many links",                   -31},
+    {"NFS4_PROTOCOL protocol/framing error",           -32},
+    {"", 0}};
+
 
 static void toggle(void *a, buffer b)
 {
@@ -102,18 +135,16 @@ rpc allocate_rpc(nfs4 c, buffer b)
     push_be32(b, 4); //version
     push_be32(b, 1); //proc
     if (config_boolean("NFS_AUTH_NULL", false)) {
-        push_be32(b, 0); //auth
-        push_be32(b, 0); //authbody
+        push_auth_null(r->b);
     } else {
-        push_auth_sys(r);
+        push_auth_sys(r->b);
     }
-
-    push_be32(b, 0); //verf
-    push_be32(b, 0); //verf body kernel client passed the auth_sys structure
+    push_auth_null(r->b); // verf
 
     // v4 compound
     push_be32(b, 0); // tag
     push_be32(b, 1); // minor version
+    // this deferred count shows up elsewhere - wrap
     r->opcountloc = b->end;
     b->end += 4;
     r->c = c;
@@ -161,7 +192,7 @@ status parse_rpc(nfs4 c, buffer b, boolean *badsession)
     status s = completion_notify(c, xid);
     if (s) return(s);
         
-    verify_and_adv(b, 1); // reply
+    verify_and_adv(b, 1); // rpc reply
     
     u32 rpcstatus = read_beu32(b);
     if (rpcstatus != NFS4_OK) 
@@ -270,11 +301,15 @@ static status read_until(nfs4 c, buffer b, u32 which)
     int opcount = read_beu32(b);
     while (1) {
         int op =  read_beu32(b);
+        if (config_boolean("NFS_TRACE", false)) {
+            eprintf("received op: %s\n", codestring(nfsops, op));
+        }        
         if (op == which) {
             return NFS4_OK;
         }
         u32 code = read_beu32(b);
         if (code != 0) return error(NFS4_EINVAL, codestring(nfsstatus, code));
+
         switch (op) {
         case OP_SEQUENCE:
             b->start += NFS4_SESSIONID_SIZE; // 16
@@ -310,18 +345,13 @@ status base_transact(rpc r, int op, buffer result, boolean *badsession)
 {
     int myself = 0;
     enqueue_completion(r->c, r->xid, toggle, &myself);
-    status s = rpc_send(r);
-    if (s) return s;
+    check(rpc_send(r));
     result->start = result->end = 0;
-    s = read_response(r->c, result);
-    if (s) return s;
-    // should instead keep session alive
-    while (!myself) {
-        s = parse_rpc(r->c, result, badsession);
-        if (s) return s;
-    }
-    s = read_until(r->c, result, op);
-    if (s) return s;
+    check(read_response(r->c, result));
+    // drain the pipe, this should be per-slot
+    while (!myself) check(parse_rpc(r->c, result, badsession));
+
+    check(read_until(r->c, result, op));
     u32 code = read_beu32(result);
     if (code == 0) return NFS4_OK;
     return error(NFS4_EINVAL, codestring(nfsstatus, code));    
@@ -345,7 +375,7 @@ status exchange_id(nfs4 c)
 }
 
 
-status get_root_fh(nfs4 c)
+status get_root_fh(nfs4 c, buffer b)
 {
     rpc r = allocate_rpc(c, c->reverse);
     push_sequence(r);
@@ -354,12 +384,11 @@ status get_root_fh(nfs4 c)
     buffer res = c->reverse;
     boolean bs2;
     status st = base_transact(r, OP_GETFH, res, &bs2);
-    if (!nfs4_is_error(st)) {
+    if (nfs4_is_error(st)) {
         deallocate_rpc(r);
         return st;
     }
-    r->c->root_filehandle = allocate_buffer(0, NFS4_FHSIZE);
-    parse_filehandle(res, r->c->root_filehandle);
+    parse_filehandle(res, b);
     deallocate_rpc(r);
     if (!nfs4_is_error(st)) return st;
     return NFS4_OK;
@@ -516,6 +545,10 @@ status rpc_connection(nfs4 c)
     check(nfs4_connect(c));
     check(exchange_id(c));
     check(create_session(c));
+    if (!config_boolean("NFS_USE_PUTROOTFH", false)) {
+        c->root_filehandle = allocate_buffer(0, NFS4_FHSIZE);
+        get_root_fh(c, c->root_filehandle);
+    }
     return reclaim_complete(c);
 }
 

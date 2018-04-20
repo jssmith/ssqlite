@@ -44,7 +44,7 @@ struct nfs4 {
     buffer root_filehandle;
 };
 
-typedef struct  stateid {
+typedef struct stateid {
     u32 sequence;
     u8 opaque [NFS4_OTHER_SIZE];
 } *stateid;
@@ -208,5 +208,8 @@ static void fill_random(char* buffer, size_t len)
     }
 }
 
-void push_auth_sys(rpc r);
+
 status parse_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie);
+
+void push_auth_sys(buffer b);
+void push_auth_null(buffer b);

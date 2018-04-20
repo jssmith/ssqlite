@@ -57,6 +57,7 @@ void push_create_session(rpc r)
     push_channel_attrs(r); //forward
     push_channel_attrs(r); //return
     push_be32(r->b, NFS_PROGRAM);
+    //push_auth_sys(r->b);
     push_be32(r->b, 0); // auth params null
 }
 
@@ -68,17 +69,29 @@ void push_create_session(rpc r)
 
 
 
-void push_auth_sys(rpc r)
+void push_auth_null(buffer b)
 {
-    push_be32(r->b, 1);     // enum - AUTH_SYS
-    buffer temp = allocate_buffer(0, 24);
-    push_be32(temp, 0x01063369); // stamp
-    char host[] = "ip-172-31-27-113";
-    push_string(temp, host, sizeof(host)-1); // stamp 
-    push_be32(temp, 1000); // uid // not in the prop space ?
-    push_be32(temp, 1000); // gid
-    push_be32(temp, 0); // gids
-    push_string(r->b, temp->contents, length(temp));
+    push_be32(b, 0); // auth null
+    push_be32(b, 0); // auth null body length
+}
+
+void push_auth_sys(buffer b)
+{
+    char hostname[256];
+    gethostname(hostname, sizeof(hostname));
+    push_be32(b, AUTH_SYS);
+    b->end += 4;
+    int start = length(b);
+    // from rfc1057 pp 11
+    // The "stamp" is an arbitrary ID which the caller machine may generate.
+    push_be32(b, 0x01063369); 
+    push_string(b, hostname, strlen(hostname));
+    push_be32(b, 1000); // uid // not in the prop space ?
+    push_be32(b, 1000); // gid
+    push_be32(b, 1); // auxilliary gid set
+    push_be32(b, 0); // linux client did this (?)
+    // wrap me
+    *(u32 *)(b->contents + b->start + start -4) = htonl(length(b) - start);
 }
 
 
@@ -110,7 +123,6 @@ status parse_create_session(nfs4 c, buffer b)
 void push_sequence(rpc r)
 {
     push_op(r, OP_SEQUENCE);
-    printf ("push sequence: %d\n", r->c->sequence);
     push_session_id(r, r->c->session);
     push_be32(r->b, r->c->sequence);
     push_be32(r->b, 0x00000000);  // slotid
@@ -461,15 +473,25 @@ status read_fs4_status(buffer b)
     read_time(b, &version); //fss_version        
 }
 
+static void root(rpc r)
+{
+    if (config_boolean("NFS_USE_ROOTFH", true)) {
+        push_op(r, OP_PUTROOTFH);
+    } else {
+        dprintf("push fixed root %X\n", r->c->root_filehandle);
+        push_op(r, OP_PUTFH);
+        push_string(r->b, r->c->root_filehandle->contents, length(r->c->root_filehandle));
+    }
+}
+
 
 // dup w/ push resolution
 // assumes paths always start with slash
 char *push_initial_path(rpc r, char *path)
 {
     int offset = 1;
-    int i;
-    push_op(r, OP_PUTROOTFH);
-    for (i = offset; path[i]; i++) 
+    root(r);
+    for (int i = offset; path[i]; i++) 
         if (path[i] == '/') {
             push_op(r, OP_LOOKUP);
             push_string(r->b, path+offset, i-offset);            
@@ -480,12 +502,7 @@ char *push_initial_path(rpc r, char *path)
 
 void push_resolution(rpc r, char *path)
 {
-    if (config_boolean("NFS_USE_ROOTFH", true)) {
-        push_op(r, OP_PUTROOTFH);
-    } else {
-        push_op(r, OP_PUTFH);
-        push_string(r->b, r->c->root_filehandle->contents, length(r->c->root_filehandle));
-    }
+    root(r);
 
     int start = 0;
     if (path[0] == '/') path++;
@@ -512,7 +529,9 @@ status parse_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie)
     u32 present = read_beu32(b);
     if (!present) {
         boolean eof = read_beu32(b);
-        if (eof) *more = 0;            
+        if (eof) {
+            *more = 0;
+        }
     } else {
         *cookie = read_beu64(b);
         check(read_cstring(b, p->name, sizeof(p->name)));

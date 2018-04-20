@@ -46,7 +46,7 @@ client allocate_client(command commands)
 #define valueof(__x) ((void *)(((u64)__x)&~7))
 
 #define TAG(__X, __Y) ((void *)((unsigned long)__X | __Y))
-#define CHECK(__X, __Y) (tagof(x) == tag)?x:TAG(aprintf(0, "error"), ERROR_TAG)
+#define CHECK(__X, __Y) (tagof(x) == tag)?(valueof(x)):TAG(aprintf(0, "error"), ERROR_TAG)
 
 
 #define ncheck(__c, __code) if ((__code) != NFS4_OK) return(TAG(nfs4_error_string(__c->c), ERROR_TAG))
@@ -165,7 +165,7 @@ static value generate(client v, vector args)
         *(u8 *)(result->contents + result->start + i) = rand;
     }
     result->end = len;
-    return result;
+    return TAG(result, BUFFER_TAG);
 }
     
 static value create(client c, vector args)
@@ -201,7 +201,7 @@ static value read_command(client c, vector args)
     buffer b = allocate_buffer(0, n.size);
     ncheck(c, nfs4_pread(f, b->contents, 0, n.size));
     b->end  = n.size;
-    return b;
+    return TAG(b, BUFFER_TAG);
 }
 
 static value set_mode(client c, vector args)
@@ -231,11 +231,11 @@ static value write_command(client c, vector args)
     p.mask = NFS4_PROP_MODE;
     p.mode = 0666;
     ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_CREAT | NFS4_WRONLY, &p, &f));
-    // latent
-    buffer body = dispatch(c, args);
+    // could wire these up monadically
+    buffer body = dispatch_tag(c, BUFFER_TAG, args);
     ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, length(body)));
     nfs4_close(f);
-    return body;
+    return TAG(body, BUFFER_TAG);
 }
 
 static value conn(client c, vector args)
@@ -327,7 +327,7 @@ static value ls(client c, vector args)
         }
     }
     nfs4_closedir(d);
-    if (s != NFS4_ENOENT) error("mkdir error: %s\n", nfs4_error_string(c->c));
+    if (s != NFS4_ENOENT) error("readdir: %s\n", nfs4_error_string(c->c));
     return NFS4_OK;
 }
 
@@ -405,26 +405,49 @@ value dispatch(client c, vector n)
     error("no such command %b\n", command);
 }
 
+
+void print_value(value v)
+{
+    switch(tagof(v)) {
+    case ERROR_TAG:
+        printf ("error: %s\n", (char *) valueof(v));
+        return;
+
+    case BUFFER_TAG:
+        printf ("[%lld]\n", length(valueof(v)));
+        return;
+
+    default:
+        printf ("unknown tag: %ld\n", tagof(v));
+    }
+}
+
              
 int main(int argc, char **argv)
 {
     int s;
-    client c = allocate_client(nfs_commands);
-
-    if (argc == 1) {
-        if (!(server = getenv("NFS4_SERVER"))) {
-            error("must pass server as first argument or set NFS4_SERVER");
+    client c = 0;
+    vector commandline = allocate_vector(0, 10);
+    
+    if ((server = getenv("NFS4_SERVER"))) {
+        c = allocate_client(nfs_commands);
+        if (nfs4_create(server, &c->c)) {
+            printf ("open client fail\n");
         }
-    } else {
-        server = argv[1];
     }
 
-    if (nfs4_create(server, &c->c)) {
-        printf ("open client fail\n");
+    if (argc > 1) {
+        for (int i= 1; i <argc; i++) {
+            vector_push(commandline, wrap_string(0, argv[i]));
+        }
+        print_value(dispatch(c, commandline));
+        exit(0);
     }
+        
     buffer z = allocate_buffer(0, 100);
 
-    write(1, "> ", 2);
+    if (isatty(0))
+        write(1, "> ", 2);
 
     while (1) {
         char x;
@@ -437,19 +460,16 @@ int main(int argc, char **argv)
                 vector v = allocate_vector(0, 10);
                 split(v, 0, z, ' ');
                 ticks start = ktime();
-                value r = dispatch(c, v);
-                if (tagof(r) == ERROR_TAG) {
-                    printf ("error: %s\n", (char *) valueof(r));
-                }
+                print_value(dispatch(c, v));
                 
                 ticks total = ktime()- start;
-                // format with time
+                // add time to format
                 buffer b = allocate_buffer(0, 100);
                 print_ticks(b, total);
                 push_character(b, 0);
                 printf ("%s\n", (char *)b->contents);
                 z->start = z->end = 0;
-                write(1, "> ", 2);                
+                if (isatty(0)) write(1, "> ", 2);                
             }
         } else push_character(z, x);
     }

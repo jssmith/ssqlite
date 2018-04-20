@@ -696,5 +696,5 @@ enum layouttype4 {
 };
 
 #define AUTH_NONE 0
-#define AUTH_SYS 1
+#define AUTH_SYS 1 // linux calls this AUTH_UNIX
 
