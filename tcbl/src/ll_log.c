@@ -465,10 +465,9 @@ int bc_log_txn_commit(bc_log_h h)
                 we->commit_flag = 1;
             }
             rc = vfs_write(h->log->log_fh, buff, write_offs, log_entry_size);
+            if (rc) break;
             write_offs += log_entry_size;
-            bc_log_entry n = e->next;
             tcbl_free(NULL, e, log_entry_size);
-            break;
         }
         int unlockrc = vfs_lock(h->log->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
         h->txn_active = false;
