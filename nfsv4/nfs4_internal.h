@@ -60,7 +60,6 @@ struct nfs4_file {
     buffer filehandle;
     struct stateid latest_sid;
     struct stateid open_sid;
-    
 };
 
 #define DIR_FILE_BATCH_SIZE 32
@@ -117,10 +116,14 @@ struct rpc {
     u32 session_offset;
 };
 
+extern struct codepoint nfsops[];
+
 // should check client maxops and throw status
 static inline void push_op(rpc r, u32 op)
 {
     push_be32(r->b, op);
+    if (config_boolean("NFS_TRACE", false))
+        dprintf("pushed op: %C\n", nfsops, op);
     r->opcount++;
 }
 

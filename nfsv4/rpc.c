@@ -5,7 +5,6 @@
 #include <netinet/tcp.h>
 #include <errno.h>
 
-extern struct codepoint nfsops[];
 
 static void toggle(void *a, buffer b)
 {
@@ -198,9 +197,9 @@ static status read_until(nfs4 c, buffer b, u32 which)
     int opcount = read_beu32(b);
     while (1) {
         int op =  read_beu32(b);
-        if (config_boolean("NFS_TRACE", false)) {
-            eprintf("received op: %s\n", codestring(nfsops, op));
-        }        
+        if (config_boolean("NFS_TRACE", false)) 
+            dprintf("received op: %C\n",nfsops, op);
+
         if (op == which) {
             return NFS4_OK;
         }

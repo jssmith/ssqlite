@@ -353,13 +353,13 @@ status push_fattr(rpc r, nfs4_properties p)
 {
     buffer u = alloca_buffer(20);
     buffer g = alloca_buffer(20);    
-    // filter by supported types
     push_fattr_mask(r, p->mask);
     u64 len = 0;
 
     // a more general map of length functions, or an intermediate buffer
     if (p->mask & NFS4_PROP_MODE) len += 4;
-    if (p->mask & NFS4_PROP_TYPE) len += 4;    
+    if (p->mask & NFS4_PROP_TYPE) len += 4;
+    if (p->mask & NFS4_PROP_SIZE) len += 8;        
     if (p->mask & NFS4_PROP_UID) {
         format_number(u, p->user, 10, 1);
         len += 4 + pad(length(u), 4);
@@ -372,6 +372,7 @@ status push_fattr(rpc r, nfs4_properties p)
     
     if (p->mask & NFS4_PROP_TYPE) push_be32(r->b, p->type);
     if (p->mask & NFS4_PROP_MODE) push_be32(r->b, p->mode);
+    if (p->mask & NFS4_PROP_SIZE) push_be64(r->b, p->size);    
     if (p->mask & NFS4_PROP_UID)  push_string(r->b, u->contents, length(u));
     if (p->mask & NFS4_PROP_GID)  push_string(r->b, g->contents, length(g));
 

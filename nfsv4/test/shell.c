@@ -189,6 +189,7 @@ static value delete(client c, vector args)
     return 0;
 }
 
+// open read and open write?
 static value open_command(client c, vector args)
 {
     nfs4_file f;
@@ -347,10 +348,12 @@ static value ls(client c, vector args)
 
 static value truncate_command (client c, vector args)
 {
+    nfs4_file f;
+    ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_RDWRITE, 0, &f));    
     struct nfs4_properties p;
     p.mask = NFS4_PROP_SIZE;
     p.size = 0;
-    ncheck(c, nfs4_change_properties(c->c, relative_path(c, args), &p));
+    ncheck(c, nfs4_change_properties(f, &p));
     return NFS4_OK;
 }
 
@@ -361,6 +364,16 @@ static value mkdir_command (client c, vector args)
     // merge properties default and null
     ncheck(c, nfs4_mkdir(c->c, relative_path(c, args), &p));    
     return allocate_buffer("", 0);
+}
+
+static value enable_trace (client c, vector args)
+{
+    setenv("NFS_PACKET_TRACE", "true", true);
+    setenv ("NFS_TRACE", "true", true);
+    value v =  dispatch (c, args);
+    unsetenv("NFS_PACKET_TRACE");
+    unsetenv("NFS_TRACE");
+    return v;
 }
 
 
@@ -399,7 +412,8 @@ static struct command nfs_commands[] = {
     {"chown", set_owner, ""},
     {"conn", conn, ""},
     {"local", local, ""},    
-    {"compare", compare, ""},    
+    {"compare", compare, ""},
+    {"trace", enable_trace, ""},        
     {"lock", lock, ""},
     {"truncate", truncate_command, ""},                        
     {"unlock", unlock, ""},                            

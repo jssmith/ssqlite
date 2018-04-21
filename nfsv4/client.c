@@ -55,7 +55,7 @@ int nfs4_append(nfs4_file f, void *source, bytes length)
     api_check(f->c, transact(r, OP_WRITE, res));    
 }
 
-static status parse_filehandle_open(buffer b, buffer fh)
+static status parse_getfilehandle(buffer b, buffer fh)
 {
     verify_and_adv(b, OP_GETFH);
     verify_and_adv(b, 0);
@@ -76,7 +76,7 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
     api_checkr(r, transact(r, OP_OPEN, res));
     api_checkr(r, parse_open(f, res));
     f->filehandle = allocate_buffer(c->h, NFS4_FHSIZE);
-    api_checkr(r, parse_filehandle_open(res, f->filehandle));
+    api_checkr(r, parse_getfilehandle(res, f->filehandle));
     deallocate_rpc(r);
     *dest = f;
     return NFS4_OK;
@@ -200,14 +200,16 @@ int nfs4_synch(nfs4 c)
 
 // length -> 0 means truncate
 // rename should also be here
-int nfs4_change_properties(nfs4 c, char *path, nfs4_properties p)
+// its turns out... that since modifying the size attribute is
+// semantically the same as a write, that we need to have
+// an open file stateid. we could try to hide that, but ...
+int nfs4_change_properties(nfs4_file f, nfs4_properties p)
 {
-    rpc r = allocate_rpc(c, c->forward);
-    push_sequence(r);
-    push_resolution(r, path);
+    rpc r = file_rpc(f);
     push_op(r, OP_SETATTR);
+    push_stateid(r, &f->latest_sid);
     push_fattr(r, p);
-    api_checkr(r, transact(r, OP_SETATTR, c->reverse));
+    api_checkr(r, transact(r, OP_SETATTR, f->c->reverse));
     return NFS4_OK;
 }
 
