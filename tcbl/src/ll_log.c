@@ -431,12 +431,21 @@ int bc_log_txn_begin(bc_log l, bc_log_h h)
     // read offset of the last committed record
     h->txn_offset = log_size;
     h->read_entry = tcbl_malloc(NULL, sizeof(struct bc_log_entry) + l->page_size);
+    h->txn_active = true;
     return rc;
 }
 
 int bc_log_txn_commit(bc_log_h h)
 {
-    int rc;
+    int rc = TCBL_OK;
+    if (!h->txn_active) {
+        return TCBL_NO_TXN_ACTIVE;
+    }
+    if (h->added_entries == NULL) {
+        h->txn_active = false;
+        return TCBL_OK;
+    }
+
     size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
     // Write out everything
     SGLIB_LIST_REVERSE(struct bc_log_entry, h->added_entries, next);
@@ -445,24 +454,26 @@ int bc_log_txn_commit(bc_log_h h)
     bc_log_entry we = (bc_log_entry) buff;
     size_t write_offs = h->txn_offset;
     bc_log_entry e;
-    do {
-        e = h->added_entries;
-        SGLIB_LIST_DELETE(struct bc_log_entry, h->added_entries, e, next);
-        // TODO go faster by merging writes
-        memcpy(we, e, log_entry_size);
-        we->lsn = 1;
-        if (!e->next) {
-            we->commit_flag = 1;
+    if (h->added_entries) {
+        while (h->added_entries) {
+            e = h->added_entries;
+            SGLIB_LIST_DELETE(struct bc_log_entry, h->added_entries, e, next);
+            // TODO go faster by merging writes
+            memcpy(we, e, log_entry_size);
+            we->lsn = 1;
+            if (!e->next) {
+                we->commit_flag = 1;
+            }
+            rc = vfs_write(h->log->log_fh, buff, write_offs, log_entry_size);
+            write_offs += log_entry_size;
+            bc_log_entry n = e->next;
+            tcbl_free(NULL, e, log_entry_size);
+            break;
         }
-        rc = vfs_write(h->log->log_fh, buff, write_offs, log_entry_size);
-        write_offs += log_entry_size;
-        bc_log_entry n = e->next;
-        tcbl_free(NULL, e, log_entry_size);
-        e = n;
-        if (rc) goto exit;
-    } while (e != NULL);
-    exit:
-    rc = vfs_lock(h->log->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
+        int unlockrc = vfs_lock(h->log->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
+        h->txn_active = false;
+        return rc ? rc : unlockrc;
+    }
     return rc;
 }
 
@@ -471,14 +482,19 @@ int bc_log_txn_abort(bc_log_h h) {
     size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
     bc_log_entry e;
 
+    if (!h->txn_active) {
+        return TCBL_NO_TXN_ACTIVE;
+    }
+
     if (h->added_entries) {
         while (h->added_entries) {
-        e = h->added_entries;
-        SGLIB_LIST_DELETE(struct bc_log_entry, h->added_entries, e, next);
-        tcbl_free(NULL, e, log_entry_size);
+            e = h->added_entries;
+            SGLIB_LIST_DELETE(struct bc_log_entry, h->added_entries, e, next);
+            tcbl_free(NULL, e, log_entry_size);
         }
         rc = vfs_lock(h->log->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
     }
+    h->txn_active = false;
     return rc;
 }
 

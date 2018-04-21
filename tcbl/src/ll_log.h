@@ -152,6 +152,7 @@ typedef struct bc_log_entry {
 
 typedef struct bc_log_h {
     bc_log log;
+    bool txn_active;
     size_t txn_offset;
     bc_log_entry added_entries;
     bc_log_entry read_entry;
