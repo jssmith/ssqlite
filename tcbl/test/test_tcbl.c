@@ -790,7 +790,7 @@ static void fuzz_updates_direct(void **state) {
     bool shared_memvfs = true;
     bool memvfs_only = false;
     bool ignore_checkpoint_failure = true;
-    int num_testers = 2;
+    int num_testers = 1;
 //    int num_testers = 20;
     // end configuration
 
@@ -851,7 +851,7 @@ static void fuzz_updates_direct(void **state) {
             }
         }
 
-        if (false && num_testers == 1) {
+        if (num_testers == 1) {
             struct fuzz_update_args args;
             args.fh = fh[1];
             args.block_size = block_size;
@@ -2158,8 +2158,8 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_conflict, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint, tcbl_setup_1fh, tcbl_teardown_1fh),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity, tcbl_setup_1fh, tcbl_teardown_1fh),
-//        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
-//        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
+        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
     };
     printf("\ntcbl tests\n");
     rc = cmocka_run_group_tests(tcbl_tests, NULL, NULL);
@@ -2181,9 +2181,11 @@ int main(void)
     printf("\nfuzz tests - concurrent\n");
     rc = cmocka_run_group_tests(fuzz_vfs_tests_concurrent, generic_pre_group_tcbl_commit_concurrent, generic_post_group);
 
-    const struct CMUnitTest fuzz_direct_tests[] = {
-        cmocka_unit_test(fuzz_updates_direct),
-    };
-    rc = cmocka_run_group_tests(fuzz_direct_tests, NULL, NULL);
+//    const struct CMUnitTest fuzz_direct_tests[] = {
+//        cmocka_unit_test(fuzz_updates_direct),
+//    };
+    // TODO what is this supposed to mean? rename it
+//    printf("\nfuzz tests - direct\n");
+//    rc = cmocka_run_group_tests(fuzz_direct_tests, NULL, NULL);
     return rc;
 }
