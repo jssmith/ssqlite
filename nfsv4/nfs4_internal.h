@@ -11,13 +11,16 @@
 static int nfs4_is_error(status s) {return s?1:0;}
 
 
-static inline status error(int code, char* description, ...)
+static inline status error(int code, char* fmt, ...)
 {
     status st = allocate(0, sizeof(struct status));
     st->error = code;
     // double fault
     st->description = allocate_buffer(0, 100);
-    push_bytes(st->description, description, strlen(description));
+    va_list ap;
+    va_start(ap, fmt);
+    buffer f = alloca_wrap_buffer(fmt, strlen(fmt));
+    vbprintf(st->description, f, ap);    
     return st;
 }
 
@@ -111,6 +114,7 @@ struct rpc {
     bytes opcountloc;
     int opcount;
     buffer b;
+    u32 session_offset;
 };
 
 // should check client maxops and throw status
@@ -125,7 +129,7 @@ void push_bare_sequence(rpc r);
 void push_lock_sequence(rpc r);
 
 // pull in printf - "%x not equal to %x!\n", v, v2"
-#define verify_and_adv(__b , __v) { u32 v2 = read_beu32(__b); if (__v != v2) return error(NFS4_PROTOCOL, "encoding mismatch");}
+#define verify_and_adv(__b , __v) { u32 v2 = read_beu32(__b); if (__v != v2) return error(NFS4_PROTOCOL, "encoding mismatch expected %x got %x at %s:%d", __v, v2, __FILE__, (u64)__LINE__);}
 
 
 typedef u64 clientid;

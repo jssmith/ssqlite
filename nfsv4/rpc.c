@@ -80,15 +80,15 @@ static status completion_notify(nfs4 c, u32 xid)
     // compaction
     while (vector_length(p) && !vector_get(p, vector_length(p)-3))
         p->end -= 3*sizeof (void *);
+    return NFS4_OK;
 }
 
 status parse_rpc(nfs4 c, buffer b, boolean *badsession)
 {
     *badsession = false;
     u32 xid = read_beu32(b);
-    status s = completion_notify(c, xid);
-    if (s) return(s);
-        
+    check(completion_notify(c, xid));
+
     verify_and_adv(b, 1); // rpc reply
     
     u32 rpcstatus = read_beu32(b);
@@ -120,7 +120,7 @@ static status read_fully(int fd, void* buf, size_t nbyte)
     char* ptr = buf;
     while (sz_read < nbyte) {
         ssize_t bread = read(fd, ptr, nbyte);
-        if (bread == -1) {
+        if (bread <= 0) {
             return error(NFS4_EIO,  strerror(errno));
         } else {
             sz_read += bread;
@@ -246,8 +246,8 @@ status base_transact(rpc r, int op, buffer result, boolean *badsession)
     result->start = result->end = 0;
     check(read_response(r->c, result));
     // drain the pipe, this should be per-slot
+    // this needs to parse the entire* message
     while (!myself) check(parse_rpc(r->c, result, badsession));
-
     check(read_until(r->c, result, op));
     u32 code = read_beu32(result);
     if (code == 0) return NFS4_OK;
@@ -257,17 +257,15 @@ status base_transact(rpc r, int op, buffer result, boolean *badsession)
 
 static status replay_rpc(rpc r)
 {
-    // ok sad, framer + xid + call + rpc + program + version + proc + auth + authbody + verf + verf2
-    // tag + minor + opcount + sequence op
-    // verify that we're starting with a sequence, which should always be the case
-    // except for exchangeid and create session
-    u32 offset = 4 * 15;
-    memcpy(r->b->contents + offset, r->c->session, NFS4_SESSIONID_SIZE);
+    memcpy(r->b->contents + r->session_offset, r->c->session, NFS4_SESSIONID_SIZE);
     u32 nseq = htonl(r->c->sequence);
     r->c->sequence++;
-    memcpy(r->b->contents + offset + NFS4_SESSIONID_SIZE, &nseq, 4);
-    u32 nxid = htonl(++r->c->xid);
-    memcpy(r->b->contents + 4, &nxid, 4);    
+    memcpy(r->b->contents + r->session_offset + NFS4_SESSIONID_SIZE, &nseq, 4);
+    r->xid = ++r->c->xid;
+    r->b->start = 0;
+    u32 nxid = htonl(r->xid);
+    memcpy(r->b->contents + r->b->start +4, &nxid, 4);
+    return NFS4_OK;
 }
 
 status transact(rpc r, int op, buffer result)
@@ -276,15 +274,17 @@ status transact(rpc r, int op, buffer result)
     boolean badsession = true;
     status s;
     
-    while ((tries < 2 ) && (badsession == true)) {
+    while ((tries < 2) && (badsession == true)) {
         // xxx - if there are outstanding operations on the
         // old connection .. a late synch() will never
         // complete
         s = base_transact(r, op, result, &badsession);
         if (badsession) {
-            status s2 = rpc_connection(r->c);
-            if (s2) return s2;
+            check(rpc_connection(r->c));
+            if (config_boolean("NFS_TRACE", false))
+                eprintf("session failure, attempting to reestablish\n");
             replay_rpc(r);
+            result->start = result->end = 0;
             tries++;
         }
     }

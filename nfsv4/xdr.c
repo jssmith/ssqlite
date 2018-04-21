@@ -122,6 +122,7 @@ status parse_create_session(nfs4 c, buffer b)
 void push_sequence(rpc r)
 {
     push_op(r, OP_SEQUENCE);
+    r->session_offset = r->b->end; // is this always safe?
     push_session_id(r, r->c->session);
     push_be32(r->b, r->c->sequence);
     push_be32(r->b, 0x00000000);  // slotid

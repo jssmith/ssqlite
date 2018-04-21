@@ -1,18 +1,21 @@
 #include <nfs4_internal.h>
 
+
+#define checkr(__r, __st) \
+    ({                       \
+        status __s = __st;\
+        if (nfs4_is_error(__s))  {deallocate_rpc(__r); return __s;} \
+    })
+
+
 status exchange_id(nfs4 c)
 {
     rpc r = allocate_rpc(c, c->reverse);
     push_exchange_id(r);
     buffer res = c->reverse;
     boolean bs;
-    status st = base_transact(r, OP_EXCHANGE_ID, res, &bs);
-    if (st) {
-        deallocate_rpc(r);    
-        return st;
-    }
-    st = parse_exchange_id(c, res);
-    if (st) return st;
+    checkr(r, base_transact(r, OP_EXCHANGE_ID, res, &bs));
+    checkr(r, parse_exchange_id(c, res));
     deallocate_rpc(r);
     return NFS4_OK;
 }
@@ -26,14 +29,9 @@ status get_root_fh(nfs4 c, buffer b)
     push_op(r, OP_GETFH);
     buffer res = c->reverse;
     boolean bs2;
-    status st = base_transact(r, OP_GETFH, res, &bs2);
-    if (nfs4_is_error(st)) {
-        deallocate_rpc(r);
-        return st;
-    }
+    checkr(r, base_transact(r, OP_GETFH, res, &bs2));
     parse_filehandle(res, b);
     deallocate_rpc(r);
-    if (!nfs4_is_error(st)) return st;
     return NFS4_OK;
 }
 
@@ -44,13 +42,9 @@ status create_session(nfs4 c)
     r->c->lock_sequence = 1;
     push_create_session(r);
     buffer res = c->reverse;
-    status st = transact(r, OP_CREATE_SESSION, res);
-    if (st) {
-        deallocate_rpc(r);    
-        return st;
-    }    
-    st = parse_create_session(c, res);
-    if (st) return st;
+    boolean trash;
+    checkr(r, base_transact(r, OP_CREATE_SESSION, res, &trash));
+    checkr(r, parse_create_session(c, res));
     deallocate_rpc(r);
     return NFS4_OK;
 }
@@ -102,7 +96,6 @@ status write_chunk(nfs4_file f, void *source, u64 offset, u32 length)
     return transact(r, OP_WRITE, b);
 }
 
-
 status segment(status (*each)(nfs4_file, void *, u64, u32),
             int chunksize,
             nfs4_file f,
@@ -112,13 +105,11 @@ status segment(status (*each)(nfs4_file, void *, u64, u32),
 {
     for (u32 done = 0; done < length;) {
         u32 xfer = MIN(length - done, chunksize);
-        status s = each(f, x + done, offset+done, xfer);
-        if (s) return s;
+        check(each(f, x + done, offset+done, xfer));
         done += xfer;
     }
     return NFS4_OK;
 }
-
 
 status reclaim_complete(nfs4 c)
 {
@@ -127,11 +118,9 @@ status reclaim_complete(nfs4 c)
     push_op(r, OP_RECLAIM_COMPLETE);
     push_be32(r->b, 0);
     boolean bs;
-    status st = base_transact(r, OP_RECLAIM_COMPLETE, c->reverse, &bs);
-    deallocate_rpc(r);        
-    return st;
+    checkr(r, base_transact(r, OP_RECLAIM_COMPLETE, c->reverse, &bs));
+    return NFS4_OK;
 }
-
 
 status rpc_connection(nfs4 c)
 {

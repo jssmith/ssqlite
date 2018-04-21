@@ -261,7 +261,6 @@ int nfs4_create(char *hostname, nfs4 *dest)
     
     c->hostname = allocate_buffer(0, strlen(hostname) + 1);
     push_bytes(c->hostname, hostname, strlen(hostname));
-    // guarenteed to have room
     push_character(c->hostname, 0);
 
     c->h = 0;
