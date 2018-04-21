@@ -24,6 +24,7 @@ static void print_data(void* data, size_t len)
 }
 #endif
 
+/*
 int tcbl_mem_init(tcbl_mem mem, size_t len)
 {
     if (len > 0) {
@@ -383,6 +384,7 @@ int tcbl_log_close(tcbl_log_h lh)
 int tcbl_log_free(tcbl_log log) {
     return log->ops.x_free(log);
 }
+*/
 
 //////////////////////////
 

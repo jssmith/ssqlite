@@ -11,6 +11,7 @@
 #define LL_LOG_ENTRY_BEGIN          3
 #define LL_LOG_ENTRY_TRY_COMMIT     4
 
+/*
 typedef struct tcbl_mem {
     size_t len;
     void* data;
@@ -95,7 +96,7 @@ struct tcbl_log {
 int tcbl_log_open(tcbl_log, tcbl_log_h);
 //int tcbl_log_branch_offs(tcbl_log_h, tcbl_log_offs *);
 int tcbl_log_length(tcbl_log l, tcbl_log_offs *out_offs);
-int tcbl_log_meld(tcbl_log_h /*, size_t *offs_out */);
+int tcbl_log_meld(tcbl_log_h);
 int tcbl_log_meld_offs(tcbl_log_h, size_t offs);
 int tcbl_log_reset(tcbl_log_h);
 int tcbl_log_append(tcbl_log_h, ll_log_entry);
@@ -127,6 +128,8 @@ typedef struct tcbl_log_h_mem {
 
 int tcbl_log_init_mem(tcbl_log, size_t block_size);
 
+size_t ll_log_entry_size(tcbl_log log, ll_log_entry entry);
+*/
 
 /*
  * The block change log provides access by block id. For now we have just one simple
@@ -168,8 +171,5 @@ int bc_log_txn_abort(bc_log_h);
 int bc_log_write(bc_log_h, size_t offs, void* data, size_t newlen);
 int bc_log_read(bc_log_h, size_t offs, bool *found_data, void** out_data, size_t *out_newlen);
 int bc_log_length(bc_log_h, bool *found_size, size_t *out_size);
-
-
-size_t ll_log_entry_size(tcbl_log log, ll_log_entry entry);
 
 #endif // TCBL_LL_LOG_H

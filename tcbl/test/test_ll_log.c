@@ -8,6 +8,7 @@
 #define LOG_TYPE_MEM = 1
 #define LOG_TYPE_SER = 2
 
+/*
 typedef struct ll_log_test_env {
     struct tcbl_log_mem log_mem;
     tcbl_log_h h[MAX_HANDLES];
@@ -344,7 +345,7 @@ static int generic_post_group(void **state)
     tcbl_free(NULL, env, sizeof(struct ll_log_test_env));
     return 0;
 }
-
+*/
 typedef struct bc_log_test_env {
     struct bc_log log;
     vfs vfs;
@@ -425,6 +426,7 @@ static int generic_post_group_bc(void **state)
 int main(void) {
     int rc = 0;
     bool stop_on_error = true;
+    /*
     const struct CMUnitTest ll_log_tests[] = {
             cmocka_unit_test_setup_teardown(test_nothing, NULL, NULL),
             cmocka_unit_test_setup_teardown(test_nothing, generic_setup_1h, NULL),
@@ -434,6 +436,7 @@ int main(void) {
     };
     rc = cmocka_run_group_tests(ll_log_tests, generic_pre_group_mem, generic_post_group);
     if (stop_on_error && rc) return rc;
+     */
 
     const struct CMUnitTest bc_log_tests[] = {
             cmocka_unit_test_setup_teardown(bc_test_nothing, NULL, NULL),
