@@ -790,7 +790,8 @@ static void fuzz_updates_direct(void **state) {
     bool shared_memvfs = true;
     bool memvfs_only = false;
     bool ignore_checkpoint_failure = true;
-    int num_testers = 20;
+    int num_testers = 2;
+//    int num_testers = 20;
     // end configuration
 
     int tester_offset = shared_memvfs ? 1 : 0;
@@ -839,7 +840,8 @@ static void fuzz_updates_direct(void **state) {
     }
 
     // make this multithreaded
-    int checkpoint_interval = 13;
+//    int checkpoint_interval = 13;
+    int checkpoint_interval = 1000000000;
     unsigned seed_seq = 123;
     for (int n = 0; n < 100; n++) {
         // verify integrity
@@ -2156,14 +2158,14 @@ int main(void)
         cmocka_unit_test_setup_teardown(test_tcbl_txn_2fh_conflict, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint, tcbl_setup_1fh, tcbl_teardown_1fh),
         cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity, tcbl_setup_1fh, tcbl_teardown_1fh),
-        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
-        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
+//        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_1vfs, tcbl_teardown_2fh_1vfs),
+//        cmocka_unit_test_setup_teardown(test_tcbl_txn_checkpoint_activity_2, tcbl_setup_2fh_2vfs, tcbl_teardown_2fh_2vfs),
     };
     printf("\ntcbl tests\n");
     rc = cmocka_run_group_tests(tcbl_tests, NULL, NULL);
     if (stop_on_error && rc) return rc;
 
-/*
+
     printf("\nfuzz tests\n");
     const struct CMUnitTest fuzz_vfs_tests[] = {
         cmocka_unit_test_setup_teardown(test_paired_updates, generic_setup_1fh, generic_teardown),
@@ -2178,10 +2180,10 @@ int main(void)
     };
     printf("\nfuzz tests - concurrent\n");
     rc = cmocka_run_group_tests(fuzz_vfs_tests_concurrent, generic_pre_group_tcbl_commit_concurrent, generic_post_group);
-*/
-//    const struct CMUnitTest fuzz_direct_tests[] = {
-//        cmocka_unit_test(fuzz_updates_direct),
-//    };
-//    rc = cmocka_run_group_tests(fuzz_direct_tests, NULL, NULL);
+
+    const struct CMUnitTest fuzz_direct_tests[] = {
+        cmocka_unit_test(fuzz_updates_direct),
+    };
+    rc = cmocka_run_group_tests(fuzz_direct_tests, NULL, NULL);
     return rc;
 }

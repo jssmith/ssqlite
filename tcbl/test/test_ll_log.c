@@ -411,7 +411,7 @@ static int generic_pre_group_bc(void **state)
     bc_log_test_env env = tcbl_malloc(NULL, sizeof(struct bc_log_test_env));
     *state = env;
     memvfs_allocate(&env->vfs);
-    bc_log_create(&env->log, env->vfs, "TEST", TCBL_TEST_PAGE_SIZE);
+    bc_log_create(&env->log, env->vfs, NULL, "TEST", TCBL_TEST_PAGE_SIZE);
     return 0;
 }
 

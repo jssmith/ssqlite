@@ -407,12 +407,12 @@ static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
     }
     fh->vfs = vfs;
     fh->underlying_fh = NULL;
-//    fh->txn_log_h = NULL;
-    bc_log_create(&fh->txn_log, tcbl_vfs->underlying_vfs, file_name, tcbl_vfs->page_size);
-
     fh->txn_active = NULL;
 
     rc = vfs_open(tcbl_vfs->underlying_vfs, file_name, &fh->underlying_fh);
+    if (rc) goto exit;
+
+    rc = bc_log_create(&fh->txn_log, tcbl_vfs->underlying_vfs, fh->underlying_fh, file_name, tcbl_vfs->page_size);
     if (rc) goto exit;
 
     *file_handle_out = (vfs_fh) fh;
@@ -764,8 +764,7 @@ static int tcbl_checkpoint(vfs_fh file_handle)
         // for bugs.
         return TCBL_TXN_ACTIVE;
     }
-//    return bc_log_checkpoint(&((tcbl_vfs) fh->vfs)->log);
-    return TCBL_NOT_IMPLEMENTED;
+    return bc_log_checkpoint(&fh->txn_log);
 }
 
 static int tcbl_freevfs(vfs vfs)

@@ -245,23 +245,22 @@ static int memvfs_write(vfs_fh file_handle, const void *buff, size_t offset, siz
 
 static int memvfs_lock(vfs_fh file_handle, int lock_operation)
 {
-    lock((memvfs) file_handle->vfs);
+//    lock((memvfs) file_handle->vfs);
     int rc;
     struct memvfs_fh *fh = (struct memvfs_fh *) file_handle;
     if (lock_operation & VFS_LOCK_UN) {
         // unlock
         int lock_op_req = lock_operation & 0x03;
-        if (fh->lock_mode == lock_op_req) {
-            rc = pthread_rwlock_unlock(&fh->memvfs_file->lock);
-            if (rc) {
-                rc = TCBL_IO_ERROR;
-                goto exit;
-            }
-            fh->lock_mode = 0;
-        } else {
+        if (fh->lock_mode != lock_op_req) {
             rc = TCBL_BAD_ARGUMENT;
             goto exit;
         }
+        rc = pthread_rwlock_unlock(&fh->memvfs_file->lock);
+        if (rc) {
+            rc = TCBL_IO_ERROR;
+            goto exit;
+        }
+        fh->lock_mode = 0;
     } else {
         // lock
         int lock_op_req = lock_operation & 0x03;
@@ -286,7 +285,7 @@ static int memvfs_lock(vfs_fh file_handle, int lock_operation)
         }
     }
     exit:
-    unlock((memvfs) file_handle->vfs);
+//    unlock((memvfs) file_handle->vfs);
     return rc;
 }
 
