@@ -41,32 +41,6 @@ static void gen_log_file_name(const char *file_name, char *log_file_name)
     strcpy(log_file_name, file_name);
     strcpy(&log_file_name[strlen(file_name)], "-log");
 }
-/*
-int tlog_delete_v1(tlog log)
-{
-    return TCBL_NOT_IMPLEMENTED;
-}
-
-int tlog_close_v1(tlog log)
-{
-    return TCBL_OK;
-}
-
-int tlog_entry_ct_v1(tlog log, uint64_t *log_entry_ct_out)
-{
-    return TCBL_NOT_IMPLEMENTED;
-}
-
-int tlog_begin_v1(tlog log)
-{
-    return TCBL_NOT_IMPLEMENTED;
-}
-
-int tlog_commit_v1(tlog log)
-{
-    return TCBL_NOT_IMPLEMENTED;
-}
-*/
 
 typedef void *tlog;
 
@@ -434,7 +408,7 @@ static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
     fh->vfs = vfs;
     fh->underlying_fh = NULL;
 //    fh->txn_log_h = NULL;
-    bc_log_create(&fh->txn_log, file_name, tcbl_vfs->page_size);
+    bc_log_create(&fh->txn_log, tcbl_vfs->underlying_vfs, file_name, tcbl_vfs->page_size);
 
     fh->txn_active = NULL;
 
@@ -459,12 +433,7 @@ static int tcbl_delete(vfs vfs, const char *file_name)
         return rc;
     }
 
-    // TODO need to delete associated log files
-    size_t log_fn_len = tcbl_log_filename_len(file_name);
-    char log_file_name[log_fn_len + 1];
-    gen_log_file_name(file_name, log_file_name);
-
-    return vfs_delete(tcbl_vfs->underlying_vfs, log_file_name);
+    return bc_log_delete(tcbl_vfs->underlying_vfs, file_name);
 }
 
 static int tcbl_exists(vfs vfs, const char *file_name, int *out)
@@ -483,10 +452,6 @@ static int tcbl_close(vfs_fh file_handle)
     }
     tcbl_free(NULL, fh, sizeof(struct tcbl_fh));
     return rc1 == TCBL_OK ? rc2 : rc1;
-}
-
-static int tcbl_change_log_cmp(change_log_entry l1, change_log_entry l2) {
-    return l1->offset < l2->offset ? -1 : l1->offset == l2->offset ? 0 : 1;
 }
 
 static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
@@ -518,10 +483,16 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
     while (read_offset < block_offset + block_len) {
         bool found_data;
         void *p;
-        rc = bc_log_read(&fh->txn_log_h, read_offset, &found_data, &p);
+        size_t found_newlen;
+        rc = bc_log_read(&fh->txn_log_h, read_offset, &found_data, &p, &found_newlen);
         if (rc) goto txn_end;
         if (found_data) {
             memcpy(dst, &((char *) p)[block_begin_skip], block_read_size);
+            if (found_newlen < block_offset + block_begin_skip + block_read_size) {
+                bounds_error = true;
+            } else {
+                bounds_error = false;
+            }
         } else {
             rc = vfs_read(fh->underlying_fh, buff, read_offset, page_size);
             if (rc == TCBL_BOUNDS_CHECK) {
@@ -533,6 +504,8 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
                 } else {
                     bounds_error = false;
                 }
+            } else if (rc == TCBL_OK) {
+                bounds_error = false;
             }
             if (!(rc == TCBL_OK || rc == TCBL_BOUNDS_CHECK)) {
                 goto txn_end;
@@ -540,38 +513,6 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
             memcpy(dst, &buff[block_begin_skip], block_read_size);
         }
 
-/*
-        change_log_entry result;
-        struct change_log_entry search_record = {
-            read_offset
-        };
-        // check changes in the current transaction
-        SGLIB_LIST_FIND_MEMBER(struct change_log_entry, fh->change_log, &search_record, tcbl_change_log_cmp, next, result);
-        if (result) {
-            memcpy(dst, &result->data[block_begin_skip], block_read_size);
-            bounds_error = false;
-            goto next_block;
-        }
-        // check the log for this block
-        bool found_block;
-        change_log_entry log_page = (change_log_entry) &buff;
-        rc = tlog_find_block(fh->log, &found_block, log_page, fh->txn_begin_log_entry_ct, read_offset);
-        if (rc) {
-            goto txn_end;
-        } else {
-            if (found_block) {
-                memcpy(dst, &log_page->data[block_begin_skip], block_read_size);
-                if (log_page->newlen < offset + len) {
-                    bounds_error = true;
-                } else {
-                    bounds_error = false;
-                }
-                goto next_block;
-            }
-        }
-*/
-
-//        next_block:
         dst += block_read_size;
         read_offset += page_size;
         block_begin_skip = 0;
@@ -713,8 +654,7 @@ static int tcbl_write(vfs_fh file_handle, const void* data, size_t offset, size_
                 memset(buff, 0, page_size);
             }
         }
-//            memcpy(&log_record->data[block_begin_skip], src, block_write_size);
-//            SGLIB_LIST_ADD(struct change_log_entry, fh->change_log, log_record, next);
+        memcpy(&buff[block_begin_skip], src, block_write_size);
         bc_log_write(&fh->txn_log_h, write_offset, buff, newlen);
 
         src += block_write_size;

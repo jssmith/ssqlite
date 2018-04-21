@@ -21,6 +21,12 @@ int cfh_write(vfs_fh fh, const void *data, size_t offset, size_t len)
     return cfh->env->after_change(cfh->orig_fh);
 }
 
+int cfh_lock(vfs_fh fh, int lock_operation)
+{
+    change_fh cfh = (change_fh) fh;
+    return vfs_lock(cfh->orig_fh, lock_operation);
+}
+
 int cfh_file_size(vfs_fh fh, size_t* size_out)
 {
     change_fh cfh = (change_fh) fh;
@@ -53,6 +59,7 @@ void create_change_fh(test_env env, struct change_fh *fhout)
             NULL,
             cfh_read,
             cfh_write,
+            cfh_lock,
             cfh_file_size,
             cfh_truncate,
             NULL

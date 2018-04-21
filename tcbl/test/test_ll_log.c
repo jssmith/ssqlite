@@ -1,6 +1,7 @@
 #include <string.h>
 #include "test_runtime.h"
 #include "ll_log.h"
+#include "memvfs.h"
 
 #define MAX_HANDLES 2
 
@@ -344,6 +345,83 @@ static int generic_post_group(void **state)
     return 0;
 }
 
+typedef struct bc_log_test_env {
+    struct bc_log log;
+    vfs vfs;
+} *bc_log_test_env;
+
+static void bc_test_nothing(void **state)
+{
+    bc_log_test_env env = *state;
+}
+
+static void bc_test_write_read(void **state)
+{
+    bc_log_test_env env = *state;
+    struct bc_log_h h;
+
+    RC_OK(bc_log_txn_begin(&env->log, &h));
+
+    size_t sz = TCBL_TEST_PAGE_SIZE;
+    char buff[sz];
+    prep_data(buff, sz, 1);
+    RC_OK(bc_log_write(&h, 0, buff, sz));
+
+    bool found;
+    char* found_data;
+    size_t found_sz;
+    RC_OK(bc_log_read(&h, 0, &found, &found_data, &found_sz));
+    assert_true(found);
+    assert_non_null(found_data);
+    assert_int_equal(found_sz, sz);
+    assert_memory_equal(found_data, buff, sz);
+}
+
+static void bc_test_write_read_multiple(void **state)
+{
+    bc_log_test_env env = *state;
+    struct bc_log_h h;
+
+    RC_OK(bc_log_txn_begin(&env->log, &h));
+
+    size_t sz = TCBL_TEST_PAGE_SIZE;
+    int n = 5;
+    char buff[sz];
+    for (int i = 0; i < n; i++) {
+        prep_data(buff, sz, i);
+        RC_OK(bc_log_write(&h, i * sz, buff, sz));
+    }
+
+    for (int i = 0; i < n; i++) {
+        bool found;
+        char *found_data;
+        size_t found_sz;
+        RC_OK(bc_log_read(&h, i * sz, &found, &found_data, &found_sz));
+        assert_true(found);
+        assert_non_null(found_data);
+        assert_int_equal(found_sz, sz * i);
+        prep_data(buff, sz, i);
+        assert_memory_equal(found_data, buff, sz);
+    }
+}
+
+static int generic_pre_group_bc(void **state)
+{
+
+    bc_log_test_env env = tcbl_malloc(NULL, sizeof(struct bc_log_test_env));
+    *state = env;
+    memvfs_allocate(&env->vfs);
+    bc_log_create(&env->log, env->vfs, "TEST", TCBL_TEST_PAGE_SIZE);
+    return 0;
+}
+
+static int generic_post_group_bc(void **state)
+{
+    bc_log_test_env env = (bc_log_test_env) *state;
+    memvfs_free(env->vfs);
+    return 0;
+}
+
 int main(void) {
     int rc = 0;
     bool stop_on_error = true;
@@ -357,5 +435,12 @@ int main(void) {
     rc = cmocka_run_group_tests(ll_log_tests, generic_pre_group_mem, generic_post_group);
     if (stop_on_error && rc) return rc;
 
+    const struct CMUnitTest bc_log_tests[] = {
+            cmocka_unit_test_setup_teardown(bc_test_nothing, NULL, NULL),
+            cmocka_unit_test_setup_teardown(bc_test_nothing, NULL, NULL),
+            cmocka_unit_test_setup_teardown(bc_test_write_read, NULL, NULL),
+            cmocka_unit_test_setup_teardown(bc_test_write_read_multiple, NULL, NULL),
+    };
+    rc = cmocka_run_group_tests(bc_log_tests, generic_pre_group_bc, generic_post_group_bc);
     return rc;
 }

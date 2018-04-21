@@ -103,7 +103,7 @@ static int memvfs_find_file(memvfs memvfs, const char *name, memvfs_file *file_o
 static int memvfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
 {
     lock((memvfs) vfs);
-    int rc = TCBL_OK;
+    int rc;
     memvfs_fh fh = tcbl_malloc(NULL, sizeof(struct memvfs_fh));
     if (!fh) {
         rc = TCBL_ALLOC_FAILURE;
@@ -121,8 +121,8 @@ static int memvfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
         SGLIB_LIST_ADD(struct memvfs_fh, ((memvfs) vfs)->file_handles, fh, next);
         fh->memvfs_file->ref_ct += 1;
     }
-    unlock((memvfs) vfs);
     exit:
+    unlock((memvfs) vfs);
     return rc;
 }
 
@@ -253,10 +253,14 @@ static int memvfs_lock(vfs_fh file_handle, int lock_operation)
         int lock_op_req = lock_operation & 0x03;
         if (fh->lock_mode == lock_op_req) {
             rc = pthread_rwlock_unlock(&fh->memvfs_file->lock);
-            if (rc) return TCBL_IO_ERROR;
+            if (rc) {
+                rc = TCBL_IO_ERROR;
+                goto exit;
+            }
             fh->lock_mode = 0;
         } else {
-            return TCBL_BAD_ARGUMENT;
+            rc = TCBL_BAD_ARGUMENT;
+            goto exit;
         }
     } else {
         // lock
@@ -264,19 +268,26 @@ static int memvfs_lock(vfs_fh file_handle, int lock_operation)
         if (fh->lock_mode == 0) {
             if (lock_op_req == VFS_LOCK_SH) {
                 rc = pthread_rwlock_rdlock(&fh->memvfs_file->lock);
-                if (rc) return TCBL_IO_ERROR;
+                if (rc) {
+                    rc = TCBL_IO_ERROR;
+                    goto exit;
+                }
             } else if (lock_op_req == VFS_LOCK_EX) {
                 rc = pthread_rwlock_wrlock(&fh->memvfs_file->lock);
-                if (rc) return TCBL_IO_ERROR;
+                if (rc) {
+                    rc = TCBL_IO_ERROR;
+                    goto exit;
+                }
             }
             fh->lock_mode = lock_op_req;
         } else {
-            return TCBL_BAD_ARGUMENT;
+            rc = TCBL_BAD_ARGUMENT;
+            goto exit;
         }
-        return TCBL_NOT_IMPLEMENTED;
-
     }
+    exit:
     unlock((memvfs) file_handle->vfs);
+    return rc;
 }
 
 static int memvfs_file_size(vfs_fh file_handle, size_t* out)

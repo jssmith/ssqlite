@@ -22,6 +22,8 @@ target_link_libraries(test_tcbl tcbl cmocka ${CMAKE_THREAD_LIBS_INIT})
 add_executable(test_ll_log
         ../src/ll_log.h
         ../src/ll_log.c
+        memvfs.h
+        memvfs.c
         test_runtime.h
         test_util.c
         ../src/runtime.h

@@ -134,10 +134,9 @@ int tcbl_log_init_mem(tcbl_log, size_t block_size);
  */
 
 typedef struct bc_log {
-    tcbl_log log;
     size_t page_size;
     char* log_name;
-    vfs vfs;
+    vfs_fh log_fh;
 } *bc_log;
 
 typedef struct bc_log_entry {
@@ -155,17 +154,17 @@ typedef struct bc_log_h {
     bc_log log;
     size_t txn_offset;
     bc_log_entry added_entries;
-    vfs_fh log_fh;
     bc_log_entry read_entry;
 } *bc_log_h;
 
-int bc_log_create(bc_log, const char *name, size_t page_size);
+int bc_log_create(bc_log, vfs vfs, const char *name, size_t page_size);
+int bc_log_delete(vfs vfs, const char *name);
 int bc_log_checkpoint(bc_log);
 int bc_log_txn_begin(bc_log, bc_log_h);
 int bc_log_txn_commit(bc_log_h);
 int bc_log_txn_abort(bc_log_h);
 int bc_log_write(bc_log_h, size_t offs, void* data, size_t newlen);
-int bc_log_read(bc_log_h, size_t offs, bool *found_data, void** out_data);
+int bc_log_read(bc_log_h, size_t offs, bool *found_data, void** out_data, size_t *out_newlen);
 int bc_log_length(bc_log_h, bool *found_size, size_t *out_size);
 
 

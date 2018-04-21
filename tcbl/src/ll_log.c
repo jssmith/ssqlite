@@ -4,6 +4,7 @@
 #include "ll_log.h"
 #include "sglib.h"
 
+//#define DEBUG_PRINT
 #ifdef DEBUG_PRINT
 static void print_data(void* data, size_t len)
 {
@@ -386,7 +387,7 @@ int tcbl_log_free(tcbl_log log) {
 //////////////////////////
 
 
-int bc_log_create(bc_log l, const char *name, size_t page_size)
+int bc_log_create(bc_log l, vfs vfs, const char *name, size_t page_size)
 {
     l->page_size = page_size;
     size_t name_sz = strlen(name);
@@ -395,8 +396,22 @@ int bc_log_create(bc_log l, const char *name, size_t page_size)
         return TCBL_ALLOC_FAILURE;
     }
     memcpy(l->log_name, name, name_sz);
-    memcpy(&l->log_name[name_sz], ".log", 4);
+    memcpy(&l->log_name[name_sz], ".log", 5);
+    vfs_open(vfs, l->log_name, &l->log_fh);
     return TCBL_OK;
+}
+
+int bc_log_delete(vfs vfs, const char *name)
+{
+    size_t name_len = strlen(name);
+    char log_file_name[name_len + 5];
+    memcpy(log_file_name, name, name_len);
+    memcpy(&log_file_name[name_len], ".log", 5);
+    int rc = vfs_delete(vfs, log_file_name);
+    if (rc == TCBL_FILE_NOT_FOUND) {
+        return TCBL_OK;
+    }
+    return rc;
 }
 
 int bc_log_checkpoint(bc_log l)
@@ -409,9 +424,8 @@ int bc_log_txn_begin(bc_log l, bc_log_h h)
     int rc;
     h->log = l;
     h->added_entries = NULL;
-    vfs_open(l->vfs, l->log_name, &h->log_fh);
     size_t log_size;
-    rc = vfs_file_size(h->log_fh, &log_size);
+    rc = vfs_file_size(h->log->log_fh, &log_size);
     if (rc) return rc;
     // TODO if last record is not commit then have to go back to find that point
     // read offset of the last committed record
@@ -440,7 +454,7 @@ int bc_log_txn_commit(bc_log_h h)
         if (!e->next) {
             we->commit_flag = 1;
         }
-        rc = vfs_write(h->log_fh, buff, write_offs, log_entry_size);
+        rc = vfs_write(h->log->log_fh, buff, write_offs, log_entry_size);
         write_offs += log_entry_size;
         bc_log_entry n = e->next;
         tcbl_free(NULL, e, log_entry_size);
@@ -448,33 +462,38 @@ int bc_log_txn_commit(bc_log_h h)
         if (rc) goto exit;
     } while (e != NULL);
     exit:
-    rc = vfs_lock(h->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
+    rc = vfs_lock(h->log->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
     return rc;
 }
 
-int bc_log_txn_abort(bc_log_h h)
-{
-    int rc;
+int bc_log_txn_abort(bc_log_h h) {
+    int rc = TCBL_OK;
     size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
     bc_log_entry e;
 
-    while (h->added_entries) {
+    if (h->added_entries) {
+        while (h->added_entries) {
         e = h->added_entries;
         SGLIB_LIST_DELETE(struct bc_log_entry, h->added_entries, e, next);
         tcbl_free(NULL, e, log_entry_size);
+        }
+        rc = vfs_lock(h->log->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
     }
-    rc = vfs_lock(h->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
     return rc;
 }
 
 int bc_log_write(bc_log_h h, size_t offs, void* data, size_t newlen)
 {
     size_t page_size = h->log->page_size;
+#ifdef DEBUG_PRINT
+    printf("bc log write %ld at offs %ld\n", newlen, offs);
+    print_data(data, page_size);
+#endif
     if (offs % page_size != 0) {
         return TCBL_BAD_ARGUMENT;
     }
     if (h->added_entries == NULL) {
-        vfs_lock(h->log_fh, VFS_LOCK_EX);
+        vfs_lock(h->log->log_fh, VFS_LOCK_EX);
     }
     int rc = TCBL_OK;
     bc_log_entry e = tcbl_malloc(NULL, sizeof(struct bc_log_entry) + page_size);
@@ -487,10 +506,14 @@ int bc_log_write(bc_log_h h, size_t offs, void* data, size_t newlen)
     e->commit_flag = 0;
     e->next = NULL;
     memcpy(e->data, data, page_size);
+#ifdef DEBUG_PRINT
+    printf("installed data at %p entry at position %p for offs %ld\n", e->data, e, offs);
+    print_data(e->data, page_size);
+#endif
     SGLIB_LIST_ADD(struct bc_log_entry, h->added_entries, e, next);
     exit:
     if (rc) {
-        vfs_lock(h->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
+        vfs_lock(h->log->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
     }
     return rc;
 }
@@ -500,7 +523,7 @@ int log_entry_comparator(bc_log_entry e1, bc_log_entry e2)
     return (e1->offset < e2->offset) ? -1 : (e1->offset == e2->offset) ? 0 : 1;
 }
 
-int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data)
+int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data, size_t *out_newlen)
 {
     size_t page_size = h->log->page_size;
     if (offs % page_size != 0) {
@@ -517,7 +540,12 @@ int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data)
     SGLIB_LIST_FIND_MEMBER(struct bc_log_entry, h->added_entries, &search_entry, log_entry_comparator, next, found_entry);
 
     if (found_entry) {
-        out_data = (void**) found_entry->data;
+#ifdef DEBUG_PRINT
+        printf("returning data from position %p entry at position %p for offs %ld\n", found_entry->data, found_entry, offs);
+        print_data(found_entry->data, page_size);
+#endif
+        *out_data = found_entry->data;
+        *out_newlen = found_entry->newlen;
         *found_data = true;
         return TCBL_OK;
     }
@@ -529,7 +557,7 @@ int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data)
     bc_log_entry e = (bc_log_entry) buff;
     bool found = false;
     while (read_offs < h->txn_offset) {
-        rc = vfs_read(h->log_fh, buff, read_offs, log_entry_size);
+        rc = vfs_read(h->log->log_fh, buff, read_offs, log_entry_size);
         if (rc) return rc;
         if (e->offset == offs) {
             found = true;
@@ -539,7 +567,8 @@ int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data)
     }
     if (found) {
         *found_data = true;
-        *out_data = &h->read_entry->data;
+        *out_data = &(h->read_entry->data);
+        *out_newlen = h->read_entry->newlen;
     } else {
         *found_data = false;
         *out_data = NULL;
@@ -556,7 +585,7 @@ int bc_log_length(bc_log_h h, bool *found_size, size_t *out_size)
     } else if (h->txn_offset > 0) {
         size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
         char buff[log_entry_size];
-        rc = vfs_read(h->log_fh, buff, h->txn_offset - log_entry_size, log_entry_size);
+        rc = vfs_read(h->log->log_fh, buff, h->txn_offset - log_entry_size, log_entry_size);
         if (rc) return rc;
         *found_size = true;
         *out_size = ((bc_log_entry) buff)->newlen;

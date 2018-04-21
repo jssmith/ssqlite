@@ -479,7 +479,7 @@ static void test_truncate(void **state)
 
     int rc = vfs_truncate(fh, 0);
     if (rc == TCBL_NOT_IMPLEMENTED) {
-        env->cleanup(env);
+        RC_OK(env->cleanup(env));
         return;
     }
     RC_OK(rc);
@@ -2084,33 +2084,11 @@ static int generic_post_group(void **state)
     return 0;
 }
 
-/*
-static int tlog_setup(void **state)
-{
-    tlog_test_env env = tcbl_malloc(NULL, sizeof(struct tlog_test_env));
-    assert_non_null(env);
-    RC_OK(memvfs_allocate(&env->memvfs));
-    RC_OK(tlog_open_v1(env->memvfs, TCBL_TEST_FILENAME, TCBL_TEST_PAGE_SIZE, &env->log));
-    env->cleanup = g_log_cleanup;
-    *state = env;
-    return 0;
-}
-
-static int tlog_teardown(void **state)
-{
-    tlog_test_env env = *state;
-    RC_OK(tlog_close(env->log));
-    RC_OK(vfs_free(env->memvfs));
-    tcbl_free(NULL, env, sizeof(struct tlog_test_env));
-    return 0;
-}
-*/
-
 int main(void)
 {
     int rc = 0;
     bool stop_on_error = true;
-/*
+
     const struct CMUnitTest base_vfs_tests[] = {
         cmocka_unit_test_setup_teardown(test_nothing, generic_setup_0fh, generic_teardown),
         cmocka_unit_test_setup_teardown(test_vfs_open, generic_setup_0fh, generic_teardown),
@@ -2155,9 +2133,9 @@ int main(void)
     printf("\ngeneric tests - autocommit\n");
     rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_autocommit, generic_post_group);
     if (stop_on_error && rc) return rc;
-    printf("\ngeneric tests - checkpointed\n");
-    cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_checkpoint, generic_post_group);
-    if (stop_on_error && rc) return rc;
+//    printf("\ngeneric tests - checkpointed\n");
+//    cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_checkpoint, generic_post_group);
+//    if (stop_on_error && rc) return rc;
 
     const struct CMUnitTest tcbl_tests[] = {
         cmocka_unit_test(test_tcbl_open_close),
@@ -2184,7 +2162,6 @@ int main(void)
     printf("\ntcbl tests\n");
     rc = cmocka_run_group_tests(tcbl_tests, NULL, NULL);
     if (stop_on_error && rc) return rc;
-*/
 
 /*
     printf("\nfuzz tests\n");
