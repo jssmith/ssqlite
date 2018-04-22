@@ -1775,8 +1775,7 @@ static void test_tcbl_txn_checkpoint_activity_2(void **state)
     // confirm errors on fh2 operations
     size_t file_size;
     char buff[data_len];
-    RC_EQ(vfs_file_size(fh2, &file_size), TCBL_SNAPSHOT_EXPIRED);
-    RC_EQ(vfs_read(fh2, buff, 0, data_len), TCBL_SNAPSHOT_EXPIRED);
+    verify_file(fh2, data_in, data_len);
 
     RC_OK(vfs_txn_abort(fh2));
 
@@ -1792,10 +1791,8 @@ static void test_tcbl_txn_checkpoint_activity_2(void **state)
     RC_OK(vfs_txn_commit(fh1));
     RC_OK(vfs_checkpoint(fh1));
 
-    // Writes cause a snapshot expired error because we need to read
-    // to update the file size. Could perhaps get rid of this but then
-    // computing file size requires scanning the log.
-    RC_EQ(vfs_write(fh2, data_in, 0, data_len), TCBL_SNAPSHOT_EXPIRED);
+    // Write and abort - should not have snapshot expired error anymore
+    RC_OK(vfs_write(fh2, data_in, 0, data_len));
     RC_OK(vfs_txn_abort(fh2));
 
     RC_OK(memvfs_free((vfs) env->base_vfs));
@@ -2135,9 +2132,9 @@ int main(void)
     printf("\ngeneric tests - autocommit\n");
     rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_autocommit, generic_post_group);
     if (stop_on_error && rc) return rc;
-//    printf("\ngeneric tests - checkpointed\n");
-//    cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_checkpoint, generic_post_group);
-//    if (stop_on_error && rc) return rc;
+    printf("\ngeneric tests - checkpointed\n");
+    cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_checkpoint, generic_post_group);
+    if (stop_on_error && rc) return rc;
 
     const struct CMUnitTest tcbl_tests[] = {
         cmocka_unit_test(test_tcbl_open_close),

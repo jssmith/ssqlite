@@ -153,6 +153,7 @@ typedef struct bc_log_index {
 
 typedef struct bc_log_header {
     uint64_t checkpoint_seq;
+    size_t newlen;
 } *bc_log_header;
 
 typedef struct bc_log_entry {

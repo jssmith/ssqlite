@@ -432,7 +432,7 @@ int bc_log_delete(vfs vfs, const char *name)
     return rc;
 }
 
-static int bc_log_apply(vfs_fh log_fh, vfs_fh data_fh, size_t start_offs, size_t end_offs, size_t page_size)
+static int bc_log_apply(vfs_fh log_fh, vfs_fh data_fh, size_t start_offs, size_t end_offs, size_t page_size, size_t *out_newlen)
 {
     size_t read_offs = start_offs;
     size_t log_entry_size = sizeof(struct bc_log_entry) + page_size;
@@ -443,6 +443,7 @@ static int bc_log_apply(vfs_fh log_fh, vfs_fh data_fh, size_t start_offs, size_t
     while (read_offs < end_offs) {
         rc = vfs_read(log_fh, buff, read_offs, log_entry_size);
         if (rc) return rc;
+        *out_newlen = e->newlen;
         rc = vfs_write(data_fh, e->data, e->offset, MIN(page_size, e->newlen - e->offset));
         if (rc) return rc;
         read_offs += log_entry_size;
@@ -502,7 +503,8 @@ int bc_log_checkpoint(bc_log l)
         goto exit_a;
     }
 
-    rc = bc_log_apply(l->log_fh, l->data_fh, log_header_sz, log_file_size, l->page_size);
+    size_t newlen = ((bc_log_header) log_header_bytes)->newlen;
+    rc = bc_log_apply(l->log_fh, l->data_fh, log_header_sz, log_file_size, l->page_size, &newlen);
     if (rc) goto exit_a;
 
     rc = vfs_lock(l->log_fh, VFS_LOCK_EX);
@@ -513,7 +515,7 @@ int bc_log_checkpoint(bc_log l)
     if (rc) goto exit_b;
 
     if (final_log_file_size > log_file_size) {
-        rc = bc_log_apply(l->log_fh, l->data_fh, log_file_size, final_log_file_size, l->page_size);
+        rc = bc_log_apply(l->log_fh, l->data_fh, log_file_size, final_log_file_size, l->page_size, &newlen);
         if (rc) goto exit_b;
     }
 
@@ -543,6 +545,7 @@ int bc_log_checkpoint(bc_log l)
     if (rc) goto exit_a;
 
     ((bc_log_header) log_header_bytes)->checkpoint_seq = new_checkpoint_seq;
+    ((bc_log_header) log_header_bytes)->newlen = newlen;
     rc = vfs_write(l->log_fh, log_header_bytes, 0, log_header_sz);
 
     exit_a:
@@ -563,8 +566,43 @@ int bc_log_txn_begin(bc_log l, bc_log_h h)
     if (rc) return rc;
     // TODO if last record is not commit then have to go back to find that point
     // read offset of the last committed record
-    h->txn_offset = log_size;
+
+    // TODO put in optimizations here
+    if (log_size > sizeof(struct bc_log_header)) {
+        bool found_end = false;
+        size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
+        char buff[log_entry_size];
+        bc_log_entry e = (bc_log_entry) buff;
+        size_t read_offs = log_size - log_entry_size;
+        while (!found_end && read_offs >= sizeof(struct bc_log_header)) {
+            rc = vfs_read(h->log->log_fh, buff, read_offs, log_entry_size);
+            if (rc) return rc;
+            if (e->flag == LOG_FLAG_CHECKPOINT) {
+                // Reopen the file to get the current version
+                rc = vfs_close(h->log->log_fh);
+                if (rc) return rc;
+                rc = vfs_open(h->log->underlying_vfs, h->log->log_name, &h->log->log_fh);
+                if (rc) return rc;
+                rc = vfs_file_size(h->log->log_fh, &log_size);
+                if (rc) return rc;
+                h->txn_offset = log_size;
+                read_offs = log_size;
+            } else if (e->flag == LOG_FLAG_COMMIT) {
+                h->txn_offset = read_offs + log_entry_size;
+                found_end = true;
+            }
+            if (read_offs > log_entry_size) {
+                read_offs -= log_entry_size;
+            } else {
+                read_offs = 0;
+            }
+
+        }
+    } else {
+        h->txn_offset = log_size;
+    }
     h->read_entry = tcbl_malloc(NULL, sizeof(struct bc_log_entry) + l->page_size);
+    // TODO need to add code to free this entry
     h->txn_active = true;
     return rc;
 }
@@ -576,6 +614,7 @@ static int initialize_log(bc_log log)
     char buff_header[sizeof(struct bc_log_header)];
     bc_log_header log_header = (bc_log_header) buff_header;
     log_header->checkpoint_seq = initial_checkpoint_seq;
+    log_header->newlen = 0; // TODO sometimes should probably read this in
     rc = vfs_write(log->log_fh, buff_header, 0, sizeof(struct bc_log_header));
     if (rc) return rc;
 
@@ -642,7 +681,7 @@ int bc_log_txn_commit(bc_log_h h)
             memcpy(we, e, log_entry_size);
             we->lsn = 1;
             if (!e->next) {
-                we->flag = LOG_FLAG_CHECKPOINT;
+                we->flag = LOG_FLAG_COMMIT;
             }
             rc = vfs_write(h->log->log_fh, buff, write_offs, log_entry_size);
             if (rc) break; // TODO should probably continue to free memory
@@ -754,7 +793,7 @@ int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data, size
     while (read_offs < h->txn_offset) {
         rc = vfs_read(h->log->log_fh, buff, read_offs, log_entry_size);
         if (rc) return rc;
-        if (e->offset == offs) {
+        if (e->offset == offs && e->flag != LOG_FLAG_CHECKPOINT) {
             found = true;
             memcpy(h->read_entry, buff, log_entry_size);
         }
@@ -774,18 +813,35 @@ int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data, size
 int bc_log_length(bc_log_h h, bool *found_size, size_t *out_size)
 {
     int rc;
+    *found_size = false;
     if (h->added_entries) {
         *found_size = true;
         *out_size = h->added_entries->newlen;
     } else if (h->txn_offset > sizeof(struct bc_log_header)) {
         size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
-        char buff[log_entry_size];
-        rc = vfs_read(h->log->log_fh, buff, h->txn_offset - log_entry_size, log_entry_size);
+        size_t read_offs = h->txn_offset - log_entry_size;
+        while (!*found_size && read_offs >= sizeof(struct bc_log_header)) {
+            char buff[log_entry_size];
+            bc_log_entry e = (bc_log_entry) buff;
+            rc = vfs_read(h->log->log_fh, buff, read_offs, log_entry_size);
+            if (rc) return rc;
+            if (e->flag == LOG_FLAG_COMMIT) {
+                *found_size = true;
+                *out_size = e->newlen;
+            } else {
+                if (read_offs >= log_entry_size) {
+                    read_offs -= log_entry_size;
+                } else {
+                    read_offs = 0;
+                }
+            }
+        }
+    } else if (h->txn_offset == sizeof(struct bc_log_header)) {
+        char buff[sizeof(struct bc_log_header)];
+        rc = vfs_read(h->log->log_fh, buff, 0, sizeof(struct bc_log_header));
         if (rc) return rc;
         *found_size = true;
-        *out_size = ((bc_log_entry) buff)->newlen;
-    } else {
-        *found_size = false;
+        *out_size = ((bc_log_header) buff)->newlen;
     }
     return TCBL_OK;
 }
