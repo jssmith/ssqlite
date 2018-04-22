@@ -161,7 +161,8 @@ static int memvfs_exists(vfs vfs, const char* file_name, int *out)
 
 static int memvfs_close(vfs_fh file_handle)
 {
-    lock((memvfs) file_handle->vfs);
+    memvfs vfs = (memvfs) file_handle->vfs;
+    lock(vfs);
     memvfs_file f = ((memvfs_fh) file_handle)->memvfs_file;
     if (f) {
         f->ref_ct -= 1;
@@ -171,7 +172,7 @@ static int memvfs_close(vfs_fh file_handle)
     }
     SGLIB_LIST_DELETE(struct memvfs_fh, ((memvfs)((memvfs_fh) file_handle)->vfs)->file_handles, (memvfs_fh) file_handle, next);
     tcbl_free(NULL, file_handle, file_handle->vfs->vfs_info->vfs_fh_size);
-    unlock((memvfs) file_handle->vfs);
+    unlock(vfs);
     return TCBL_OK;
 }
 
