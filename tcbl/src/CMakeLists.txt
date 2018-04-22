@@ -1,4 +1,5 @@
 add_library(tcbl
+        vfs.h
         tcbl_vfs.c
         tcbl_vfs.h
         ll_log.h

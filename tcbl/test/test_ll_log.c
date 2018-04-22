@@ -353,7 +353,7 @@ typedef struct bc_log_test_env {
 
 static void bc_test_nothing(void **state)
 {
-    bc_log_test_env env = *state;
+//    bc_log_test_env env = *state;
 }
 
 static void bc_test_write_read(void **state)
@@ -371,7 +371,7 @@ static void bc_test_write_read(void **state)
     bool found;
     char* found_data;
     size_t found_sz;
-    RC_OK(bc_log_read(&h, 0, &found, &found_data, &found_sz));
+    RC_OK(bc_log_read(&h, 0, &found, (void **) &found_data, &found_sz));
     assert_true(found);
     assert_non_null(found_data);
     assert_int_equal(found_sz, sz);
@@ -397,7 +397,7 @@ static void bc_test_write_read_multiple(void **state)
         bool found;
         char *found_data;
         size_t found_sz;
-        RC_OK(bc_log_read(&h, i * sz, &found, &found_data, &found_sz));
+        RC_OK(bc_log_read(&h, i * sz, &found, (void **) &found_data, &found_sz));
         assert_true(found);
         assert_non_null(found_data);
         assert_int_equal(found_sz, sz * i);
@@ -425,7 +425,7 @@ static int generic_post_group_bc(void **state)
 
 int main(void) {
     int rc = 0;
-    bool stop_on_error = true;
+//    bool stop_on_error = true;
     /*
     const struct CMUnitTest ll_log_tests[] = {
             cmocka_unit_test_setup_teardown(test_nothing, NULL, NULL),

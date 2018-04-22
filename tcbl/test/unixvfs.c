@@ -149,7 +149,7 @@ static int unix_vfs_write(vfs_fh vfs_fh, const void *data, size_t offset, size_t
 static int unix_vfs_lock(vfs_fh vfs_fh, int lock_operation)
 {
     unixvfs_fh fh = (unixvfs_fh) vfs_fh;
-    if (lock_operation & 0xb != lock_operation) {
+    if ((lock_operation & 0xb) != lock_operation) {
         return TCBL_BAD_ARGUMENT;
     }
     int rc = flock(fh->fd, lock_operation);

@@ -29,7 +29,7 @@ add_executable(test_ll_log
         ../src/runtime.h
         test_ll_log.c)
 add_test(test_ll_log test_ll_log)
-target_link_libraries(test_ll_log tcbl cmocka)
+target_link_libraries(test_ll_log tcbl cmocka ${CMAKE_THREAD_LIBS_INIT})
 
 include_directories(BEFORE /Users/johann/d/sqlite-autoconf-3220000)
 add_library(sqlite3tcbl SHARED
@@ -38,6 +38,7 @@ add_library(sqlite3tcbl SHARED
         memvfs.c
         unixvfs.h
         unixvfs.c
+        ../src/vfs.h
         ../src/tcbl_vfs.c
         ../src/tcbl_vfs.h
         ../src/ll_log.h

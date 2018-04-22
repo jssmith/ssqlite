@@ -1,9 +1,10 @@
+#define _XOPEN_SOURCE 500
+
 #include <string.h>
 #include <stdio.h>
 #include <sys/param.h>
 #include <sys/types.h>
 #include <pthread.h>
-//#include <z3.h>
 
 #include "memvfs.h"
 #include "sglib.h"
@@ -185,7 +186,7 @@ static int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len
         if (offset < f->len) {
             size_t read_len = f->len - offset;
             memcpy(buff, &f->data[offset], read_len);
-            memset(&buff[read_len], 0, len - read_len);
+            memset(&((char *)buff)[read_len], 0, len - read_len);
         } else {
             memset(buff, 0, len);
         }
@@ -277,6 +278,9 @@ static int memvfs_lock(vfs_fh file_handle, int lock_operation)
                     rc = TCBL_IO_ERROR;
                     goto exit;
                 }
+            } else {
+                rc = TCBL_BAD_ARGUMENT;
+                goto exit;
             }
             fh->lock_mode = lock_op_req;
         } else {

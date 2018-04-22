@@ -1,3 +1,5 @@
+#define _XOPEN_SOURCE 500
+
 #include <stdarg.h>
 #include <stddef.h>
 #include <setjmp.h>
@@ -570,7 +572,7 @@ static void *test_paried_updates_changefn(void* args)
     int update_ct = 0;
     for (int i = 0; i < 25; i++) {
 //        usleep(rand_r(&seed) % 100000);
-        printf("thread %d (%lu) at iteration %d\n", id, self, i);
+        printf("thread %d (%lu) at iteration %d\n", id, (unsigned long) self, i);
         if (env->has_txn) RC_OK(vfs_txn_begin(fh));
         int cb = rand_r(&seed) % (len_blocks - 1);
         size_t pos1 = cb * block_size;
@@ -587,7 +589,7 @@ static void *test_paried_updates_changefn(void* args)
             if (env->has_txn) RC_OK(vfs_checkpoint(fh));
         }
     }
-    printf("thread %d (%lu) completed\n", id, self);
+    printf("thread %d (%lu) completed\n", id, (unsigned long) self);
     return NULL;
 }
 
@@ -701,8 +703,8 @@ static int fuzz_updates_verify(vfs_fh fh, bool has_txn, size_t block_size, int l
 {
     char buff[block_size];
     struct test_page *tp = (struct test_page *) buff;
-    unsigned int seed = 23823094;
-    size_t data_len = block_size - sizeof(struct test_page);
+//    unsigned int seed = 23823094;
+//    size_t data_len = block_size - sizeof(struct test_page);
     int prev_id = 0;
     if (has_txn) RC_OK(vfs_txn_begin(fh));
     for (int i = 0; i < len_blocks; i++) {
@@ -720,7 +722,7 @@ static void *fuzz_updates_changefn(void* args)
     size_t block_size = a->block_size;
     int len_blocks = a->len_blocks;
     int checkpoint_interval = a->checkpoint_interval;
-    int id = a->id;
+//    int id = a->id;
     unsigned seed = a->seed;
     bool has_txn = a->has_txn;
     int rc;
@@ -732,7 +734,7 @@ static void *fuzz_updates_changefn(void* args)
     struct test_page *tp = (struct test_page *) buff_1;
     struct test_page *tp2 = (struct test_page *) buff_2;
 
-    pthread_t self = pthread_self();
+//    pthread_t self = pthread_self();
 
     // make some changes
     int update_ct = 0;
@@ -823,7 +825,7 @@ static void fuzz_updates_direct(void **state) {
             fh_vfs = fh_memvfs;
             tcbl[i] = NULL;
         } else {
-            RC_OK(tcbl_allocate(&tcbl[i], fh_memvfs, TCBL_TEST_PAGE_SIZE));
+            RC_OK(tcbl_allocate((tvfs *) &tcbl[i], fh_memvfs, TCBL_TEST_PAGE_SIZE));
             fh_vfs = tcbl[i];
         }
         RC_OK(vfs_open(fh_vfs, TCBL_TEST_FILENAME, &fh[i]));
@@ -1773,8 +1775,8 @@ static void test_tcbl_txn_checkpoint_activity_2(void **state)
     verify_file(fh1, expected_data_2, expected_len_2);
 
     // confirm errors on fh2 operations
-    size_t file_size;
-    char buff[data_len];
+//    size_t file_size;
+//    char buff[data_len];
     verify_file(fh2, data_in, data_len);
 
     RC_OK(vfs_txn_abort(fh2));
