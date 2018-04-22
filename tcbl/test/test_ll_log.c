@@ -390,7 +390,7 @@ static void bc_test_write_read_multiple(void **state)
     char buff[sz];
     for (int i = 0; i < n; i++) {
         prep_data(buff, sz, i);
-        RC_OK(bc_log_write(&h, i * sz, buff, sz));
+        RC_OK(bc_log_write(&h, i * sz, buff, (i + 1) * sz));
     }
 
     for (int i = 0; i < n; i++) {
@@ -400,7 +400,7 @@ static void bc_test_write_read_multiple(void **state)
         RC_OK(bc_log_read(&h, i * sz, &found, (void **) &found_data, &found_sz));
         assert_true(found);
         assert_non_null(found_data);
-        assert_int_equal(found_sz, sz * i);
+        assert_int_equal(found_sz, sz * (i + 1));
         prep_data(buff, sz, i);
         assert_memory_equal(found_data, buff, sz);
     }
