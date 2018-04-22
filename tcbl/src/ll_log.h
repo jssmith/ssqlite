@@ -139,14 +139,26 @@ size_t ll_log_entry_size(tcbl_log log, ll_log_entry entry);
 typedef struct bc_log {
     size_t page_size;
     char* log_name;
+    vfs underlying_vfs;
     vfs_fh data_fh;
     vfs_fh log_fh;
 } *bc_log;
 
+#define LOG_FLAG_COMMIT         1
+#define LOG_FLAG_CHECKPOINT     2
+
+typedef struct bc_log_index {
+    uint64_t checkpoint_seq;
+} *bc_log_index;
+
+typedef struct bc_log_header {
+    uint64_t checkpoint_seq;
+} *bc_log_header;
+
 typedef struct bc_log_entry {
     size_t offset;
     size_t newlen;
-    char commit_flag;
+    char flag;
     union {
         uint64_t lsn;
         struct bc_log_entry* next;

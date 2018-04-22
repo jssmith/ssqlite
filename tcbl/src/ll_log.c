@@ -388,6 +388,18 @@ int tcbl_log_free(tcbl_log log) {
 
 //////////////////////////
 
+int str_append(char *dst_buff, const char *s1, const char *s2, size_t buff_len)
+{
+    size_t l1 = strlen(s1);
+    size_t l2 = strlen(s2);
+    if (l1 + l2 + 1 <= buff_len) {
+        memcpy(dst_buff, s1, l1);
+        memcpy(&dst_buff[l1], s2, l2 + 1);
+        return TCBL_OK;
+    } else {
+        return TCBL_BOUNDS_CHECK;
+    }
+}
 
 int bc_log_create(bc_log l, vfs vfs, vfs_fh data_fh, const char *name, size_t page_size)
 {
@@ -397,11 +409,13 @@ int bc_log_create(bc_log l, vfs vfs, vfs_fh data_fh, const char *name, size_t pa
     if (l->log_name == NULL) {
         return TCBL_ALLOC_FAILURE;
     }
+    // TODO maybe we can be lazy about opening here
     memcpy(l->log_name, name, name_sz);
-    memcpy(&l->log_name[name_sz], ".log", 5);
+    memcpy(&l->log_name[name_sz], "-log", 5);
     int rc = vfs_open(vfs, l->log_name, &l->log_fh);
     if (rc) return rc;
     l->data_fh = data_fh;
+    l->underlying_vfs = vfs;
     return TCBL_OK;
 }
 
@@ -410,7 +424,7 @@ int bc_log_delete(vfs vfs, const char *name)
     size_t name_len = strlen(name);
     char log_file_name[name_len + 5];
     memcpy(log_file_name, name, name_len);
-    memcpy(&log_file_name[name_len], ".log", 5);
+    memcpy(&log_file_name[name_len], "-log", 5);
     int rc = vfs_delete(vfs, log_file_name);
     if (rc == TCBL_FILE_NOT_FOUND) {
         return TCBL_OK;
@@ -418,27 +432,124 @@ int bc_log_delete(vfs vfs, const char *name)
     return rc;
 }
 
-int bc_log_checkpoint(bc_log l)
+static int bc_log_apply(vfs_fh log_fh, vfs_fh data_fh, size_t start_offs, size_t end_offs, size_t page_size)
 {
-    // TODO - support concurrency
-    // TODO - maybe check whether have active txn
+    size_t read_offs = start_offs;
+    size_t log_entry_size = sizeof(struct bc_log_entry) + page_size;
 
     int rc;
-    size_t log_entry_size = sizeof(struct bc_log_entry) + l->page_size;
-    size_t log_file_size;
-    rc = vfs_file_size(l->log_fh, &log_file_size);
-    if (rc) return rc;
-    size_t read_offs = 0;
     char buff[log_entry_size];
     bc_log_entry e = (bc_log_entry) buff;
-    while (read_offs < log_file_size) {
-        rc = vfs_read(l->log_fh, buff, read_offs, log_entry_size);
+    while (read_offs < end_offs) {
+        rc = vfs_read(log_fh, buff, read_offs, log_entry_size);
         if (rc) return rc;
-        rc = vfs_write(l->data_fh, e->data, e->offset, MIN(l->page_size, e->newlen - e->offset));
+        rc = vfs_write(data_fh, e->data, e->offset, MIN(page_size, e->newlen - e->offset));
         if (rc) return rc;
         read_offs += log_entry_size;
     }
-    rc = vfs_truncate(l->log_fh, 0);
+    return TCBL_OK;
+}
+
+int bc_log_checkpoint(bc_log l)
+{
+    // TODO - maybe check whether have active txn
+    int rc, cleanup_rc;
+    size_t log_name_len = strlen(l->log_name);
+
+    char checkpoint_coordinator_name[log_name_len + 4];
+    rc = str_append(checkpoint_coordinator_name, l->log_name, "-cp", sizeof(checkpoint_coordinator_name));
+    if (rc) return rc;
+
+    size_t log_entry_size = sizeof(struct bc_log_entry) + l->page_size;
+    char commit_entry_bytes[log_entry_size];
+
+    size_t log_header_sz = sizeof(struct bc_log_header);
+    char log_header_bytes[log_header_sz];
+
+    char cp_fh_bytes[l->underlying_vfs->vfs_info->vfs_fh_size];
+    vfs_fh cp_fh = (vfs_fh) &cp_fh_bytes;
+    vfs_open(l->underlying_vfs, checkpoint_coordinator_name, &cp_fh);
+
+    // TODO this should be a nonblocking lock operation that fails if commit is in progress
+    rc = vfs_lock(cp_fh, VFS_LOCK_EX);
+    if (rc) return rc;
+
+    size_t log_index_sz = sizeof(struct bc_log_index);
+    char log_index_bytes[log_index_sz];
+
+    size_t log_index_start_sz;
+    vfs_file_size(cp_fh, &log_index_start_sz);
+
+    uint64_t start_checkpoint_seq = 1;
+    if (log_index_start_sz == log_index_sz) {
+        rc = vfs_read(cp_fh, log_index_bytes, 0, log_index_sz);
+        if (rc) goto exit_a;
+        start_checkpoint_seq = ((bc_log_index) log_index_bytes)->checkpoint_seq;
+    } else if (log_index_start_sz != 0) {
+        rc = TCBL_INTERNAL_ERROR;
+        goto exit_a;
+    }
+
+    size_t log_file_size;
+    rc = vfs_file_size(l->log_fh, &log_file_size);
+    if (rc) goto exit_a;
+
+    rc = vfs_read(l->log_fh, log_header_bytes, 0, log_header_sz);
+    if (rc) goto exit_a;
+    uint64_t log_checkpoint_seq = ((bc_log_header) log_header_bytes)->checkpoint_seq;
+    if (log_checkpoint_seq != start_checkpoint_seq) {
+        rc = TCBL_INTERNAL_ERROR;
+        goto exit_a;
+    }
+
+    rc = bc_log_apply(l->log_fh, l->data_fh, log_header_sz, log_file_size, l->page_size);
+    if (rc) goto exit_a;
+
+    rc = vfs_lock(l->log_fh, VFS_LOCK_EX);
+    if (rc) goto exit_a;
+
+    size_t final_log_file_size;
+    rc = vfs_file_size(l->log_fh, &final_log_file_size);
+    if (rc) goto exit_b;
+
+    if (final_log_file_size > log_file_size) {
+        rc = bc_log_apply(l->log_fh, l->data_fh, log_file_size, final_log_file_size, l->page_size);
+        if (rc) goto exit_b;
+    }
+
+    bc_log_entry commit_entry = (bc_log_entry) commit_entry_bytes;
+    memset(commit_entry, 0, log_entry_size);
+    commit_entry->flag = LOG_FLAG_CHECKPOINT;
+    rc = vfs_write(l->log_fh, commit_entry_bytes, final_log_file_size, log_entry_size);
+    exit_b:
+    cleanup_rc = vfs_lock(l->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
+    rc = rc ? rc : cleanup_rc;
+    if (rc) goto exit_a;
+
+    // Update the index header
+    uint64_t new_checkpoint_seq = start_checkpoint_seq + 1;
+    ((bc_log_index) log_index_bytes)->checkpoint_seq = new_checkpoint_seq;
+    rc = vfs_write(cp_fh, log_index_bytes, 0, log_index_sz);
+    if (rc) goto exit_a;
+
+    // Create a new log file
+    rc = vfs_close(l->log_fh);
+    if (rc) goto exit_a;
+
+    rc = vfs_delete(l->underlying_vfs, l->log_name);
+    if (rc) goto exit_a;
+
+    rc = vfs_open(l->underlying_vfs, l->log_name, &l->log_fh);
+    if (rc) goto exit_a;
+
+    ((bc_log_header) log_header_bytes)->checkpoint_seq = new_checkpoint_seq;
+    rc = vfs_write(l->log_fh, log_header_bytes, 0, log_header_sz);
+
+    exit_a:
+    cleanup_rc = vfs_lock(cp_fh, VFS_LOCK_EX | VFS_LOCK_UN);
+    rc = rc ? rc : cleanup_rc;
+    cleanup_rc = vfs_close(cp_fh);
+    rc = rc ? rc : cleanup_rc;
     return rc;
 }
 
@@ -456,6 +567,34 @@ int bc_log_txn_begin(bc_log l, bc_log_h h)
     h->read_entry = tcbl_malloc(NULL, sizeof(struct bc_log_entry) + l->page_size);
     h->txn_active = true;
     return rc;
+}
+
+static int initialize_log(bc_log log)
+{
+    int rc;
+    uint64_t initial_checkpoint_seq = 1;
+    char buff_header[sizeof(struct bc_log_header)];
+    bc_log_header log_header = (bc_log_header) buff_header;
+    log_header->checkpoint_seq = initial_checkpoint_seq;
+    rc = vfs_write(log->log_fh, buff_header, 0, sizeof(struct bc_log_header));
+    if (rc) return rc;
+
+    // write a checkpoint index files as well
+    char checkpoint_fh_bytes[log->underlying_vfs->vfs_info->vfs_fh_size];
+    vfs_fh checkpoint_index_fh = (vfs_fh) checkpoint_fh_bytes;
+
+    char checkpoint_fn[strlen(log->log_name) + 4];
+    str_append(checkpoint_fn, log->log_name, "-cp", sizeof(checkpoint_fn));
+    rc = vfs_open(log->underlying_vfs, checkpoint_fn, &checkpoint_index_fh);
+    if (rc) return rc;
+
+    char checkpoint_index_buff[sizeof(struct bc_log_index)];
+    bc_log_index checkpoint_index = (bc_log_index)  checkpoint_index_buff;
+    checkpoint_index->checkpoint_seq = initial_checkpoint_seq;
+    rc = vfs_write(checkpoint_index_fh, checkpoint_index_buff, 0, sizeof(struct bc_log_index));
+
+    int rc_close = vfs_close(checkpoint_index_fh);
+    return rc ? rc : rc_close;
 }
 
 int bc_log_txn_commit(bc_log_h h)
@@ -489,6 +628,12 @@ int bc_log_txn_commit(bc_log_h h)
             goto exit;
         }
 
+        if (h->txn_offset == 0) {
+            rc = initialize_log(h->log);
+            if (rc) goto exit;
+            write_offs = sizeof(struct bc_log_header);
+        }
+
         SGLIB_LIST_REVERSE(struct bc_log_entry, h->added_entries, next);
         while (h->added_entries) {
             e = h->added_entries;
@@ -497,7 +642,7 @@ int bc_log_txn_commit(bc_log_h h)
             memcpy(we, e, log_entry_size);
             we->lsn = 1;
             if (!e->next) {
-                we->commit_flag = 1;
+                we->flag = LOG_FLAG_CHECKPOINT;
             }
             rc = vfs_write(h->log->log_fh, buff, write_offs, log_entry_size);
             if (rc) break; // TODO should probably continue to free memory
@@ -553,7 +698,7 @@ int bc_log_write(bc_log_h h, size_t offs, void* data, size_t newlen)
     }
     e->offset = offs;
     e->newlen = newlen;
-    e->commit_flag = 0;
+    e->flag = 0;
     e->next = NULL;
     memcpy(e->data, data, page_size);
 #ifdef DEBUG_PRINT
@@ -602,7 +747,7 @@ int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data, size
 
     // read from the log file
     int rc;
-    size_t read_offs = 0;
+    size_t read_offs = sizeof(struct bc_log_header);
     char buff[log_entry_size];
     bc_log_entry e = (bc_log_entry) buff;
     bool found = false;
@@ -632,7 +777,7 @@ int bc_log_length(bc_log_h h, bool *found_size, size_t *out_size)
     if (h->added_entries) {
         *found_size = true;
         *out_size = h->added_entries->newlen;
-    } else if (h->txn_offset > 0) {
+    } else if (h->txn_offset > sizeof(struct bc_log_header)) {
         size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
         char buff[log_entry_size];
         rc = vfs_read(h->log->log_fh, buff, h->txn_offset - log_entry_size, log_entry_size);
