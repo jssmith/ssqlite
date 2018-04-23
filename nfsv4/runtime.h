@@ -68,6 +68,7 @@ static status print_u64(buffer d, u64 s)
 void vbprintf(buffer s, buffer fmt, va_list ap);
 buffer aprintf(heap h, char *fmt, ...);
 
+// stupid zero args thing
 #define dprintf(format, ...) {                          \
         buffer b = aprintf(0, format, __VA_ARGS__);     \
         write(2, b->contents, length(b));               \

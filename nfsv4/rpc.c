@@ -11,17 +11,15 @@ static void toggle(void *a, buffer b)
     *(int *)a = 1;
 }
 
-// stack like allocation?
-rpc allocate_rpc(nfs4 c, buffer b) 
+rpc allocate_rpc(nfs4 c) 
 {
     // can use a single entity or a freelist
     rpc r = allocate(s->h, sizeof(struct rpc));
-    r->b = b;
-    b->start = b->end = 0;
+    buffer b = r->b = get_buffer(c);
     r->xid = ++c->xid;
-    
-    // tcp framer - to be filled on transmit
-    push_be32(b, 0);
+    r->result = 0;
+    r->completion = 0;
+    push_be32(b, 0); // tcp framer - to be filled on transmit
     
     // rpc layer 
     push_be32(b, r->xid);
@@ -49,45 +47,26 @@ rpc allocate_rpc(nfs4 c, buffer b)
     return r;
 }
 
-// sad, but low on memory pressure, and trying to avoid pulling in
-// more runtime (i.e. maps)
-static void enqueue_completion(nfs4 c, u32 xid, void (*f)(void *, buffer), void *a)
-{
-    int len = vector_length(c->outstanding);
-    int i;
-    for (i = 0; i < len; i+=3) 
-        if (vector_get(c->outstanding, i) == 0)
-            break;
-    vector_set(c->outstanding, i, (void *)(u64)xid);
-    vector_set(c->outstanding, i + 1, f);
-    vector_set(c->outstanding, i + 2, a);
-}
-
-static status completion_notify(nfs4 c, u32 xid)
-{
-    vector p = c->outstanding;
-    int len = vector_length(p);
-    for (int i = 0; i < len; i+=3) {
-        if ((u64)vector_get(p, i) == xid) {
-            void (*f)(void *) = vector_get(p, i +1);
-            if (f) f(vector_get(p, i+2));
-            vector_set(p, i, 0);
-            break;
-        }
-    }
-
-    // compaction
-    while (vector_length(p) && !vector_get(p, vector_length(p)-3))
-        p->end -= 3*sizeof (void *);
-    return NFS4_OK;
-}
-
-status parse_rpc(nfs4 c, buffer b, boolean *badsession)
+status parse_rpc(nfs4 c, buffer b, boolean *badsession, rpc *r)
 {
     *badsession = false;
     u32 xid = read_beu32(b);
-    check(completion_notify(c, xid));
 
+    vector p = c->outstanding;
+    int len = vector_length(p);
+    for (int i = 0; i < len; i++){
+        *r = vector_get(p, i);
+        if (*r && ((*r)->xid == xid)) {
+            vector_set(p, i, 0);
+            break;            
+        }
+    }
+    
+    // poor compaction - use a map
+    // peek?
+    while (vector_length(p) && !vector_get(p, vector_length(p)-1))
+        p->end -= sizeof (void *);
+    
     verify_and_adv(b, 1); // rpc reply
     
     u32 rpcstatus = read_beu32(b);
@@ -95,8 +74,10 @@ status parse_rpc(nfs4 c, buffer b, boolean *badsession)
         return error(NFS4_EINVAL, codestring(nfsstatus, rpcstatus));
 
     verify_and_adv(b, 0); // eh?
-    verify_and_adv(b, 0); // verf
-    verify_and_adv(b, 0); // verf
+
+    verify_and_adv(b, 0); // verify auth null
+    verify_and_adv(b, 0); // verify auth null
+
     u32 nstatus = read_beu32(b);
     if (nstatus != NFS4_OK) {
         if (config_boolean("NFS_TRACE", false))
@@ -105,6 +86,7 @@ status parse_rpc(nfs4 c, buffer b, boolean *badsession)
         if (nstatus == NFS4ERR_BADSESSION) {
             printf ("Bad session\n");
             *badsession = true;
+            return NFS4_OK;
         }
         return error(NFS4_EINVAL, codestring(nfsstatus, nstatus));
     }
@@ -146,8 +128,9 @@ status read_response(nfs4 c, buffer b)
 }
 
 
-static status rpc_send(rpc r)
+status rpc_send(rpc r)
 {
+    vector_push(r->c->outstanding, r);    
     *(u32 *)(r->b->contents + r->opcountloc) = htonl(r->opcount);
     // framer length
     *(u32 *)(r->b->contents) = htonl(0x80000000 + length(r->b)-4);
@@ -192,15 +175,16 @@ status nfs4_connect(nfs4 c)
     return NFS4_OK;
 }
 
-static status read_until(nfs4 c, buffer b, u32 which)
+static status read_until(rpc r)
 {
+    buffer b = r->result;
     int opcount = read_beu32(b);
     while (1) {
         int op =  read_beu32(b);
         if (config_boolean("NFS_TRACE", false)) 
             dprintf("received op: %C\n",nfsops, op);
 
-        if (op == which) {
+        if (op == r->prescan_op) {
             return NFS4_OK;
         }
         u32 code = read_beu32(b);
@@ -218,8 +202,20 @@ static status read_until(nfs4 c, buffer b, u32 which)
             break;
         case OP_LOOKUP:
             break;
+        case OP_WRITE:
+            {
+                // if we care about any of these..
+                /*struct stateid callback_id;
+                  parse_stateid(b, &callback_id);
+                  read_beu32(b); //length
+                  read_beu32(b); //stablehow4 committed
+                  u8 verf[NFS4_VERIFIER_SIZE];
+                  read_verifier(b, verf); //stablehow4 committed
+                */
+                break;
+            }
         default:
-            return error(NFS4_PROTOCOL, "unhandled scan code");
+            return error(NFS4_PROTOCOL, "unhandled scan code %C", nfsops, op);
         }
     }
     // fix
@@ -228,27 +224,33 @@ static status read_until(nfs4 c, buffer b, u32 which)
 
 rpc file_rpc(nfs4_file f)
 {
-    rpc r = allocate_rpc(f->c, f->c->forward);
+    rpc r = allocate_rpc(f->c);
     push_sequence(r);
-
     push_op(r, OP_PUTFH);
     push_string(r->b, f->filehandle->contents, length(f->filehandle));
     return (r);
 }
 
 
-status base_transact(rpc r, int op, buffer result, boolean *badsession)
+status base_transact(rpc r, boolean *badsession)
 {
     int myself = 0;
-    enqueue_completion(r->c, r->xid, toggle, &myself);
+    r->completion = toggle;
+    r->completion_argument = &myself;
     check(rpc_send(r));
-    result->start = result->end = 0;
-    check(read_response(r->c, result));
+    buffer result = get_buffer(r->c);
     // drain the pipe, this should be per-slot
-    // this needs to parse the entire* message
-    while (!myself) check(parse_rpc(r->c, result, badsession));
-    check(read_until(r->c, result, op));
-    u32 code = read_beu32(result);
+    // any messages that need more than basic parsing should error out
+    while (!myself) {
+        rpc recv;
+        result->start = result->end = 0;
+        check(read_response(r->c, result));        
+        check(parse_rpc(r->c, result, badsession, &recv));
+        r->result = result;
+        check(read_until(r));
+        if (r->completion) r->completion(r->completion_argument, result);
+    }
+    u32 code = read_beu32(r->result);
     if (code == 0) return NFS4_OK;
     return error(NFS4_EINVAL, codestring(nfsstatus, code));    
 }
@@ -267,23 +269,24 @@ static status replay_rpc(rpc r)
     return NFS4_OK;
 }
 
-status transact(rpc r, int op, buffer result)
+status transact(rpc r, int op)
 {
     int tries = 0;
     boolean badsession = true;
     status s;
+    r->prescan_op = op;
     
     while ((tries < 2) && (badsession == true)) {
         // xxx - if there are outstanding operations on the
         // old connection .. a late synch() will never
         // complete
-        s = base_transact(r, op, result, &badsession);
+        s = base_transact(r, &badsession);
         if (badsession) {
             check(rpc_connection(r->c));
             if (config_boolean("NFS_TRACE", false))
                 eprintf("session failure, attempting to reestablish\n");
             replay_rpc(r);
-            result->start = result->end = 0;
+            free_buffer(r->c, r->result);
             tries++;
         }
     }
@@ -291,19 +294,20 @@ status transact(rpc r, int op, buffer result)
 }
 
 
-status rpc_readdir(nfs4_dir d, buffer result)
+status rpc_readdir(nfs4_dir d, buffer *result)
 {
-    rpc r = allocate_rpc(d->c, d->c->forward);
+    rpc r = allocate_rpc(d->c);
     push_sequence(r);
     push_op(r, OP_PUTFH);
     push_string(r->b, d->filehandle->contents, length(d->filehandle));
     push_op(r, OP_READDIR);
     push_be64(r->b, d->cookie); 
     push_bytes(r->b, d->verifier, sizeof(d->verifier));
-    push_be32(r->b, 512); // entry length is..meh, this is the per entry length ? 512? wth
-    push_be32(r->b, result->capacity);
+    push_be32(r->b, 512); // per-entry length..maybe this should just be maxresult?
+    push_be32(r->b, d->c->maxresp);
     push_fattr_mask(r, STANDARD_PROPERTIES);
-    check(transact(r, OP_READDIR, result));
-    read_buffer(result, d->verifier, NFS4_VERIFIER_SIZE);
+    check(transact(r, OP_READDIR));
+    read_buffer(r->result, d->verifier, NFS4_VERIFIER_SIZE);
+    *result = r->result;
     return NFS4_OK;
 }

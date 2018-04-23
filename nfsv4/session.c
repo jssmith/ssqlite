@@ -10,12 +10,15 @@
 
 status exchange_id(nfs4 c)
 {
-    rpc r = allocate_rpc(c, c->reverse);
+    rpc r = allocate_rpc(c);
+    r->prescan_op = OP_EXCHANGE_ID;
     push_exchange_id(r);
-    buffer res = c->reverse;
     boolean bs;
-    checkr(r, base_transact(r, OP_EXCHANGE_ID, res, &bs));
-    checkr(r, parse_exchange_id(c, res));
+    checkr(r, base_transact(r, &bs));
+    if (bs) {
+        return error(NFS4_PROTOCOL, "bad session durng exhange id");
+    }
+    checkr(r, parse_exchange_id(c, r->result));
     deallocate_rpc(r);
     return NFS4_OK;
 }
@@ -23,28 +26,26 @@ status exchange_id(nfs4 c)
 
 status get_root_fh(nfs4 c, buffer b)
 {
-    rpc r = allocate_rpc(c, c->reverse);
+    rpc r = allocate_rpc(c);
     push_sequence(r);
     push_op(r, OP_PUTROOTFH);
     push_op(r, OP_GETFH);
-    buffer res = c->reverse;
-    boolean bs2;
-    checkr(r, base_transact(r, OP_GETFH, res, &bs2));
-    parse_filehandle(res, b);
+    transact(r, OP_GETFH);
+    checkr(r, parse_filehandle(r->result, b));
     deallocate_rpc(r);
     return NFS4_OK;
 }
 
 status create_session(nfs4 c)
 {
-    rpc r = allocate_rpc(c, c->reverse);
+    rpc r = allocate_rpc(c);
     r->c->sequence = 1;  // 18.36.4 says that a new session starts at 1 implicitly
     r->c->lock_sequence = 1;
     push_create_session(r);
-    buffer res = c->reverse;
     boolean trash;
-    checkr(r, base_transact(r, OP_CREATE_SESSION, res, &trash));
-    checkr(r, parse_create_session(c, res));
+    r->prescan_op = OP_CREATE_SESSION;
+    checkr(r, base_transact(r, &trash));
+    checkr(r, parse_create_session(c, r->result));
     deallocate_rpc(r);
     return NFS4_OK;
 }
@@ -52,11 +53,12 @@ status create_session(nfs4 c)
 
 status destroy_session(nfs4 c)
 {
-    rpc r = allocate_rpc(c, c->reverse);
+    rpc r = allocate_rpc(c);
     push_op(r, OP_DESTROY_SESSION);
     push_session_id(r, c->session);
     boolean bs2;
-    return base_transact(r, OP_DESTROY_SESSION, c->reverse, &bs2);
+    r->prescan_op = OP_DESTROY_SESSION;
+    return base_transact(r, &bs2);
 }
 
 
@@ -70,30 +72,39 @@ status read_chunk(nfs4_file f, void *dest, u64 offset, u32 length)
     push_stateid(r, &f->latest_sid);
     push_be64(r->b, offset);
     push_be32(r->b, length);
-    buffer res = f->c->reverse;
-    status s = transact(r, OP_READ, res);
-    if (s) return s;
+    checkr(r, transact(r, OP_READ));
     // we dont care if its the end of file -- we might for a single round trip read entire
-    res->start += 4; 
-    u32 len = read_beu32(res);
+    u32 eof = read_beu32(r->result);
+    u32 len = read_beu32(r->result);
     // guard against len != length
-    memcpy(dest, res->contents+res->start, len);
+    memcpy(dest, buffer_ref(r->result, 0), len);
     return NFS4_OK;
+}
+
+static void ignore (void *x, buffer b)
+{
 }
 
 // if we break transact, can writev with the header and 
 // source buffer as two fragments
 // add synch
-status write_chunk(nfs4_file f, void *source, u64 offset, u32 length)
+status write_chunk(nfs4_file f, void *source, u64 offset, u32 size)
 {
     rpc r = file_rpc(f);
     push_op(r, OP_WRITE);
     push_stateid(r, &f->latest_sid);
     push_be64(r->b, offset);
+    // modulatable
     push_be32(r->b, FILE_SYNC4);
-    push_string(r->b, source, length);
-    buffer b = f->c->reverse;
-    return transact(r, OP_WRITE, b);
+    push_string(r->b, source, size);
+    dprintf("asynch: %d\n", f->asynch_writes);
+    if (f->asynch_writes) {
+        r->completion = ignore;
+        check(rpc_send(r));
+        dprintf("sent\n", 0);
+        return NFS4_OK;
+    }
+    return transact(r, OP_WRITE);    
 }
 
 status segment(status (*each)(nfs4_file, void *, u64, u32),
@@ -113,12 +124,14 @@ status segment(status (*each)(nfs4_file, void *, u64, u32),
 
 status reclaim_complete(nfs4 c)
 {
-    rpc r = allocate_rpc(c, c->reverse);
+    rpc r = allocate_rpc(c);
     push_sequence(r);
     push_op(r, OP_RECLAIM_COMPLETE);
     push_be32(r->b, 0);
     boolean bs;
-    checkr(r, base_transact(r, OP_RECLAIM_COMPLETE, c->reverse, &bs));
+    r->prescan_op = OP_RECLAIM_COMPLETE;
+    checkr(r, base_transact(r, &bs));
+    if (bs) return error(NFS4_PROTOCOL, "early session expiration during setup");
     return NFS4_OK;
 }
 

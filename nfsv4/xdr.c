@@ -172,12 +172,10 @@ void print_stateid(stateid sid )
     }
 }
 
-status parse_stateid(nfs4 c, buffer b, stateid sid)
+status parse_stateid(buffer b, stateid sid)
 {
     sid->sequence = read_beu32(b); // seq
-    status s = read_buffer(b, &sid->opaque, NFS4_OTHER_SIZE);
-    // print_stateid(sid);
-    return s;
+    return read_buffer(b, &sid->opaque, NFS4_OTHER_SIZE);
 }
 
 status parse_ace(buffer b)
@@ -204,7 +202,7 @@ status parse_open(nfs4_file f, buffer b)
 {
     struct stateid delegation_sid;
 
-    parse_stateid(f->c, b, &f->open_sid);
+    check(parse_stateid(b, &f->open_sid));
     memcpy(&f->latest_sid, &f->open_sid, sizeof(struct stateid));
     // change info
     read_beu32( b); // atomic
@@ -219,12 +217,12 @@ status parse_open(nfs4_file f, buffer b)
     case OPEN_DELEGATE_NONE:
         break;
     case OPEN_DELEGATE_READ:
-        parse_stateid(f->c, b, &delegation_sid);
+        check(parse_stateid(b, &delegation_sid));
         read_beu32(b); // recall
         parse_ace(b);
         break;
     case OPEN_DELEGATE_WRITE:
-        parse_stateid(f->c, b, &delegation_sid);
+        check(parse_stateid(b, &delegation_sid));
         read_beu32(b); // recall
         u32 lt = read_beu32(b); // space limit - this is pretty ridiculous
         switch (lt) {

@@ -35,8 +35,7 @@ struct nfs4 {
     u32 server_sequence;
     u32 lock_sequence;    
     u8 instance_verifier[NFS4_VERIFIER_SIZE];
-    buffer forward;
-    buffer reverse; 
+    buffer freelist;
     bytes maxreq;
     bytes maxresp;
     u32 maxops;
@@ -60,6 +59,7 @@ struct nfs4_file {
     buffer filehandle;
     struct stateid latest_sid;
     struct stateid open_sid;
+    boolean asynch_writes;
 };
 
 #define DIR_FILE_BATCH_SIZE 32
@@ -72,7 +72,21 @@ struct nfs4_dir {
     buffer entries;
     boolean complete;
 };
-    
+
+typedef struct rpc {
+    nfs4 c;
+    u32 xid;
+    bytes opcountloc;
+    int opcount;
+    buffer b;
+    u32 session_offset;
+    void (*completion)(void *, buffer);
+    void *completion_argument;
+    u32 prescan_op;
+    buffer result;
+    // optional payload for zero copy
+} *rpc;
+
                         
 #define push_boolean(__b, __x) push_be32(__b, __x) 
 
@@ -103,18 +117,7 @@ struct nfs4_dir {
     __b->start += 8;                                        \
     v<<32 | v2;})
 
-typedef struct rpc *rpc;
-rpc allocate_rpc(nfs4 s, buffer b);
-
-
-struct rpc {
-    nfs4 c;
-    u32 xid;
-    bytes opcountloc;
-    int opcount;
-    buffer b;
-    u32 session_offset;
-};
+rpc allocate_rpc(nfs4 s);
 
 extern struct codepoint nfsops[];
 
@@ -143,16 +146,16 @@ status parse_exchange_id(nfs4, buffer);
 void push_create_session(rpc r);
 status parse_create_session(nfs4, buffer);
 void push_lookup(rpc r, buffer i);
-status parse_rpc(nfs4 s, buffer b, boolean *badsession);
+status parse_rpc(nfs4 c, buffer b, boolean *badsession, rpc *r);
 void push_open(rpc r, char *name, int flags, nfs4_properties p);
 status parse_open(nfs4_file f, buffer b);
-status parse_stateid(nfs4 c, buffer b, stateid sid);
+status parse_stateid(buffer b, stateid sid);
 void push_string(buffer b, char *x, u32 length);
 
 
 status segment(status (*each)(nfs4_file, void *, u64, u32), int chunksize, nfs4_file f, void *x, u64 offset, u32 length);
 char *push_initial_path(rpc r, char *path);
-status transact(rpc r, int op, buffer b);
+status transact(rpc r, int op);
 
 status write_chunk(nfs4_file f, void *source, u64 offset, u32 length);
 status read_chunk(nfs4_file f, void *source, u64 offset, u32 length);
@@ -206,7 +209,7 @@ status push_fattr(rpc r, nfs4_properties p);
 // in 4.2..use a bitset, or ...a map
 status push_fattr_mask(rpc r, u64 mask);
 status push_create(rpc r, nfs4_properties p);
-status rpc_readdir(nfs4_dir d, buffer result);
+status rpc_readdir(nfs4_dir d, buffer *result);
 status read_fattr(buffer b, nfs4_properties p);
 status parse_filehandle(buffer b, buffer dest);
 status read_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie);
@@ -226,5 +229,25 @@ static void fill_random(char* buffer, size_t len)
 status parse_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie);
 
 void push_auth_null(buffer b);
-status base_transact(rpc r, int op, buffer result, boolean *badsession);
+status base_transact(rpc r, boolean *badsession);
 void push_auth_sys(buffer b, u32 uid, u32 gid);
+void enqueue_completion(nfs4 c, u32 xid, void (*f)(void *, buffer), void *a);
+status rpc_send(rpc r);
+
+static inline buffer get_buffer(nfs4 c)
+{
+    if (c->freelist) {
+        buffer b = c->freelist;
+        b->start = b->end = 0;
+        c->freelist = *(buffer *)b->contents;
+        return b;
+    }
+    // match with nfs4 max req/resp size
+    return allocate_buffer(0, 65536);
+}
+
+static inline void free_buffer(nfs4 c, buffer b)
+{
+    *(buffer *)b->contents = c->freelist;
+    c->freelist = b;
+}

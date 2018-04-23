@@ -151,7 +151,7 @@ static value compare(client c, vector args)
     if ((length(a) != length(b)) ||
         (!memcpy(a->contents, b->contents, length(a))))
         // be able to generate our own errors
-        error("buffer mismatch");
+        return TAG(aprintf(0, "buffer mismatch"), ERROR_TAG);
     return 0;
 }
 
@@ -239,7 +239,7 @@ static value write_command(client c, vector args)
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
     ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, length(body)));
     nfs4_close(f);
-    return TAG(body, BUFFER_TAG);
+    return TAG(f, FILE_TAG);
 }
 
 // dup, of above write_command, dont want to break fixed arity model
@@ -249,7 +249,7 @@ static value asynch_write_command(client c, vector args)
     struct nfs4_properties p;
     p.mask = NFS4_PROP_MODE;
     p.mode = 0666;
-    ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_CREAT | NFS4_WRONLY, &p, &f));
+    ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_CREAT | NFS4_WRONLY | NFS4_SERVER_ASYNCH, &p, &f));
     // could wire these up monadically
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
     ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, length(body)));
@@ -363,7 +363,7 @@ static value mkdir_command (client c, vector args)
     p.mask = 0;
     // merge properties default and null
     ncheck(c, nfs4_mkdir(c->c, relative_path(c, args), &p));    
-    return allocate_buffer("", 0);
+    return 0;
 }
 
 static value enable_trace (client c, vector args)
@@ -436,6 +436,7 @@ value dispatch(client c, vector n)
 {
     int i;
     buffer command = vector_pop(n);
+    if (!c) return TAG(aprintf(0, "no session, set NFS4_SERVER environment or use explcit connect command"), ERROR_TAG);
     if (command) 
         for (i = 0; c->commands[i].name[0] ; i++ )
             if (strncmp(c->commands[i].name, command->contents, length(command)) == 0) 
@@ -454,6 +455,11 @@ void print_value(value v)
         printf ("error: %s\n", (char *) valueof(v));
         return;
 
+    // maybe we should force these to be closed?
+    // or provide variables or another way to refer to the lhs?        
+    case FILE_TAG:
+        return;
+        
     case BUFFER_TAG:
         printf ("[%lld]\n", length(valueof(v)));
         return;
