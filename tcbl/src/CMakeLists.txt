@@ -5,4 +5,4 @@ add_library(tcbl
         ll_log.h
         ll_log.c
         runtime.h
-        sglib.h)
+        sglib.h cachedvfs.h)

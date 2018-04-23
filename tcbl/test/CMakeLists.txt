@@ -14,7 +14,7 @@ add_executable(test_tcbl
         test_runtime.h
         test_util.c
         change_fh.c
-        change_fh.h test_runtime.h)
+        change_fh.h test_runtime.h ../src/cachedvfs.h)
 add_dependencies(test_tcbl test_tcbl)
 add_test(test_tcbl test_tcbl)
 target_link_libraries(test_tcbl tcbl cmocka ${CMAKE_THREAD_LIBS_INIT})
@@ -44,6 +44,6 @@ add_library(sqlite3tcbl SHARED
         ../src/ll_log.h
         ../src/ll_log.c
         ../src/runtime.h
-        ../src/sglib.h)
+        ../src/sglib.h ../src/cachedvfs.h)
 
 add_library(vfslog SHARED vfslog.c)

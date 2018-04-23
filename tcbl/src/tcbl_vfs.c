@@ -193,32 +193,6 @@ static int tcbl_file_size(vfs_fh file_handle, size_t* out_size)
     if (!found_size) {
         rc = vfs_file_size(fh->underlying_fh, out_size);
     }
-    /*
-    // Check current transaction changes
-    if (fh->change_log) {
-        *out = fh->change_log->newlen;
-        return TCBL_OK;
-    }
-
-    // Check the change log
-    bool found_size;
-    size_t size;
-    if (fh->txn_active) {
-        rc = tlog_file_size(fh->log, &found_size, &size, fh->txn_begin_log_entry_ct);
-    } else {
-        rc = tlog_file_size(fh->log, &found_size, &size, 0);
-    }
-    if (rc) {
-        return rc;
-    }
-    if (found_size) {
-        *out = size;
-        return TCBL_OK;
-    }
-
-    // Go to the data file if size not available in the log
-    return vfs_file_size(fh->underlying_fh, out);
-*/
     exit:
     if (auto_txn) {
         tcbl_txn_abort((vfs_fh) fh);
