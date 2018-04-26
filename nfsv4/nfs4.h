@@ -119,6 +119,7 @@ int nfs4_pread(nfs4_file f, void *buf, bytes offset, bytes length);
 int nfs4_unlink(nfs4 n, char *path);
 int nfs4_stat(nfs4 n, char *path, nfs4_properties p);
 int nfs4_fstat(nfs4_file fd, nfs4_properties p);
+int nfs4_append(nfs4_file fd, void *source, bytes offset);
 int nfs4_mkdir(nfs4 n, char *path, nfs4_properties p);
 void nfs4_set_default_properties(nfs4 n, nfs4_properties p);
 

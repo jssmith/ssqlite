@@ -64,7 +64,7 @@ static void print_int(buffer b, u64 n)
 }
 
     
-void error(char *fmt, ...)
+value error(char *fmt, ...)
 {
     buffer b = allocate_buffer(0, 80);
     va_list ap;
@@ -72,9 +72,8 @@ void error(char *fmt, ...)
     va_start (ap, fmt);
     vbprintf(b, f, ap);
     va_end(ap);
-    write(2, b->contents + b->start, length(b));
-    write(2, "\n", 1);
-    exit(-1);
+    push_character(b, 0);
+    return TAG(b->contents, ERROR_TAG);
 }
 
 
@@ -82,11 +81,15 @@ char *server; // support multiple servers
 
 value dispatch(client c, vector n);
 
-void *dispatch_tag(client c, int tag, vector n)
-{
-    void *x = dispatch(c, n);
-    return CHECK(x, tag);
-}
+#define dispatch_tag(__c, __tag, __n)\
+({\
+    void *x = dispatch(__c, __n);\
+    if (tagof(x) != __tag) {\
+      if (tagof(x) == ERROR_TAG) return x;\
+      return error ("bad tag\n");\
+   }\
+   valueof(x);\
+ })
 
 
 // destructively turn b->contents into a C string
@@ -189,11 +192,21 @@ static value delete(client c, vector args)
     return 0;
 }
 
-// open read and open write?
-static value open_command(client c, vector args)
+static value ropen_command(client c, vector args)
 {
     nfs4_file f;
     ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_RDONLY, 0, &f));
+    return TAG(f, FILE_TAG);
+}
+
+// maybe break out creat also
+static value wopen_command(client c, vector args)
+{
+    nfs4_file f;
+    struct nfs4_properties p;
+    p.mask = NFS4_PROP_MODE;
+    p.mode = 0666;
+    ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_WRONLY | NFS4_CREAT, &p, &f));
     return TAG(f, FILE_TAG);
 }
 
@@ -228,14 +241,18 @@ static value md5_command(client c, vector args)
     return out;
 }
 
+static value append_command(client c, vector args)
+{
+    nfs4_file f = dispatch_tag(c, FILE_TAG, args);    
+    buffer body = dispatch_tag(c, BUFFER_TAG, args);
+    // asynch flag?
+    ncheck(c, nfs4_append(f, body->contents + body->start, length(body)));
+}
+
 static value write_command(client c, vector args)
 {
-    nfs4_file f;
-    struct nfs4_properties p;
-    p.mask = NFS4_PROP_MODE;
-    p.mode = 0666;
-    ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_CREAT | NFS4_WRONLY, &p, &f));
-    // could wire these up monadically
+    // could wire these up monadically to permit asynch streaming
+    nfs4_file f = dispatch_tag(c, FILE_TAG, args);    
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
     ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, length(body)));
     nfs4_close(f);
@@ -400,6 +417,7 @@ static value help(client c, vector args);
 static struct command nfs_commands[] = {
     {"create", create, "create an empty file"},
     {"write", write_command, ""},
+    {"append", append_command, ""},    
     {"awrite", asynch_write_command, ""},    
     {"read", read_command, ""},
     {"md5", md5_command, ""},
@@ -407,7 +425,8 @@ static struct command nfs_commands[] = {
     {"generate", generate, ""},        
     {"ls", ls, ""},
     {"cd", cd, ""},
-    {"open", open_command, ""},        
+    {"ropen", ropen_command, ""},
+    {"wopen", wopen_command, ""},        
     {"chmod", set_mode, ""},
     {"chown", set_owner, ""},
     {"conn", conn, ""},
@@ -436,7 +455,7 @@ value dispatch(client c, vector n)
 {
     int i;
     buffer command = vector_pop(n);
-    if (!c) return TAG(aprintf(0, "no session, set NFS4_SERVER environment or use explcit connect command"), ERROR_TAG);
+    if (!c) return TAG("no session, set NFS4_SERVER environment or use explcit connect command", ERROR_TAG);
     if (command) 
         for (i = 0; c->commands[i].name[0] ; i++ )
             if (strncmp(c->commands[i].name, command->contents, length(command)) == 0) 

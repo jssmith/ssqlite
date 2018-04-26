@@ -5,8 +5,8 @@
 #define api_check(__d, __st) \
     ({                       \
         status __s = __st;\
-        if (nfs4_is_error(__s))  __d->error_string = __s->description;  \
-        (__s)?(__s)->error:0;                                         \
+        if (nfs4_is_error(__s)){  __d->error_string = __s->description; \
+            return (__s)?(__s)->error:0;}                               \
     })
 
 #define api_checkr(__r, __st) \
@@ -37,34 +37,62 @@ int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
 }
 
 
-// first packet
-//    lock
-//    validate end of file
-//    extend file
-//    write block
-// intermediate packet
-//    write
-// last packet (can also be first packet)
-//    write
-// unlock
-
 // synch vs asynch
      
-int nfs4_append(nfs4_file f, void *source, bytes length)
+int nfs4_append(nfs4_file f, void *source, bytes len)
 {
-    // an atomic append has to be .. atomic, so it has to
-    // fit in an option. it would be nice if we could
-    // bound this exactly. use a flag so that large
-    // non-contiguous or non-contending writes can proceed?
-    if (length > (f->c->maxreq - 100)) {
-        return api_check(f->c, error(NFS4_EFBIG, "request too large to preserve atomicity"));
+    if (len > (f->c->maxreq - 100)) {
+        f->c->error_string =  aprintf(0, "request too large to preserve atomicity");
+        return NFS4_EFBIG;
     }
     
-    rpc r = allocate_rpc(f->c);
-    push_op(r, OP_VERIFY);
+    rpc r = file_rpc(f);
     struct nfs4_properties p;
+    p.mask = NFS4_PROP_SIZE;
+    p.size = f->expected_size;
+    // get the offset in case we fail
+    push_op(r, OP_GETATTR);    
+    push_fattr_mask(r, NFS4_PROP_SIZE);
+    push_op(r, OP_VERIFY);
     push_fattr(r, &p);
-    api_check(f->c, transact(r, OP_WRITE));    
+    push_op(r, OP_SETATTR);
+    push_stateid(r, &f->open_sid);    
+    push_fattr(r, &p);    
+    push_lock(r, &f->open_sid, WRITE_LT, f->expected_size, f->expected_size + len);
+    push_op(r, OP_WRITE);
+    push_stateid(r, &f->open_sid);
+    push_be64(r->b, f->expected_size);
+    push_be32(r->b, FILE_SYNC4);
+    push_string(r->b, source, len);
+
+    status s = transact(r, OP_GETATTR);
+    api_checkr(r, parse_fattr(r->result, &p));
+    f->expected_size = p.size;
+    u32 verify;
+    api_checkr(r, parse_verify(r->result, &verify));
+
+    if (verify) {
+        if (verify ==  NFS4ERR_NOT_SAME) {
+            return nfs4_append(f, source, len);
+        }
+        api_checkr(r, error(NFS4_EINVAL, codestring(nfsstatus, verify)));        
+    }
+
+    // strongly consider laying out a symmetric vector of decoders
+    // during encoding to make these larger compounds. given that
+    // we're stashing everything in rpc, for good or ill, this
+    // wouldn't require any additional allocations
+
+    api_checkr(r, check_op(r->result, OP_SETATTR));
+    api_checkr(r, parse_attrmask(r->result, 0));
+    api_checkr(r, check_op(r->result, OP_LOCK));
+    api_checkr(r, parse_stateid(r->result, &f->latest_sid));
+    api_checkr(r, check_op(r->result, OP_WRITE));
+    f->expected_size += len;
+    // send the unlock asynchronously underneath the return
+    //    push_unlock(r, &f->latest_sid, WRITE_LT, f->expected_size, f->expected_size + len);
+    deallocate_rpc(r);
+    return NFS4_OK;
 }
 
 static status parse_getfilehandle(buffer b, buffer fh)
@@ -85,10 +113,15 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
     char *final = push_initial_path(r, path);
     push_open(r, final, flags, p);
     push_op(r, OP_GETFH);
+    push_op(r, OP_GETATTR);
+    push_fattr_mask(r, NFS4_PROP_SIZE);
     api_checkr(r, transact(r, OP_OPEN));
     api_checkr(r, parse_open(f, r->result));
     f->filehandle = allocate_buffer(c->h, NFS4_FHSIZE);
     api_checkr(r, parse_getfilehandle(r->result, f->filehandle));
+    struct nfs4_properties ps;
+    api_checkr(r, parse_getattr(r->result, &ps));
+    f->expected_size = ps.size;
     deallocate_rpc(r);
     *dest = f;
     return NFS4_OK;
@@ -106,9 +139,9 @@ int nfs4_stat(nfs4 c, char *path, nfs4_properties dest)
     push_sequence(r);
     push_resolution(r, path);
     push_op(r, OP_GETATTR);    
-    buffer res;
+    push_fattr_mask(r, STANDARD_PROPERTIES);    
     api_checkr(r, transact(r, OP_GETATTR));
-    api_checkr(r, read_fattr(r->result, dest));
+    api_checkr(r, parse_fattr(r->result, dest));
     deallocate_rpc(r);    
     return NFS4_OK;
 }
@@ -119,7 +152,7 @@ int nfs4_fstat(nfs4_file f, nfs4_properties dest)
     push_op(r, OP_GETATTR);
     push_fattr_mask(r, STANDARD_PROPERTIES);
     api_checkr(r, transact(r, OP_GETATTR));
-    api_checkr(r, read_fattr(r->result, dest));
+    api_checkr(r, parse_fattr(r->result, dest));
     deallocate_rpc(r);    
     return NFS4_OK;
 }   
@@ -236,18 +269,7 @@ int nfs4_default_properties(nfs4 c, nfs4_properties p)
 int nfs4_lock_range(nfs4_file f, int locktype, bytes offset, bytes length)
 {
     rpc r = file_rpc(f);
-    push_op(r, OP_LOCK);
-    push_be32(r->b, locktype);
-    push_boolean(r->b, false); // reclaim
-    push_be64(r->b, offset);
-    push_be64(r->b, length);
-
-    push_boolean(r->b, true); // new lock owner
-    push_bare_sequence(r);
-    push_stateid(r, &f->open_sid);
-    push_lock_sequence(r);
-    push_owner(r);
-
+    push_lock(r, &f->open_sid, locktype, offset, length);
     api_checkr(r, transact(r, OP_LOCK));
     parse_stateid(r->result, &f->latest_sid);
     deallocate_rpc(r);
@@ -258,12 +280,7 @@ int nfs4_lock_range(nfs4_file f, int locktype, bytes offset, bytes length)
 int nfs4_unlock_range(nfs4_file f, int locktype, bytes offset, bytes length)
 {
     rpc r = file_rpc(f);
-    push_op(r, OP_LOCKU);
-    push_be32(r->b, locktype);
-    push_bare_sequence(r);
-    push_stateid(r, &f->latest_sid);
-    push_be64(r->b, offset);
-    push_be64(r->b, length);
+    push_unlock(r, &f->latest_sid, locktype, offset, length);
     api_checkr(r, transact(r, OP_LOCKU));
     api_checkr(r, parse_stateid(r->result, &f->latest_sid));
     deallocate_rpc(r);    

@@ -60,6 +60,7 @@ struct nfs4_file {
     struct stateid latest_sid;
     struct stateid open_sid;
     boolean asynch_writes;
+    u64 expected_size;
 };
 
 #define DIR_FILE_BATCH_SIZE 32
@@ -210,7 +211,7 @@ status push_fattr(rpc r, nfs4_properties p);
 status push_fattr_mask(rpc r, u64 mask);
 status push_create(rpc r, nfs4_properties p);
 status rpc_readdir(nfs4_dir d, buffer *result);
-status read_fattr(buffer b, nfs4_properties p);
+status parse_fattr(buffer b, nfs4_properties p);
 status parse_filehandle(buffer b, buffer dest);
 status read_dirent(buffer b, nfs4_properties p, int *more, u64 *cookie);
 
@@ -251,3 +252,24 @@ static inline void free_buffer(nfs4 c, buffer b)
     *(buffer *)b->contents = c->freelist;
     c->freelist = b;
 }
+
+void push_lock(rpc r, stateid sid, int loctype, bytes offset, bytes length);
+void push_unlock(rpc r, stateid sid, int loctype, bytes offset, bytes length);
+status parse_getattr(buffer b, nfs4_properties p);
+status parse_attrmask(buffer b, buffer dest);
+status read_time(buffer b, ticks *dest);
+
+static inline status check_op(buffer b, u32 op)
+{
+    verify_and_adv(b, op);
+    verify_and_adv(b, 0);    
+}
+
+static inline status parse_verify(buffer b, u32 *stat)
+{
+    verify_and_adv(b, OP_VERIFY);
+    *stat = read_beu32(b);
+    return NFS4_OK;
+}
+
+status parse_attrmask(buffer b, buffer dest);

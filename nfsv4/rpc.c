@@ -84,7 +84,9 @@ status parse_rpc(nfs4 c, buffer b, boolean *badsession, rpc *r)
             eprintf("nfs rpc error %s\n", codestring(nfsstatus, nstatus));
 
         if (nstatus == NFS4ERR_BADSESSION) {
-            printf ("Bad session\n");
+            if (config_boolean("NFS_TRACE", false)){
+                printf ("Bad session\n");
+            }
             *badsession = true;
             return NFS4_OK;
         }
@@ -181,8 +183,10 @@ static status read_until(rpc r)
     int opcount = read_beu32(b);
     while (1) {
         int op =  read_beu32(b);
-        if (config_boolean("NFS_TRACE", false)) 
-            dprintf("received op: %C\n",nfsops, op);
+        if (config_boolean("NFS_TRACE", false))  {
+            dprintf("received op: %C %x\n",nfsops, op, op);
+            print_buffer("", b);
+        }
 
         if (op == r->prescan_op) {
             return NFS4_OK;
@@ -246,9 +250,13 @@ status base_transact(rpc r, boolean *badsession)
         result->start = result->end = 0;
         check(read_response(r->c, result));        
         check(parse_rpc(r->c, result, badsession, &recv));
-        r->result = result;
-        check(read_until(r));
-        if (r->completion) r->completion(r->completion_argument, result);
+        if (*badsession) {
+            free_buffer(r->c, result);
+        } else {
+            r->result = result;
+            check(read_until(r));
+            if (r->completion) r->completion(r->completion_argument, result);
+        }
     }
     u32 code = read_beu32(r->result);
     if (code == 0) return NFS4_OK;
@@ -286,7 +294,6 @@ status transact(rpc r, int op)
             if (config_boolean("NFS_TRACE", false))
                 eprintf("session failure, attempting to reestablish\n");
             replay_rpc(r);
-            free_buffer(r->c, r->result);
             tries++;
         }
     }
