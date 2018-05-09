@@ -401,7 +401,7 @@ int str_append(char *dst_buff, const char *s1, const char *s2, size_t buff_len)
     }
 }
 
-int bc_log_create(bc_log l, vfs vfs, vfs_fh data_fh, const char *name, size_t page_size)
+int bc_log_create(bc_log l, vfs vfs, vfs_fh data_fh, cvfs_h cache_h, const char *name, size_t page_size)
 {
     l->page_size = page_size;
     size_t name_sz = strlen(name);
@@ -416,6 +416,7 @@ int bc_log_create(bc_log l, vfs vfs, vfs_fh data_fh, const char *name, size_t pa
     if (rc) return rc;
     l->data_fh = data_fh;
     l->underlying_vfs = vfs;
+    l->data_cache_h = cache_h;
     return TCBL_OK;
 }
 

@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "vfs.h"
+#include "cachedvfs.h"
 
 #define LL_LOG_ENTRY_READ           1
 #define LL_LOG_ENTRY_WRITE          2
@@ -142,6 +143,7 @@ typedef struct bc_log {
     vfs underlying_vfs;
     vfs_fh data_fh;
     vfs_fh log_fh;
+    cvfs_h data_cache_h;
 } *bc_log;
 
 #define LOG_FLAG_COMMIT         1
@@ -175,7 +177,7 @@ typedef struct bc_log_h {
     bc_log_entry read_entry;
 } *bc_log_h;
 
-int bc_log_create(bc_log, vfs vfs, vfs_fh data_fh, const char *name, size_t page_size);
+int bc_log_create(bc_log, vfs vfs, vfs_fh data_fh, cvfs_h cache_h, const char *name, size_t page_size);
 int bc_log_delete(vfs vfs, const char *name);
 int bc_log_checkpoint(bc_log);
 int bc_log_txn_begin(bc_log, bc_log_h);

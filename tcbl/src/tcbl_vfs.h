@@ -7,6 +7,7 @@
 
 #include "ll_log.h"
 #include "vfs.h"
+#include "cachedvfs.h"
 
 typedef struct tvfs *tvfs;
 
@@ -20,6 +21,7 @@ typedef struct tcbl_vfs {
     tvfs_info tvfs_info;
     size_t page_size;
     vfs underlying_vfs;
+    cvfs cache;
 } *tcbl_vfs;
 
 typedef struct change_log_entry {
@@ -35,6 +37,7 @@ typedef struct change_log_entry {
 typedef struct tcbl_fh {
     vfs vfs;
     vfs_fh underlying_fh;
+    cvfs_h cache_h;
     struct bc_log txn_log;
     struct bc_log_h txn_log_h;
     bool txn_active;

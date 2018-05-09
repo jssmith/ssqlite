@@ -31,13 +31,6 @@ static int tcbl_txn_commit(vfs_fh file_handle);
 static int tcbl_txn_abort(vfs_fh file_handle);
 static int tcbl_checkpoint(vfs_fh file_handle);
 
-
-//static void gen_log_file_name(const char *file_name, char *log_file_name)
-//{
-//    strcpy(log_file_name, file_name);
-//    strcpy(&log_file_name[strlen(file_name)], "-log");
-//}
-
 static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
 {
     int rc;
@@ -54,7 +47,10 @@ static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
     rc = vfs_open(tcbl_vfs->underlying_vfs, file_name, &fh->underlying_fh);
     if (rc) goto exit;
 
-    rc = bc_log_create(&fh->txn_log, tcbl_vfs->underlying_vfs, fh->underlying_fh, file_name, tcbl_vfs->page_size);
+    rc = vfs_cache_open(tcbl_vfs->cache, &fh->cache_h, fh->underlying_fh);
+    if (rc) goto exit;
+
+    rc = bc_log_create(&fh->txn_log, tcbl_vfs->underlying_vfs, fh->underlying_fh, fh->cache_h, file_name, tcbl_vfs->page_size);
     if (rc) goto exit;
 
     *file_handle_out = (vfs_fh) fh;
@@ -62,6 +58,9 @@ static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
     exit:
     if (rc && fh->underlying_fh) {
         vfs_close(fh->underlying_fh);
+    }
+    if (rc && fh->cache_h) {
+        vfs_cache_close(fh->cache_h);
     }
     return rc;
 }
@@ -87,13 +86,16 @@ static int tcbl_exists(vfs vfs, const char *file_name, int *out)
 static int tcbl_close(vfs_fh file_handle)
 {
     tcbl_fh fh = (tcbl_fh) file_handle;
-    int rc1 = vfs_close(fh->underlying_fh);
-    int rc2 = TCBL_OK;
+    int rc = vfs_close(fh->underlying_fh);
+    int rc_;
+    rc_ = vfs_cache_close(fh->cache_h);
+    if (!rc && rc_) rc = rc_;
     if (fh->txn_active) {
-        rc2 = bc_log_txn_abort(&fh->txn_log_h);
+        rc_ = bc_log_txn_abort(&fh->txn_log_h);
     }
+    if (!rc && rc_) rc = rc_;
     tcbl_free(NULL, fh, sizeof(struct tcbl_fh));
-    return rc1 == TCBL_OK ? rc2 : rc1;
+    return rc;
 }
 
 static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
@@ -136,11 +138,13 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
                 bounds_error = false;
             }
         } else {
-            rc = vfs_read(fh->underlying_fh, buff, read_offset, page_size);
+            rc = vfs_cache_get(fh->cache_h, buff, read_offset, page_size);
+//            rc = vfs_read(fh->underlying_fh, buff, read_offset, page_size);
             if (rc == TCBL_BOUNDS_CHECK) {
                 // TODO understand where this condition arises and document it
                 size_t underlying_size;
-                vfs_file_size(fh->underlying_fh, &underlying_size);
+//                vfs_file_size(fh->underlying_fh, &underlying_size);
+                rc = vfs_cache_len_get(fh->cache_h, &underlying_size);
                 if (underlying_size < read_offset + block_begin_skip + block_read_size) {
                     bounds_error = true;
                 } else {
@@ -191,7 +195,8 @@ static int tcbl_file_size(vfs_fh file_handle, size_t* out_size)
     if (rc) goto exit;
 
     if (!found_size) {
-        rc = vfs_file_size(fh->underlying_fh, out_size);
+//        rc = vfs_file_size(fh->underlying_fh, out_size);
+        rc = vfs_cache_len_get(fh->cache_h, out_size);
     }
     exit:
     if (auto_txn) {
@@ -241,13 +246,6 @@ static int tcbl_write(vfs_fh file_handle, const void* data, size_t offset, size_
 
     rc = TCBL_OK;
     while (write_offset < block_offset + block_len) {
-//        change_log_entry log_record = tcbl_malloc(NULL, sizeof(struct change_log_entry) + page_size);
-//        if (!log_record) {
-//            // TODO cleanup - should be taken care of by abort but make sure
-//            rc = TCBL_ALLOC_FAILURE;
-//            break;
-//        }
-//        log_record->offset = write_offset;
         size_t newlen = MAX(write_offset + block_begin_skip + block_write_size, starting_file_size);
         if (block_begin_skip > 0 || block_begin_skip + block_write_size < page_size) {
             // TODO maybe we are reading a bit more than necessary here as some will be overwritten
@@ -318,39 +316,6 @@ static int tcbl_txn_commit(vfs_fh file_handle)
     }
 
     rc = bc_log_txn_commit(&fh->txn_log_h);
-
-    /*
-    if (!fh->change_log) {
-        rc = TCBL_OK;
-    } else {
-        uint64_t current_log_entry_ct;
-
-        rc = tlog_entry_ct(fh->log, &current_log_entry_ct);
-        if (rc) {
-            return rc;
-        }
-
-        if (current_log_entry_ct != fh->txn_begin_log_entry_ct) {
-            // abort for now TODO add merge operator, e.g., append when blocks don't conflict
-            tcbl_txn_abort(file_handle);
-            return TCBL_CONFLICT_ABORT;
-        }
-
-        SGLIB_LIST_REVERSE(struct change_log_entry, fh->change_log, next);
-        rc = tlog_append(fh->log, fh->change_log);
-        if (rc) {
-            return rc;
-        }
-
-        // Free the log
-        while (fh->change_log) {
-            change_log_entry l = fh->change_log;
-            SGLIB_LIST_DELETE(struct change_log_entry, fh->change_log, l, next);
-            tcbl_free(NULL, l, sizeof(struct change_log_entry) + page_size);
-        }
-    }
-    */
-//    fh->txn_log_h = NULL;
     fh->txn_active = false;
     return rc;
 }
@@ -365,7 +330,6 @@ static int tcbl_txn_abort(vfs_fh file_handle)
     }
 
     rc = bc_log_txn_abort(&fh->txn_log_h);
-//    fh->txn_log_h = NULL;
     fh->txn_active = false;
     return rc;
 }

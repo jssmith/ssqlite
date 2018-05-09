@@ -1,4 +1,5 @@
 #define _XOPEN_SOURCE 500
+#define _DARWIN_C_SOURCE
 
 #include <unistd.h>
 #include <stdio.h>
@@ -6,7 +7,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/file.h>
-#include <fcntl.h>
 
 #include <errno.h>
 #include <sglib.h>

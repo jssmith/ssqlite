@@ -18,6 +18,7 @@
 #define TCBL_FILE_NOT_FOUND     0x0b
 #define TCBL_IO_ERROR           0x0c
 #define TCBL_INTERNAL_ERROR     0x0d
+#define TCBL_NOT_FOUND          0x0e
 
 //#define TCBL_MEMVFS_VERBOSE
 
