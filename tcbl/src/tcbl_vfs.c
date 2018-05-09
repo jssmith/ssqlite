@@ -47,8 +47,12 @@ static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
     rc = vfs_open(tcbl_vfs->underlying_vfs, file_name, &fh->underlying_fh);
     if (rc) goto exit;
 
-    rc = vfs_cache_open(tcbl_vfs->cache, &fh->cache_h, fh->underlying_fh);
-    if (rc) goto exit;
+    if (tcbl_vfs->cache != NULL) {
+        rc = vfs_cache_open(tcbl_vfs->cache, &fh->cache_h, fh->underlying_fh);
+        if (rc) goto exit;
+    } else {
+        fh->cache_h = NULL;
+    }
 
     rc = bc_log_create(&fh->txn_log, tcbl_vfs->underlying_vfs, fh->underlying_fh, fh->cache_h, file_name, tcbl_vfs->page_size);
     if (rc) goto exit;
@@ -87,8 +91,10 @@ static int tcbl_close(vfs_fh file_handle)
 {
     tcbl_fh fh = (tcbl_fh) file_handle;
     int rc = vfs_close(fh->underlying_fh);
-    int rc_;
-    rc_ = vfs_cache_close(fh->cache_h);
+    int rc_ = TCBL_OK;
+    if (fh->cache_h) {
+        rc_ = vfs_cache_close(fh->cache_h);
+    }
     if (!rc && rc_) rc = rc_;
     if (fh->txn_active) {
         rc_ = bc_log_txn_abort(&fh->txn_log_h);
@@ -138,13 +144,19 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
                 bounds_error = false;
             }
         } else {
-            rc = vfs_cache_get(fh->cache_h, buff, read_offset, page_size);
-//            rc = vfs_read(fh->underlying_fh, buff, read_offset, page_size);
+            if (fh->cache_h != NULL) {
+                rc = vfs_cache_get(fh->cache_h, buff, read_offset, page_size);
+            } else {
+                rc = vfs_read(fh->underlying_fh, buff, read_offset, page_size);
+            }
             if (rc == TCBL_BOUNDS_CHECK) {
                 // TODO understand where this condition arises and document it
                 size_t underlying_size;
-//                vfs_file_size(fh->underlying_fh, &underlying_size);
-                rc = vfs_cache_len_get(fh->cache_h, &underlying_size);
+                if (fh->cache_h != NULL) {
+                    rc = vfs_cache_len_get(fh->cache_h, &underlying_size);
+                } else {
+                    vfs_file_size(fh->underlying_fh, &underlying_size);
+                }
                 if (underlying_size < read_offset + block_begin_skip + block_read_size) {
                     bounds_error = true;
                 } else {
@@ -195,8 +207,11 @@ static int tcbl_file_size(vfs_fh file_handle, size_t* out_size)
     if (rc) goto exit;
 
     if (!found_size) {
-//        rc = vfs_file_size(fh->underlying_fh, out_size);
-        rc = vfs_cache_len_get(fh->cache_h, out_size);
+        if (fh->cache_h) {
+            rc = vfs_cache_len_get(fh->cache_h, out_size);
+        } else {
+            rc = vfs_file_size(fh->underlying_fh, out_size);
+        }
     }
     exit:
     if (auto_txn) {
@@ -391,6 +406,7 @@ int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size)
     tcbl_vfs->tvfs_info = &tcbl_tvfs_info;
     tcbl_vfs->underlying_vfs = underlying_vfs;
     tcbl_vfs->page_size = page_size;
+    tcbl_vfs->cache = NULL;
     *tvfs = (struct tvfs *) tcbl_vfs;
     return TCBL_OK;
 }
