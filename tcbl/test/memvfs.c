@@ -176,16 +176,17 @@ static int memvfs_close(vfs_fh file_handle)
     return TCBL_OK;
 }
 
-static int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len)
+static int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len, size_t *out_len)
 {
     lock((memvfs) file_handle->vfs);
     int rc = TCBL_OK;
     memvfs_fh fh = (memvfs_fh) file_handle;
     memvfs_file f = fh->memvfs_file;
 
+    size_t read_len = 0;
     if (f->len < offset + len) {
         if (offset < f->len) {
-            size_t read_len = f->len - offset;
+            read_len = f->len - offset;
             memcpy(buff, &f->data[offset], read_len);
             memset(&((char *)buff)[read_len], 0, len - read_len);
         } else {
@@ -194,6 +195,7 @@ static int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len
         rc = TCBL_BOUNDS_CHECK;
         goto exit;
     }
+    read_len = len;
     memcpy(buff, &f->data[offset], len);
 #ifdef TCBL_MEMVFS_VERBOSE
     printf("memvfs read %s %lx %lx\n", f->name, offset, len);
@@ -201,6 +203,9 @@ static int memvfs_read(vfs_fh file_handle, void *buff, size_t offset, size_t len
 #endif
     exit:
     unlock((memvfs) file_handle->vfs);
+    if (out_len) {
+        *out_len = read_len;
+    }
     return rc;
 }
 

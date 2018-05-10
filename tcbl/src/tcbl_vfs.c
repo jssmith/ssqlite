@@ -104,7 +104,7 @@ static int tcbl_close(vfs_fh file_handle)
     return rc;
 }
 
-static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
+static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len, size_t *out_len)
 {
     int rc;
     tcbl_fh fh = (tcbl_fh) file_handle;
@@ -130,6 +130,7 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
     bool bounds_error = false;
     char buff[page_size];
     rc = TCBL_OK;
+    size_t total_read_len = 0;
     while (read_offset < block_offset + block_len) {
         bool found_data;
         void *p;
@@ -138,16 +139,18 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
         if (rc) goto txn_end;
         if (found_data) {
             memcpy(dst, &((char *) p)[block_begin_skip], block_read_size);
+            total_read_len += MIN(block_read_size, found_newlen - block_offset - block_begin_skip);
             if (found_newlen < block_offset + block_begin_skip + block_read_size) {
                 bounds_error = true;
             } else {
                 bounds_error = false;
             }
         } else {
+            size_t read_len;
             if (fh->cache_h != NULL) {
-                rc = vfs_cache_get(fh->cache_h, buff, read_offset, page_size);
+                rc = vfs_cache_get(fh->cache_h, buff, read_offset, page_size, &read_len);
             } else {
-                rc = vfs_read(fh->underlying_fh, buff, read_offset, page_size);
+                rc = vfs_read_2(fh->underlying_fh, buff, read_offset, page_size, &read_len);
             }
             if (rc == TCBL_BOUNDS_CHECK) {
                 // TODO understand where this condition arises and document it
@@ -168,6 +171,7 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
             if (!(rc == TCBL_OK || rc == TCBL_BOUNDS_CHECK)) {
                 goto txn_end;
             }
+            total_read_len += read_len;
             memcpy(dst, &buff[block_begin_skip], block_read_size);
         }
 
@@ -186,6 +190,9 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len)
     if (!((rc == TCBL_OK) || (rc == TCBL_BOUNDS_CHECK))) {
         return rc;
     } else {
+        if (out_len != NULL) {
+            *out_len = total_read_len;
+        }
         return bounds_error ? TCBL_BOUNDS_CHECK : TCBL_OK;
     }
 }
@@ -267,7 +274,7 @@ static int tcbl_write(vfs_fh file_handle, const void* data, size_t offset, size_
             // but just pull in as much of the block as is available for now
             if (write_offset < starting_file_size) {
                 size_t read_len = MIN(page_size, starting_file_size - write_offset);
-                rc = tcbl_read(file_handle, buff, write_offset, read_len);
+                rc = tcbl_read(file_handle, buff, write_offset, read_len, NULL);
                 if (rc == TCBL_BOUNDS_CHECK) {
                     // trust that read has provided everything that it can and
                     // zeroed out the rest
@@ -433,7 +440,12 @@ int vfs_close(vfs_fh file_handle)
 
 int vfs_read(vfs_fh file_handle, char* data, size_t offset, size_t len)
 {
-    return file_handle->vfs->vfs_info->x_read(file_handle, data, offset, len);
+    return file_handle->vfs->vfs_info->x_read(file_handle, data, offset, len, NULL);
+}
+
+int vfs_read_2(vfs_fh file_handle, char* data, size_t offset, size_t len, size_t *out_len)
+{
+    return file_handle->vfs->vfs_info->x_read(file_handle, data, offset, len, out_len);
 }
 
 int vfs_write(vfs_fh file_handle, const char* data, size_t offset, size_t len)

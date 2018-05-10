@@ -15,7 +15,7 @@ typedef struct vfs_info {
     int (*x_delete)(vfs, const char* file_name);
     int (*x_exists)(vfs, const char* file_name, int *out);
     int (*x_close)(vfs_fh);
-    int (*x_read)(vfs_fh, void *data, size_t offset, size_t len);
+    int (*x_read)(vfs_fh, void *data, size_t offset, size_t len, size_t *out_len);
     int (*x_write)(vfs_fh, const void *data, size_t offset, size_t len);
     int (*x_lock)(vfs_fh, int lock_operation);
     int (*x_file_size)(vfs_fh, size_t* size_out);
@@ -44,6 +44,7 @@ int vfs_delete(vfs vfs, const char *file_name);
 int vfs_exists(vfs vfs, const char *file_name, int *out);
 int vfs_close(vfs_fh file_handle);
 int vfs_read(vfs_fh file_handle, char* data, size_t offset, size_t len);
+int vfs_read_2(vfs_fh file_handle, char* data, size_t offset, size_t len, size_t *out_len);
 int vfs_write(vfs_fh file_handle, const char* data, size_t offset, size_t len);
 int vfs_lock(vfs_fh file_handle, int lock_operation);
 int vfs_file_size(vfs_fh file_handle, size_t *out);

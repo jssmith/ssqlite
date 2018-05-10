@@ -23,7 +23,7 @@
 #define TCBL_UNIX_TEST_DIR "/tmp/test-tcbl"
 
 #define verify_length(__fh, __el) { size_t file_size; RC_OK(vfs_file_size(__fh, &file_size)); assert_int_equal(file_size, __el); }
-#define verify_data(__fh, __ed, __offs, __len) { char buff[__len]; RC_OK(vfs_read(__fh, buff, __offs, __len)); assert_memory_equal(buff, __ed, __len); }
+#define verify_data(__fh, __ed, __offs, __len) { char buff[__len]; size_t __len_res; RC_OK(vfs_read_2(__fh, buff, __offs, __len, &__len_res)); assert_int_equal(__len_res, __len); assert_memory_equal(buff, __ed, __len); }
 #define verify_file(__fh, __ed, __el) { verify_length(__fh, __el); verify_data(__fh, __ed, 0, __el); }
 
 

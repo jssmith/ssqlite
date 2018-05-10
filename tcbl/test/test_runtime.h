@@ -9,6 +9,7 @@
 #include <stdint.h>
 
 #define TCBL_TEST_PAGE_SIZE 64
+#define TCBL_TEST_CACHE_PAGE_SIZE 256
 #define TCBL_TEST_MAX_FH 2
 
 #define RC_OK(__x) assert_int_equal(__x, TCBL_OK)

@@ -104,13 +104,14 @@ static int unix_vfs_close(vfs_fh vfs_fh)
     return TCBL_OK;
 }
 
-static int unix_vfs_read(vfs_fh vfs_fh, void *data, size_t offset, size_t len)
+static int unix_vfs_read(vfs_fh vfs_fh, void *data, size_t offset, size_t len, size_t *out_len)
 {
     unixvfs_fh fh = (unixvfs_fh) vfs_fh;
 
     void* pos = data;
     ssize_t read_offset = offset;
     size_t remaining = len;
+    size_t total_len_read = 0;
     while (remaining > 0) {
         ssize_t len_read = pread(fh->fd, pos, remaining, read_offset);
         if (len_read == 0) {
@@ -121,9 +122,13 @@ static int unix_vfs_read(vfs_fh vfs_fh, void *data, size_t offset, size_t len)
         if (len_read == -1) {
             return TCBL_IO_ERROR;
         }
+        total_len_read += len_read;
         pos += len_read;
         read_offset += len_read;
         remaining -= len_read;
+    }
+    if (out_len != NULL) {
+        *out_len = total_len_read;
     }
     return TCBL_OK;
 }

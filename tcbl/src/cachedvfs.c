@@ -1,9 +1,18 @@
 #include <string.h>
 #include <sys/param.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #include "runtime.h"
 #include "cachedvfs.h"
-#include "sglib.h"
+
+//void check_free_list(char* l)
+//{
+//    char* p = l;
+//    while (p != NULL) {
+//        printf("fl: %p, %ld\n", (void *) p, p - l);
+//        p = *((char **) p);
+//    }
+//}
 
 int vfs_cache_allocate(struct cvfs **cvfs, size_t page_size, size_t num_pages)
 {
@@ -26,10 +35,11 @@ int vfs_cache_allocate(struct cvfs **cvfs, size_t page_size, size_t num_pages)
         rc = TCBL_ALLOC_FAILURE;
         goto exit;
     }
-    memset(c->cache_index, 0, c->num_index_entries);
+    memset(c->cache_index, 0, cache_index_sz);
 
     size_t cache_data_sz = num_pages * page_size;
     c->cache_data = tcbl_malloc(NULL, cache_data_sz);
+//    memset(c->cache_data, 0, cache_data_sz);
     if (c->cache_data == NULL) {
         rc = TCBL_ALLOC_FAILURE;
         goto exit;
@@ -37,8 +47,11 @@ int vfs_cache_allocate(struct cvfs **cvfs, size_t page_size, size_t num_pages)
 
     c->cache_free_list = c->cache_data;
     for (int i = 0; i < num_pages; i++) {
-        *((char **) c->cache_data + i * page_size) = i < num_pages ? c->cache_data + (i + 1) * page_size : NULL;
+        *((char **) (c->cache_data + i * page_size)) = i + 1 < num_pages ? c->cache_data + (i + 1) * page_size : NULL;
     }
+
+//    check_free_list(c->cache_free_list);
+
     c->len = 0;
     exit:
     if (rc) {
@@ -55,6 +68,14 @@ int vfs_cache_allocate(struct cvfs **cvfs, size_t page_size, size_t num_pages)
     return rc;
 }
 
+int vfs_cache_free(cvfs cvfs)
+{
+    tcbl_free(NULL, cvfs->cache_index, cvfs->num_index_entries * sizeof(struct cvfs_entry));
+    tcbl_free(NULL, cvfs->cache_data, cvfs->num_pages * cvfs->page_size);
+    tcbl_free(NULL, cvfs, sizeof(struct cvfs));
+    return TCBL_OK;
+}
+
 uint64_t hash(uint64_t x) {
     x = (x ^ (x >> 30)) * UINT64_C(0xbf58476d1ce4e5b9);
     x = (x ^ (x >> 27)) * UINT64_C(0x94d049bb133111eb);
@@ -66,18 +87,25 @@ static int vfs_cache_find(cvfs cvfs, size_t offs, bool create, cvfs_entry *out_e
 {
     cvfs_entry e;
     size_t cache_index_pos = hash(offs) % cvfs->num_index_entries;
-    e = cvfs->cache_index[cache_index_pos];
+    e = &cvfs->cache_index[cache_index_pos];
+    size_t orig_cache_index_pos = cache_index_pos;
+//    printf("find at offset %ld\n", offs);
     while (e->data != NULL) {
-        cache_index_pos = (cache_index_pos + 1) % cvfs->num_index_entries;
-        e = cvfs->cache_index[cache_index_pos];
         if (e->offset == offs) {
             *out_entry = e;
             if (out_did_create) {
                 *out_did_create = false;
             }
             return TCBL_OK;
+        } else {
+            cache_index_pos = (cache_index_pos + 1) % cvfs->num_index_entries;
+            if (cache_index_pos == orig_cache_index_pos) {
+                // This should never happen because we allocate 2x the hash slots
+                // as we have entries.
+                return TCBL_INTERNAL_ERROR;
+            }
+            e = &cvfs->cache_index[cache_index_pos];
         }
-        // TODO infinite loop if overfilled
     }
     if (create) {
         e->offset = offs;
@@ -86,6 +114,11 @@ static int vfs_cache_find(cvfs cvfs, size_t offs, bool create, cvfs_entry *out_e
             // take from free list
             e->data = cvfs->cache_free_list;
             cvfs->cache_free_list = *((char **) cvfs->cache_free_list);
+//            if (cvfs->cache_free_list) {
+//                printf("took from free list, free list now at %ld\n", cvfs->cache_free_list - cvfs->cache_data);
+//            } else {
+//                printf("took from free list, free list now empty\n");
+//            }
         } else {
             // evict from LRU
             cvfs_entry ev = cvfs->lru_last;
@@ -103,6 +136,7 @@ static int vfs_cache_find(cvfs cvfs, size_t offs, bool create, cvfs_entry *out_e
             cvfs->lru_last = e;
         }
         cvfs->lru_first = e;
+        *out_entry = e;
         if (out_did_create) {
             *out_did_create = true;
         }
@@ -119,6 +153,7 @@ int vfs_cache_open(cvfs cvfs, struct cvfs_h **cvfs_h, vfs_fh fill_fh)
     }
     h->cvfs = cvfs;
     h->fill_fh = fill_fh;
+    *cvfs_h = h;
     return TCBL_OK;
 }
 
@@ -128,9 +163,9 @@ int vfs_cache_close(cvfs_h cvfs_h)
     return TCBL_OK;
 }
 
-int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len)
+int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len, size_t *out_len)
 {
-    int rc;
+    int rc = TCBL_OK;
     cvfs_entry e;
     cvfs c = cvfs_h->cvfs;
     size_t page_size = c->page_size;
@@ -145,6 +180,7 @@ int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len)
     size_t block_begin_skip = alignment_shift;
     size_t block_read_size = MIN(len, page_size - alignment_shift);
 
+    size_t total_res_len = 0;
     while (read_offset < block_offset + block_len) {
         bool did_create;
         rc = vfs_cache_find(cvfs_h->cvfs, read_offset, true, &e, &did_create);
@@ -152,19 +188,32 @@ int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len)
             return rc;
         }
         if (did_create) {
-            rc = vfs_read(cvfs_h->fill_fh, e->data, read_offset, block_len);
-            if (rc) {
+//            printf("filling data in range %ld %ld\n",
+//                   e->data - c->cache_data,
+//                   e->data - c->cache_data + page_size);
+            rc = vfs_read_2(cvfs_h->fill_fh, e->data, read_offset, page_size, &e->entry_len);
+            if (!(rc == TCBL_OK || rc == TCBL_BOUNDS_CHECK)) {
                 return rc;
             }
         }
         memcpy(dst, &e->data[block_begin_skip], block_read_size);
+        total_res_len += MIN(block_read_size, e->entry_len);
+        if (block_read_size > e->entry_len) {
+            rc = TCBL_BOUNDS_CHECK;
+        }
 
+        if (rc != TCBL_OK) {
+            break;
+        }
         dst += block_read_size;
         read_offset += page_size;
         block_begin_skip = 0;
         block_read_size = MIN(page_size, offset + len - read_offset);
     }
-    return TCBL_OK;
+    if (out_len != NULL) {
+        *out_len = total_res_len;
+    }
+    return rc;
 }
 
 int vfs_cache_update(cvfs_h cvfs_h, void* data, size_t offset, size_t len)

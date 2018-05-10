@@ -1,9 +1,9 @@
 #include "test_tcbl.h"
 
-int cfh_read(vfs_fh fh, void *data, size_t offset, size_t len)
+int cfh_read(vfs_fh fh, void *data, size_t offset, size_t len, size_t *out_len)
 {
     change_fh cfh = (change_fh) fh;
-    return vfs_read(cfh->orig_fh, data, offset, len);
+    return vfs_read_2(cfh->orig_fh, data, offset, len, out_len);
 }
 
 int cfh_write(vfs_fh fh, const void *data, size_t offset, size_t len)
