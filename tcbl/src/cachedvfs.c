@@ -14,6 +14,16 @@
 //    }
 //}
 
+static void vfs_cache_initialize(cvfs c)
+{
+    memset(c->cache_index, 0, c->num_index_entries * sizeof(struct cvfs_entry));
+    c->cache_free_list = c->cache_data;
+    for (int i = 0; i < c->num_pages; i++) {
+        *((char **) (c->cache_data + i * c->page_size)) = i + 1 < c->num_pages ? c->cache_data + (i + 1) * c->page_size : NULL;
+    }
+    c->len = 0;
+}
+
 int vfs_cache_allocate(struct cvfs **cvfs, size_t page_size, size_t num_pages)
 {
     int rc = TCBL_OK;
@@ -35,24 +45,16 @@ int vfs_cache_allocate(struct cvfs **cvfs, size_t page_size, size_t num_pages)
         rc = TCBL_ALLOC_FAILURE;
         goto exit;
     }
-    memset(c->cache_index, 0, cache_index_sz);
 
     size_t cache_data_sz = num_pages * page_size;
     c->cache_data = tcbl_malloc(NULL, cache_data_sz);
-//    memset(c->cache_data, 0, cache_data_sz);
     if (c->cache_data == NULL) {
         rc = TCBL_ALLOC_FAILURE;
         goto exit;
     }
 
-    c->cache_free_list = c->cache_data;
-    for (int i = 0; i < num_pages; i++) {
-        *((char **) (c->cache_data + i * page_size)) = i + 1 < num_pages ? c->cache_data + (i + 1) * page_size : NULL;
-    }
+    vfs_cache_initialize(c);
 
-//    check_free_list(c->cache_free_list);
-
-    c->len = 0;
     exit:
     if (rc) {
         if (c->cache_data) {
@@ -220,8 +222,7 @@ int vfs_cache_update(cvfs_h cvfs_h, void* data, size_t offset, size_t len)
 {
     int rc;
     cvfs_entry e;
-    cvfs c = cvfs_h->cvfs;
-    size_t page_size = c->page_size;
+    size_t page_size = cvfs_h->cvfs->page_size;
 
     size_t alignment_shift = offset % page_size;
     size_t block_offset = offset - alignment_shift;
@@ -248,6 +249,12 @@ int vfs_cache_update(cvfs_h cvfs_h, void* data, size_t offset, size_t len)
         block_begin_skip = 0;
         block_write_size = MIN(page_size, offset + len - read_offset);
     }
+    return TCBL_OK;
+}
+
+int vfs_cache_clear(cvfs_h cvfs_h)
+{
+    vfs_cache_initialize(cvfs_h->cvfs);
     return TCBL_OK;
 }
 

@@ -383,7 +383,7 @@ int vfs_free(vfs vfs)
     return TCBL_OK;
 }
 
-int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size)
+int tcbl_allocate_2(tvfs* tvfs, vfs underlying_vfs, size_t page_size, cvfs cache)
 {
     static struct vfs_info tcbl_vfs_info = {
             sizeof(struct tcbl_vfs),
@@ -413,11 +413,15 @@ int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size)
     tcbl_vfs->tvfs_info = &tcbl_tvfs_info;
     tcbl_vfs->underlying_vfs = underlying_vfs;
     tcbl_vfs->page_size = page_size;
-    tcbl_vfs->cache = NULL;
+    tcbl_vfs->cache = cache;
     *tvfs = (struct tvfs *) tcbl_vfs;
     return TCBL_OK;
 }
 
+int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size)
+{
+    return tcbl_allocate_2(tvfs, underlying_vfs, page_size, NULL);
+}
 
 int vfs_open(vfs vfs, const char *file_name, vfs_fh *file_handle_out)
 {

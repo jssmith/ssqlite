@@ -1836,6 +1836,7 @@ static int prepare_test_dir(const char *test_dir) {
 
 static int generic_setup_0fh(void **state) {
     test_env env = *state;
+    env->cvfs = NULL;
     switch (env->test_mode) {
         case MemVfs:
             assert_int_equal(env->num_test_vfs, 1);
@@ -1846,13 +1847,15 @@ static int generic_setup_0fh(void **state) {
             env->all_test_vfs[1] = NULL;
             env->has_txn = false;
             break;
+        case TcblVfsCached:
+            vfs_cache_allocate(&env->cvfs, TCBL_TEST_CACHE_PAGE_SIZE, 2);
         case TcblVfs:
             // TESTING MODE
 
             for (int i = 0; i < env->num_test_vfs; i++) {
                 RC_OK(memvfs_allocate((vfs *) &env->base_vfs));
                 assert_non_null(env->base_vfs);
-                RC_OK(tcbl_allocate((tvfs *) &env->all_test_vfs[i], (vfs) env->base_vfs, TCBL_TEST_PAGE_SIZE));
+                RC_OK(tcbl_allocate_2((tvfs *) &env->all_test_vfs[i], (vfs) env->base_vfs, TCBL_TEST_PAGE_SIZE, env->cvfs));
             }
             // END TESTING MODE
             /*
@@ -1957,6 +1960,11 @@ static int g_cleanup(test_env env)
         }
     }
     switch (env->test_mode) {
+        case TcblVfsCached:
+            if (env->cvfs != NULL) {
+                vfs_cache_free(env->cvfs);
+                env->cvfs = NULL;
+            }
         case MemVfs:
         case TcblVfs:
             return memvfs_free(env->base_vfs);
@@ -2078,6 +2086,30 @@ static int generic_pre_group_tcbl_checkpoint(void **state)
     return 0;
 }
 
+static int generic_pre_group_tcbl_cached_txn(void **state)
+{
+    generic_pre_group_tcbl_txn(state);
+    test_env env = *state;
+    env->test_mode = TcblVfsCached;
+    return 0;
+}
+
+static int generic_pre_group_tcbl_cached_commit(void **state)
+{
+    generic_pre_group_tcbl_commit(state);
+    test_env env = *state;
+    env->test_mode = TcblVfsCached;
+    return 0;
+}
+
+static int generic_pre_group_tcbl_cached_checkpoint(void **state)
+{
+    generic_pre_group_tcbl_checkpoint(state);
+    test_env env = *state;
+    env->test_mode = TcblVfsCached;
+    return 0;
+}
+
 static int generic_post_group(void **state)
 {
     test_env env = *state;
@@ -2136,6 +2168,18 @@ int main(void)
     if (stop_on_error && rc) return rc;
     printf("\ngeneric tests - checkpointed\n");
     cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_checkpoint, generic_post_group);
+    if (stop_on_error && rc) return rc;
+
+    printf("\ngeneric tests - cached - uncommitted\n");
+    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_cached_txn, generic_post_group);
+    if (stop_on_error && rc) return rc;
+
+    printf("\ngeneric tests - cached - uncommitted\n");
+    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_cached_commit, generic_post_group);
+    if (stop_on_error && rc) return rc;
+
+    printf("\ngeneric tests - cached - checkpointed\n");
+    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_cached_checkpoint, generic_post_group);
     if (stop_on_error && rc) return rc;
 
     const struct CMUnitTest tcbl_tests[] = {

@@ -2,13 +2,15 @@
 #define TCBL_TEST_TCBL
 
 #include "tcbl_vfs.h"
+#include "cachedvfs.h"
 
-enum TestMode { MemVfs = 1, TcblVfs = 2, UnixVfs = 3 };
+enum TestMode { MemVfs = 1, TcblVfs = 2, UnixVfs = 3, TcblVfsCached = 4 };
 
 typedef struct test_env {
     enum TestMode test_mode;
     vfs test_vfs;
     vfs all_test_vfs[2];
+    cvfs cvfs;
     int num_test_vfs;
     vfs base_vfs;
     int (*before_change)(vfs_fh);

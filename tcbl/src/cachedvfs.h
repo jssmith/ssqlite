@@ -44,6 +44,7 @@ int vfs_cache_open(cvfs, cvfs_h *, vfs_fh fill_fh);
 int vfs_cache_close(cvfs_h);
 int vfs_cache_get(cvfs_h, void* data, size_t offset, size_t len, size_t *out_len);
 int vfs_cache_update(cvfs_h, void* data, size_t offset, size_t len);
+int vfs_cache_clear(cvfs_h);
 int vfs_cache_len_get(cvfs_h, size_t*);
 int vfs_cache_len_update(cvfs_h, size_t);
 int vfs_cache_free(cvfs);

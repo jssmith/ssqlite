@@ -44,5 +44,6 @@ typedef struct tcbl_fh {
 } *tcbl_fh;
 
 int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size);
+int tcbl_allocate_2(tvfs* tvfs, vfs underlying_vfs, size_t page_size, cvfs cache);
 
 #endif // TCBL_TCBL_VFS_H

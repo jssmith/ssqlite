@@ -137,6 +137,18 @@ size_t ll_log_entry_size(tcbl_log log, ll_log_entry entry);
  * implementation based on files.
  */
 
+struct log_offset {
+    uint64_t checkpoint_seq;
+    size_t offset;
+};
+
+typedef struct bc_log_h *bc_log_h;
+
+struct bc_log_h_l {
+    bc_log_h bc_log_h;
+    struct bc_log_h_l *next;
+};
+
 typedef struct bc_log {
     size_t page_size;
     char* log_name;
@@ -144,6 +156,8 @@ typedef struct bc_log {
     vfs_fh data_fh;
     vfs_fh log_fh;
     cvfs_h data_cache_h;
+    struct log_offset cache_update_offset;
+    struct bc_log_h_l *handles;
 } *bc_log;
 
 #define LOG_FLAG_COMMIT         1
@@ -169,13 +183,13 @@ typedef struct bc_log_entry {
     char data[0];
 } *bc_log_entry;
 
-typedef struct bc_log_h {
+struct bc_log_h {
     bc_log log;
     bool txn_active;
     size_t txn_offset;
     bc_log_entry added_entries;
     bc_log_entry read_entry;
-} *bc_log_h;
+};
 
 int bc_log_create(bc_log, vfs vfs, vfs_fh data_fh, cvfs_h cache_h, const char *name, size_t page_size);
 int bc_log_delete(vfs vfs, const char *name);

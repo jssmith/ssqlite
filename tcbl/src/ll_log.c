@@ -417,6 +417,14 @@ int bc_log_create(bc_log l, vfs vfs, vfs_fh data_fh, cvfs_h cache_h, const char 
     l->data_fh = data_fh;
     l->underlying_vfs = vfs;
     l->data_cache_h = cache_h;
+    l->handles = NULL;
+
+    char buff[sizeof(struct bc_log_header)];
+    rc = vfs_read(l->log_fh, buff, 0, sizeof(bc_log_header));
+    if (rc) return rc;
+    l->cache_update_offset.checkpoint_seq = ((bc_log_header) buff)->checkpoint_seq;
+    vfs_file_size(l->log_fh, &l->cache_update_offset.offset);
+
     return TCBL_OK;
 }
 
@@ -569,6 +577,8 @@ int bc_log_txn_begin(bc_log l, bc_log_h h)
     // read offset of the last committed record
 
     // TODO put in optimizations here
+    // Look for a log entry with LOG_FLAG_CHECKPOINT set. This indicates that a checkpoint
+    // has occurred and that we need to find the new log file.
     if (log_size > sizeof(struct bc_log_header)) {
         bool found_end = false;
         size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
@@ -579,6 +589,12 @@ int bc_log_txn_begin(bc_log l, bc_log_h h)
             rc = vfs_read(h->log->log_fh, buff, read_offs, log_entry_size);
             if (rc) return rc;
             if (e->flag == LOG_FLAG_CHECKPOINT) {
+                // Apply any remaining cache entries if we can safely do so, if not
+                // they will be applied when other handles close
+                if (l->handles == NULL) {
+                    if ()
+                    bc_log_update_cache(l, );
+                }
                 // Reopen the file to get the current version
                 rc = vfs_close(h->log->log_fh);
                 if (rc) return rc;
@@ -597,15 +613,18 @@ int bc_log_txn_begin(bc_log l, bc_log_h h)
             } else {
                 read_offs = 0;
             }
-
         }
     } else {
         h->txn_offset = log_size;
     }
     h->read_entry = tcbl_malloc(NULL, sizeof(struct bc_log_entry) + l->page_size);
+    if (h->read_entry == NULL) {
+        return TCBL_ALLOC_FAILURE;
+    }
+    SGLIB_LIST_ADD(struct bc_log_h_l, l->handles, h, next);
     // TODO need to add code to free this entry
     h->txn_active = true;
-    return rc;
+    return TCBL_OK;
 }
 
 static int initialize_log(bc_log log)
