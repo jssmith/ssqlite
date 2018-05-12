@@ -156,7 +156,7 @@ void vbprintf(buffer s, buffer fmt, va_list ap)
             case 'X':
                 {
                     buffer b = va_arg(ap, buffer);
-                    for (int i = 0; i < length(b); i++) {
+                    for (int i = 0; i < buffer_length(b); i++) {
                         u8 c = *(u8 *)(b->contents + b->start + i);
                         push_character(s, hex_digits[c>>4]);
                         push_character(s, hex_digits[c&15]);
@@ -170,7 +170,7 @@ void vbprintf(buffer s, buffer fmt, va_list ap)
                         char *cp = codestring(nfserrs, st->error);
                         push_bytes(s, cp, strlen(cp));
                         push_character(s, ' ');
-                        push_bytes(s, st->description->contents, length(st->description));
+                        push_bytes(s, st->description->contents, buffer_length(st->description));
                     } else  push_bytes(s, "OK", 2);
                     break;                    
                 }

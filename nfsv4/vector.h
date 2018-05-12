@@ -6,8 +6,7 @@ static inline void *vector_get(vector v, int offset)
     void *res;
     bytes base = v->start + offset * sizeof(void *);
     if ((base + sizeof(void *)) > v->end) 
-        panic("out of bounds vector reference");
-    
+        return 0;
     memcpy(&res, v->contents + base, sizeof(void *));
     return res;
 }
@@ -29,7 +28,7 @@ static inline void vector_set(vector v, int offset, void *value)
 
 static inline int vector_length(vector v)
 {
-    return length(v)/sizeof(void *);
+    return buffer_length(v)/sizeof(void *);
 }
 
 static vector allocate_vector(heap h, int length)
@@ -44,14 +43,25 @@ static void vector_push(vector v, void *i)
     v->end += sizeof(void *);
 }
 
-static void *vector_pop(vector v)
+static void *fifo_pop(vector v)
 {
     if ((v->end - v->start) < sizeof(void *))
-        panic("out of bounds vector reference");
+        return 0;
     
     void *res;
     memcpy(&res, v->contents + v->start, sizeof(void *));
     v->start += sizeof(void *);
+    return res;
+}
+
+static void *vector_pop(vector v)
+{
+    if ((v->end - v->start) < sizeof(void *))
+        return 0;
+    
+    void *res;
+    memcpy(&res, v->contents + v->end - sizeof(void *), sizeof(void *));
+    v->end -= sizeof(void *);
     return res;
 }
 
@@ -66,8 +76,8 @@ static status split(vector dest, heap h, buffer source, char divider)
             push_character(each, i);
         }
     }
-    if (length(each) > 0)  vector_push(dest, each);
-    return NFS4_OK;
+    if (buffer_length(each) > 0)  vector_push(dest, each);
+    return STATUS_OK;
 }
 
 static status join(buffer dest, vector source, char between)
@@ -76,7 +86,7 @@ static status join(buffer dest, vector source, char between)
         if (i) push_character(dest, between);
         buffer_concat(dest, vector_get(source, i));
     }
-    return NFS4_OK;
+    return STATUS_OK;
 }
 
 #define vector_foreach(__i, __v) for(u32 _i = 0, _len = vector_length(__v); _i< _len && (__i = vector_get(__v, _i), 1); _i++)

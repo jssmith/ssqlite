@@ -24,8 +24,9 @@ status parse_int(buffer b, u32 *result)
   return NFS4_OK;
 }
 
-status parse_attrmask(buffer b, buffer dest)
+status parse_attrmask(void *z, buffer dest)
 {
+    buffer b = z;
     u32 count = read_beu32(b);
     for (int i = 0 ; i < count; i++) {
         u32 m = read_beu32(b);
@@ -53,8 +54,6 @@ status push_fattr_mask(rpc r, u64 mask)
 }
 
 
-    
-// just like in stat, we never set ino, size, access time or modify time
 status push_fattr(rpc r, nfs4_properties p)
 {
     buffer u = alloca_buffer(20);
@@ -66,28 +65,29 @@ status push_fattr(rpc r, nfs4_properties p)
     if (p->mask & NFS4_PROP_MODE) len += 4;
     if (p->mask & NFS4_PROP_TYPE) len += 4;
     if (p->mask & NFS4_PROP_SIZE) len += 8;        
-    if (p->mask & NFS4_PROP_UID) {
+    if (p->mask & NFS4_PROP_USER) {
         format_number(u, p->user, 10, 1);
-        len += 4 + pad(length(u), 4);
+        len += 4 + pad(buffer_length(u), 4);
     }
-    if (p->mask & NFS4_PROP_GID) {
+    if (p->mask & NFS4_PROP_GROUP) {
         format_number(g, p->group, 10, 1);
-        len += 4 + pad(length(g), 4);
+        len += 4 + pad(buffer_length(g), 4);
     }
     push_be32(r->b, len);
     
     if (p->mask & NFS4_PROP_TYPE) push_be32(r->b, p->type);
     if (p->mask & NFS4_PROP_MODE) push_be32(r->b, p->mode);
     if (p->mask & NFS4_PROP_SIZE) push_be64(r->b, p->size);    
-    if (p->mask & NFS4_PROP_UID)  push_string(r->b, u->contents, length(u));
-    if (p->mask & NFS4_PROP_GID)  push_string(r->b, g->contents, length(g));
+    if (p->mask & NFS4_PROP_USER)  push_string(r->b, u->contents, buffer_length(u));
+    if (p->mask & NFS4_PROP_GROUP)  push_string(r->b, g->contents, buffer_length(g));
 
     return NFS4_OK;
 }
 
 
-status parse_fattr(buffer b, nfs4_properties p)
+status parse_fattr(void *z, buffer b)
 {
+    nfs4_properties p = z;
     int masklen = read_beu32(b);
     u64 maskword = 0; // bitstring
     // need a table of throwaway lengths
@@ -106,10 +106,10 @@ status parse_fattr(buffer b, nfs4_properties p)
                 break;
                 // nfs4 sends these as strings, but expects them in rpc
                 // as ints..and they are always strings of ints
-            case NFS4_PROP_UID:
+            case NFS4_PROP_USER:
                 check(parse_int(b, &p->user));
                 break;
-            case NFS4_PROP_GID:
+            case NFS4_PROP_GROUP:
                 check(parse_int(b, &p->group));
                 break;
             case NFS4_PROP_SIZE:
@@ -134,9 +134,10 @@ status parse_fattr(buffer b, nfs4_properties p)
     return NFS4_OK;
 }
 
-status parse_getattr(buffer b, nfs4_properties p)
-{    
-    verify_and_adv(b, OP_GETATTR);
-    verify_and_adv(b, 0);
-    return parse_fattr(b, p);
+
+void merge_properties(nfs4_properties dest,  nfs4_properties specified, nfs4_properties backing)
+{
+    dest->mode = (specified->mask &NFS4_PROP_MODE) ? specified->mode : backing->mode;
+    dest->user = (specified->mask &NFS4_PROP_USER) ? specified->user : backing->user;
+    dest->group = (specified->mask &NFS4_PROP_GROUP) ? specified->group : backing->group;            
 }

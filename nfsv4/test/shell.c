@@ -15,7 +15,7 @@
 #define FILE_TAG 3
 #define PATH_TAG 5
 
-
+heap h;
 char *tagnames[6] = {"invalid", "buffer", "error", "file", "path"};
 typedef void *value;
 
@@ -28,6 +28,7 @@ typedef struct command {
 } *command;
 
 struct client {
+    heap h;
     vector cwd;
     nfs4 c;
     command commands;
@@ -35,8 +36,10 @@ struct client {
     
 client allocate_client(command commands)
 {
-    client c = malloc(sizeof (struct client));    
-    c->cwd = allocate_vector(0, 10);
+    heap h = init_heap();
+    client c = allocate(h, sizeof (struct client));
+    c->h = h;
+    c->cwd = allocate_vector(h, 10);
     c->commands = commands;
     return c;
 }
@@ -151,8 +154,8 @@ static value compare(client c, vector args)
 {
     buffer a = dispatch_tag(c, BUFFER_TAG, args);
     buffer b = dispatch_tag(c, BUFFER_TAG, args);
-    if ((length(a) != length(b)) ||
-        (!memcpy(a->contents, b->contents, length(a))))
+    if ((buffer_length(a) != buffer_length(b)) ||
+        (!memcpy(a->contents, b->contents, buffer_length(a))))
         // be able to generate our own errors
         return TAG(aprintf(0, "buffer mismatch"), ERROR_TAG);
     return 0;
@@ -235,7 +238,7 @@ static value md5_command(client c, vector args)
     buffer out = allocate_buffer(0, MD5_LENGTH);
     buffer b = dispatch(c, args);
     MD5_Init(&ctx)    ;
-    MD5_Update(&ctx, b->contents+b->start, length(b));
+    MD5_Update(&ctx, b->contents+b->start, buffer_length(b));
     MD5_Final(out->contents, &ctx);
     out->end = MD5_LENGTH;
     return out;
@@ -246,7 +249,7 @@ static value append_command(client c, vector args)
     nfs4_file f = dispatch_tag(c, FILE_TAG, args);    
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
     // asynch flag?
-    ncheck(c, nfs4_append(f, body->contents + body->start, length(body)));
+    ncheck(c, nfs4_append(f, body->contents + body->start, buffer_length(body)));
 }
 
 static value write_command(client c, vector args)
@@ -254,7 +257,7 @@ static value write_command(client c, vector args)
     // could wire these up monadically to permit asynch streaming
     nfs4_file f = dispatch_tag(c, FILE_TAG, args);    
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
-    ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, length(body)));
+    ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, buffer_length(body)));
     nfs4_close(f);
     return TAG(f, FILE_TAG);
 }
@@ -269,7 +272,7 @@ static value asynch_write_command(client c, vector args)
     ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_CREAT | NFS4_WRONLY | NFS4_SERVER_ASYNCH, &p, &f));
     // could wire these up monadically
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
-    ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, length(body)));
+    ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, buffer_length(body)));
     nfs4_close(f);
     return TAG(body, BUFFER_TAG);
 }
@@ -291,7 +294,7 @@ static value local_write(client c, vector args)
     buffer b = dispatch(c, args);
     int fd = open(path, O_CREAT|O_WRONLY|O_TRUNC, 0666);
     if (fd < 0) error("couldn't open local %s for writing", path);
-    if (write(fd, b->contents, length(b) != length(b))){
+    if (write(fd, b->contents, buffer_length(b) != buffer_length(b))){
         error("failed write local %s", path);
     }
     return NFS4_OK;
@@ -305,7 +308,7 @@ static value local_read(client c, vector args)
     if (fd < 0) error("couldn't open local %s for readingx", x);    
     fstat(fd, &st);
     // reference counts
-    buffer b = allocate_buffer(b, st.st_size);
+    buffer b = allocate_buffer(h, st.st_size);
     if (read(fd, b->contents, st.st_size) != st.st_size) {
         error("failed read local %s", x);
     }
@@ -343,11 +346,10 @@ static status format_mode(buffer b, nfs4_properties p)
 
 static value ls(client c, vector args)
 {
-    vector v = allocate_vector(0, 10);
     nfs4_dir d;
     ncheck(c, nfs4_opendir(c->c, relative_path(c, args), &d));
     struct nfs4_properties k;
-    buffer line = allocate_buffer(0, 100);
+    buffer line = allocate_buffer(c->h, 100);
     int s = 0;
     while (!s) {
         s = nfs4_readdir(d, &k);
@@ -355,7 +357,7 @@ static value ls(client c, vector args)
             line->start = line->end = 0;
             format_mode(line, &k);
             bprintf(line, " %d %d %s\n", k.user, k.size, k.name);
-            write(1, line->contents + line->start, length(line));
+            write(1, line->contents + line->start, buffer_length(line));
         }
     }
     nfs4_closedir(d);
@@ -458,7 +460,7 @@ value dispatch(client c, vector n)
     if (!c) return TAG("no session, set NFS4_SERVER environment or use explcit connect command", ERROR_TAG);
     if (command) 
         for (i = 0; c->commands[i].name[0] ; i++ )
-            if (strncmp(c->commands[i].name, command->contents, length(command)) == 0) 
+            if (strncmp(c->commands[i].name, command->contents, buffer_length(command)) == 0) 
                 return c->commands[i].f(c, n);
 
     error("no such command %b\n", command);
@@ -480,7 +482,7 @@ void print_value(value v)
         return;
         
     case BUFFER_TAG:
-        printf ("[%lld]\n", length(valueof(v)));
+        printf ("[%lld]\n", buffer_length(valueof(v)));
         return;
 
     default:
@@ -493,24 +495,25 @@ int main(int argc, char **argv)
 {
     int s;
     client c = 0;
-    vector commandline = allocate_vector(0, 10);
+    h = init_heap();
+    vector commandline = allocate_vector(h, 10);
     
     if ((server = getenv("NFS4_SERVER"))) {
         c = allocate_client(nfs_commands);
         if (nfs4_create(server, &c->c)) {
-            printf ("open client fail\n");
+            printf ("open client fail %s\n", nfs4_error_string(c->c));
         }
     }
 
     if (argc > 1) {
         for (int i= 1; i <argc; i++) {
-            vector_push(commandline, wrap_string(0, argv[i]));
+            vector_push(commandline, wrap_string(h, argv[i]));
         }
         print_value(dispatch(c, commandline));
         exit(0);
     }
         
-    buffer z = allocate_buffer(0, 100);
+    buffer z = allocate_buffer(h, 100);
 
     if (isatty(0))
         write(1, "> ", 2);
@@ -522,16 +525,15 @@ int main(int argc, char **argv)
             exit(-1);
         }
         if (x == '\n')  {
-            if (length(z)){
-                vector v = allocate_vector(0, 10);
-                split(v, 0, z, ' ');
+            if (buffer_length(z)){
+                vector v = allocate_vector(h, 10);
+                split(v, h, z, ' ');
                 ticks start = ktime();
                 print_value(dispatch(c, v));
                 
                 ticks total = ktime()- start;
                 // add time to format
-                buffer b = allocate_buffer(0, 100);
-                print_ticks(b, total);
+                buffer b = allocate_buffer(h, 100);                print_ticks(b, total);
                 push_character(b, 0);
                 printf ("%s\n", (char *)b->contents);
                 z->start = z->end = 0;

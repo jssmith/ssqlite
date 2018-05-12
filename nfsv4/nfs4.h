@@ -2,10 +2,11 @@
 typedef struct nfs4 *nfs4;
 typedef struct nfs4_file *nfs4_file;
 
-typedef unsigned long long bytes;
 typedef int nfs4_mode_t;
 typedef unsigned long long nfs4_time;
-    
+
+typedef unsigned long long bytes;
+
 // cribbed neraly verbatim from include/asm-generic/errno-base.h
 // could really use that instead..but its probably an unneccesary
 // extern dependency
@@ -48,7 +49,6 @@ char *nfs4_error_string(nfs4 n);
 #define NFS4_WRONLY 2
 #define NFS4_RDWRITE 3
 #define NFS4_CREAT 4
-#define NFS4_APPEND 8
 #define NFS4_TRUNC 16
 #define NFS4_SERVER_ASYNCH 32
 
@@ -83,8 +83,8 @@ typedef enum nfs_ftype4 {
 #define NFS4_PROP_TYPE (1ull<<1)
 #define NFS4_PROP_INO (1ull<<19)
 #define NFS4_PROP_MODE (1ull<<33)
-#define NFS4_PROP_UID (1ull<<36)
-#define NFS4_PROP_GID (1ull<<37)
+#define NFS4_PROP_USER (1ull<<36)
+#define NFS4_PROP_GROUP (1ull<<37)
 #define NFS4_PROP_SIZE (1ull<<4)
 #define NFS4_PROP_ACCESS_TIME (1ull<<47)
 #define NFS4_PROP_MODIFY_TIME (1ull<<53)
@@ -110,6 +110,14 @@ typedef struct nfs4_properties {
     nfs4_time      access_time;  /* time of last access */
     nfs4_time      modify_time;  /* time of last modification */
 } *nfs4_properties;
+/*
+ * note about user and group ids:
+ *  nfsv4 sensibly made these be strings..however, the linux client,
+ *  the default user on server, and in general the linux environment
+ *  uses integers, which are passed back and forth as printed strings.
+ *  making this be an int makes it easier to deal with interoperability,
+ *  but loses the generality.
+ */
 
 
 int nfs4_open(nfs4 n, char *filename, int flags, nfs4_properties p, nfs4_file *dest);
@@ -120,9 +128,11 @@ int nfs4_unlink(nfs4 n, char *path);
 int nfs4_stat(nfs4 n, char *path, nfs4_properties p);
 int nfs4_fstat(nfs4_file fd, nfs4_properties p);
 int nfs4_append(nfs4_file fd, void *source, bytes offset);
+// consider making an open with create and ftype set
 int nfs4_mkdir(nfs4 n, char *path, nfs4_properties p);
-void nfs4_set_default_properties(nfs4 n, nfs4_properties p);
+int nfs4_set_default_properties(nfs4 n, nfs4_properties p);
 
+// consider collapsing nfs4_dir into nfs4_file
 typedef struct nfs4_dir *nfs4_dir;
 int nfs4_opendir(nfs4, char *path, nfs4_dir *);
 int nfs4_readdir(nfs4_dir, nfs4_properties d);
@@ -133,10 +143,5 @@ int nfs4_closedir(nfs4_dir);
 // upgrade?
 int nfs4_lock_range(nfs4_file f, int locktype, bytes offset, bytes length);
 int nfs4_unlock_range(nfs4_file f, int locktype, bytes offset, bytes length);
-
-#ifndef eprintf
-#define eprintf(format, ...) fprintf (stdout, format, ## __VA_ARGS__); fflush(stdout)
-#endif
-
 #define NFS4_ID_ANONYMOUS 65534
 int nfs4_change_properties(nfs4_file, nfs4_properties);

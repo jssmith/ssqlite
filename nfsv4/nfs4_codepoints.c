@@ -71,7 +71,7 @@ struct codepoint nfsops[] = {
 {"WRITE_SAME"           , 70},
 {"CLONE"                , 71},
 {"ILLEGAL"              , 10044},
-{"", 0}};
+{0, 0}};
 
 struct codepoint attributes[] = {
     {"TYPE",  1},
@@ -81,7 +81,8 @@ struct codepoint attributes[] = {
     {"GID",   37},
     {"SIZE",  4},
     {"ACCESS_TIME", 47},
-    {"MODIFY_TIME", 53}};
+    {"MODIFY_TIME", 53},
+    {0, 0}};
 
 
 struct codepoint nfserrs[] = {
@@ -112,5 +113,5 @@ struct codepoint nfserrs[] = {
     {"NFS4_EROFS    Read-only file system",            -30},
     {"NFS4_EMLINK   Too many links",                   -31},
     {"NFS4_PROTOCOL protocol/framing error",           -32},
-    {"", 0}};
+    {0, 0}};
 
