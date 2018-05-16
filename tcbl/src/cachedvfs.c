@@ -147,14 +147,17 @@ static int vfs_cache_find(cvfs cvfs, size_t offs, bool create, cvfs_entry *out_e
     return TCBL_NOT_FOUND;
 }
 
-int vfs_cache_open(cvfs cvfs, struct cvfs_h **cvfs_h, vfs_fh fill_fh)
+int vfs_cache_open(cvfs cvfs, struct cvfs_h **cvfs_h,
+                   int (*fill_fn)(void *, void *, size_t, size_t, size_t *),
+                   void* fill_ctx)
 {
     struct cvfs_h *h = tcbl_malloc(NULL, sizeof(struct cvfs_h));
     if (h == NULL) {
         return TCBL_ALLOC_FAILURE;
     }
     h->cvfs = cvfs;
-    h->fill_fh = fill_fh;
+    h->fill_fn = fill_fn;
+    h->fill_ctx = fill_ctx;
     *cvfs_h = h;
     return TCBL_OK;
 }
@@ -193,7 +196,7 @@ int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len, size_t *
 //            printf("filling data in range %ld %ld\n",
 //                   e->data - c->cache_data,
 //                   e->data - c->cache_data + page_size);
-            rc = vfs_read_2(cvfs_h->fill_fh, e->data, read_offset, page_size, &e->entry_len);
+            rc = cvfs_h->fill_fn(cvfs_h->fill_ctx, e->data, read_offset, page_size, &e->entry_len);
             if (!(rc == TCBL_OK || rc == TCBL_BOUNDS_CHECK)) {
                 return rc;
             }
@@ -260,8 +263,9 @@ int vfs_cache_clear(cvfs_h cvfs_h)
 
 int vfs_cache_len_get(cvfs_h cvfs_h, size_t *out_len)
 {
-    *out_len = cvfs_h->cvfs->len;
-    return TCBL_OK;
+    return TCBL_NOT_IMPLEMENTED;
+//    *out_len = cvfs_h->cvfs->len;
+//    return TCBL_OK;
 }
 
 int vfs_cache_len_update(cvfs_h cvfs_h, size_t new_len)

@@ -69,9 +69,11 @@ int bc_log_create(bc_log l, vfs vfs, vfs_fh data_fh, cvfs_h cache_h, const char 
     } else if (rc == TCBL_BOUNDS_CHECK) {
         // write a new header
         bc_log_header h = (bc_log_header) buff;
-        h->checkpoint_seq = checkpoint_seq;
-        rc = vfs_file_size(data_fh, &h->newlen);
-        if (rc) return rc;
+        h->checkpoint_seq = checkpoint_seq = 0;
+        if (data_fh != NULL) {
+            rc = vfs_file_size(data_fh, &h->newlen);
+            if (rc) return rc;
+        }
         rc = vfs_write(l->log_fh, buff, 0, sizeof(struct bc_log_header));
     }
     if (rc) return rc;

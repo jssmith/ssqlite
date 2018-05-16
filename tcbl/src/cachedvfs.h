@@ -30,7 +30,8 @@ typedef struct cvfs {
 
 typedef struct cvfs_h {
     cvfs cvfs;
-    vfs_fh fill_fh;
+    int (*fill_fn)(void *, void *, size_t, size_t, size_t *);
+    void *fill_ctx;
 } *cvfs_h;
 
 
@@ -40,7 +41,9 @@ typedef struct cvfs_h {
  */
 int vfs_cache_allocate(cvfs *, size_t page_size, size_t num_pages);
 
-int vfs_cache_open(cvfs, cvfs_h *, vfs_fh fill_fh);
+int vfs_cache_open(cvfs, cvfs_h *,
+                   int (*fill_fn)(void *ctx, void *data, size_t offset, size_t len, size_t *out_len),
+                   void* fill_ctx);
 int vfs_cache_close(cvfs_h);
 int vfs_cache_get(cvfs_h, void* data, size_t offset, size_t len, size_t *out_len);
 int vfs_cache_update(cvfs_h, void* data, size_t offset, size_t len);

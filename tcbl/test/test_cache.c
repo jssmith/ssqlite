@@ -18,6 +18,11 @@ static void setup(cache_test_env env, size_t cache_page_size, int cache_num_page
     env->ufh = NULL;
 }
 
+static int fill_fn(void *fh, void *data, size_t offset, size_t len, size_t *out_len)
+{
+    return vfs_read_2(fh, data, offset, len, out_len);
+}
+
 static void setup_1h(cache_test_env env, size_t underlying_sz)
 {
     setup(env, TCBL_TEST_CACHE_PAGE_SIZE, 5);
@@ -25,7 +30,7 @@ static void setup_1h(cache_test_env env, size_t underlying_sz)
     prep_data(orig_data, underlying_sz, 2342);
     RC_OK(vfs_open(env->underlying_fs, "test", &env->ufh));
     RC_OK(vfs_write(env->ufh, orig_data, 0, underlying_sz));
-    RC_OK(vfs_cache_open(env->cache, &env->ch, env->ufh));
+    RC_OK(vfs_cache_open(env->cache, &env->ch, fill_fn, env->ufh));
 }
 
 static void teardown(cache_test_env env)

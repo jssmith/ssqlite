@@ -31,6 +31,12 @@ static int tcbl_txn_commit(vfs_fh file_handle);
 static int tcbl_txn_abort(vfs_fh file_handle);
 static int tcbl_checkpoint(vfs_fh file_handle);
 
+static int cache_fill(void *ctx, void *data, size_t offset, size_t len, size_t *out_len)
+{
+    tcbl_fh fh = ctx;
+    return vfs_read_2(fh->underlying_fh, data, offset, len, out_len);
+}
+
 static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
 {
     int rc;
@@ -48,7 +54,7 @@ static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
     if (rc) goto exit;
 
     if (tcbl_vfs->cache != NULL) {
-        rc = vfs_cache_open(tcbl_vfs->cache, &fh->cache_h, fh->underlying_fh);
+        rc = vfs_cache_open(tcbl_vfs->cache, &fh->cache_h, cache_fill, fh->underlying_fh);
         if (rc) goto exit;
     } else {
         fh->cache_h = NULL;
@@ -155,11 +161,11 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len, 
             if (rc == TCBL_BOUNDS_CHECK) {
                 // TODO understand where this condition arises and document it
                 size_t underlying_size;
-                if (fh->cache_h != NULL) {
-                    rc = vfs_cache_len_get(fh->cache_h, &underlying_size);
-                } else {
+//                if (fh->cache_h != NULL) {
+//                    rc = vfs_cache_len_get(fh->cache_h, &underlying_size);
+//                } else {
                     vfs_file_size(fh->underlying_fh, &underlying_size);
-                }
+//                }
                 if (underlying_size < read_offset + block_begin_skip + block_read_size) {
                     bounds_error = true;
                 } else {
@@ -214,11 +220,11 @@ static int tcbl_file_size(vfs_fh file_handle, size_t* out_size)
     if (rc) goto exit;
 
     if (!found_size) {
-        if (fh->cache_h) {
-            rc = vfs_cache_len_get(fh->cache_h, out_size);
-        } else {
+//        if (fh->cache_h) {
+//            rc = vfs_cache_len_get(fh->cache_h, out_size);
+//        } else {
             rc = vfs_file_size(fh->underlying_fh, out_size);
-        }
+//        }
     }
     exit:
     if (auto_txn) {
