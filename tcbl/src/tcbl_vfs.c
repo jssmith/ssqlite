@@ -291,7 +291,8 @@ static int tcbl_write(vfs_fh file_handle, const void* data, size_t offset, size_
             }
         }
         memcpy(&buff[block_begin_skip], src, block_write_size);
-        bc_log_write(&fh->txn_log_h, write_offset, buff, newlen);
+        rc = bc_log_write(&fh->txn_log_h, write_offset, buff, newlen);
+        if (rc) goto txn_end;
 
         src += block_write_size;
         write_offset += page_size;

@@ -90,7 +90,9 @@ static void test_write_read(void **state)
     }
     memset(data_out, 0, sizeof(data_out));
 
-    RC_OK(vfs_write(fh, data_in, 0, data_size));
+//    RC_OK(vfs_write(fh, data_in, 0, data_size));
+    int rc = vfs_write(fh, data_in, 0, data_size);
+    assert_int_equal(rc, TCBL_OK);
 
     RC_OK(vfs_read(fh, data_out, 0, data_size));
 
@@ -2174,7 +2176,7 @@ int main(void)
     rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_cached_txn, generic_post_group);
     if (stop_on_error && rc) return rc;
 
-    printf("\ngeneric tests - cached - uncommitted\n");
+    printf("\ngeneric tests - cached - committed\n");
     rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_cached_commit, generic_post_group);
     if (stop_on_error && rc) return rc;
 

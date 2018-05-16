@@ -151,11 +151,12 @@ struct bc_log_h_l {
 
 typedef struct bc_log {
     size_t page_size;
-    char* log_name;
+    char log_name[100];
     vfs underlying_vfs;
     vfs_fh data_fh;
     vfs_fh log_fh;
     cvfs_h data_cache_h;
+    uint64_t fh_checkpoint_seq;
     struct log_offset cache_update_offset;
     struct bc_log_h_l *handles;
 } *bc_log;
@@ -186,7 +187,7 @@ typedef struct bc_log_entry {
 struct bc_log_h {
     bc_log log;
     bool txn_active;
-    size_t txn_offset;
+    struct log_offset txn_offset;
     bc_log_entry added_entries;
     bc_log_entry read_entry;
 };
