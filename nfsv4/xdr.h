@@ -48,6 +48,11 @@ static inline void push_string(buffer b, char *x, u32 length)
     push_fixed_string(b, x, length);
 }
 
+static inline void push_buffer(buffer target, buffer source)
+{
+    push_string(target, buffer_ref(source, 0), buffer_length(source));
+}
+
 static inline status read_buffer(buffer b, void *dest, u32 len)
 {
     if (dest != (void *)0) memcpy(dest, b->contents + b->start, len);
@@ -64,7 +69,7 @@ status read_time(buffer b, ticks *dest);
 status parse_attrmask(void *, buffer dest);
 void push_auth_null(buffer b);
 void push_auth_sys(buffer b, u32 uid, u32 gid);
-u64 push_read(rpc r, bytes offset, buffer b, stateid sid);
+u64 push_read(rpc r, bytes offset, void *dest, bytes length, stateid sid);
 u64 push_write(rpc r, bytes offset, buffer b, stateid sid);
 status push_create(rpc r, nfs4_properties p);
 status push_fattr(rpc r, nfs4_properties p);
@@ -76,3 +81,5 @@ status parse_stateid(void *, buffer);
 void push_sequence(rpc r);
 void push_session_id(rpc r, u8 *session);
 status discard_string(buffer b);
+status parse_change_info(void *z, buffer b);
+

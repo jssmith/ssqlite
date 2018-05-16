@@ -41,11 +41,13 @@ void push_sequence(rpc r)
     push_op(r, OP_SEQUENCE, parse_sequence, r->c);
     r->session_offset = r->b->end; // is this always safe?
     push_session_id(r, r->c->session);
+    printf ("push sequence %x\n", r->c->sequence);
     push_be32(r->b, r->c->sequence);
     push_be32(r->b, 0x00000000);  // slotid
     push_be32(r->b, 0x00000000);  // highest slotid
     push_be32(r->b, 0x00000001);  // sa_cachethis
     r->c->sequence++;
+    r->response_length += 36;
 }
 
 void push_bare_sequence(rpc r)
@@ -111,6 +113,7 @@ status parse_change_info(void *z, buffer b)
     read_beu32(b); // atomic
     u32 before = read_beu64(b); // before
     u32 after = read_beu64(b); // after
+    return NFS4_OK;
 }
 
 // containing directory stateid update included
@@ -257,7 +260,7 @@ static void push_fhroot(rpc r)
         push_op(r, OP_PUTROOTFH, 0, 0);
     } else {
         push_op(r, OP_PUTFH, 0, 0);
-        push_string(r->b, r->c->root_filehandle->contents, buffer_length(r->c->root_filehandle));
+        push_buffer(r->b, r->c->root_filehandle);
     }
 }
 

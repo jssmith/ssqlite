@@ -35,7 +35,7 @@ rpc allocate_rpc(nfs4 c)
     r->opcountloc = b->end;
     b->end += 4;
     r->c = c;
-    print_buffer("start", r->b);
+    r->response_length = 0;
     return r;
 }
 
@@ -48,7 +48,6 @@ static status parse_response(rpc r, buffer b)
         int op = read_beu32(b);
         if (config_boolean("NFS_TRACE", false))  {
             eprintf("received op: %C %x\n", nfsops, op, op);
-            print_buffer("", b);
         }
 
         remote_op rop = fifo_pop(r->ops);
@@ -70,7 +69,9 @@ static status parse_response(rpc r, buffer b)
             break;
         }
         if (rop->parse) {
+            printf ("start decode %p %lld\n", b, buffer_length(b));            
             st = rop->parse(rop->parse_argument, b);
+            printf ("finish %p %lld\n", b, buffer_length(b));
             if (st) break;
         }
     }
@@ -119,7 +120,7 @@ status parse_rpc(nfs4 c, buffer b, boolean *badsession)
     u32 nstatus = read_beu32(b);
     if (nstatus != NFS4_OK) {
         if (config_boolean("NFS_TRACE", false))
-            eprintf("nfs rpc error %s\n", codestring(nfsstatus, nstatus));
+            eprintf("nfs rpc error %s %d\n", codestring(nfsstatus, nstatus), NFS4ERR_BADSESSION);
 
         if (nstatus == NFS4ERR_BADSESSION) {
             if (config_boolean("NFS_TRACE", false)){
@@ -161,7 +162,6 @@ status read_input(nfs4 c, boolean *badsession)
     int frame = ntohl(*(u32 *)framing) & 0x07fffffff;
     buffer b = freelist_allocate(c->buffers);
     reset_buffer(b);
-    eprintf("input: %d\n", frame);
     check(read_fully(c->fd, buffer_ref(b, 0), frame));
     b->end = frame;
     if (config_boolean("NFS_PACKET_TRACE", false)) {
@@ -181,13 +181,17 @@ status rpc_send(rpc r)
     *(u32 *)(r->b->contents) = htonl(0x80000000 + buffer_length(r->b)-4);
     if (config_boolean("NFS_PACKET_TRACE", false))
         print_buffer("sent", r->b);
-    
-    int res = write(r->c->fd, buffer_ref(r->b, 0), buffer_length(r->b));
-    if (res != buffer_length(r->b)) {
-        return error(NFS4_EIO, "failed rpc write");
+
+    int tries = 0;
+    while(tries++ < 3) {
+        int res = write(r->c->fd, buffer_ref(r->b, 0), buffer_length(r->b));
+        if (res == buffer_length(r->b)) {
+            r->outstanding = true;
+            return NFS4_OK;
+        }
+        nfs4_connect(r->c);
     }
-    r->outstanding = true;
-    return NFS4_OK;
+    return error(NFS4_EIO, "failed rpc write");
 }
 
     
@@ -220,23 +224,23 @@ status nfs4_connect(nfs4 c)
     return NFS4_OK;
 }
 
-rpc file_rpc(nfs4 c, buffer filehandle)
+rpc file_rpc(nfs4_file f)
 {
-    rpc r = allocate_rpc(c);
+    rpc r = allocate_rpc(f->c);
     push_sequence(r);
     push_op(r, OP_PUTFH, 0, 0);
-    push_string(r->b, filehandle->contents, buffer_length(filehandle));
+    push_buffer(r->b, f->filehandle);
+    r->response_length += NFS4_FHSIZE; // conservative
     return (r);
 }
 
-
 status base_transact(rpc r, boolean *badsession)
 {
-    boolean myself = false;
+    *badsession = 0;
     check(rpc_send(r));
     
     // drain the pipe, this should be per-slot...this drain doesnt that
-    while (r->outstanding) check(read_input(r->c, badsession));
+    while (r->outstanding && !*badsession) check(read_input(r->c, badsession));
     
     return NFS4_OK;
 }
@@ -259,7 +263,7 @@ status transact(rpc r)
 {
     int tries = 0;
     boolean badsession = true;
-    status s;
+    status s = NFS4_OK;
     
     while ((tries < 2) && (badsession == true)) {
         // xxx - if there are outstanding operations on the
@@ -267,6 +271,7 @@ status transact(rpc r)
         // complete
         s = base_transact(r, &badsession);
         if (badsession) {
+            printf ("reest\n");
             check(rpc_connection(r->c));
             if (config_boolean("NFS_TRACE", false))
                 eprintf("session failure, attempting to reestablish\n", 0);

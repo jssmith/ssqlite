@@ -5,6 +5,34 @@ static char *hex_digits="0123456789abcdef";
 
 extern struct codepoint nfserrs[];
 
+buffer tabular(heap h, vector rows)
+{
+    u64 columns = 0;
+    buffer out = allocate_buffer(h, 100);
+    vector row;
+    buffer column;
+
+    vector_foreach(row, rows) columns = MAX(columns, vector_length(row));
+    // transient
+    u64 *widths = alloca(columns * sizeof(u64));
+    memset(widths, 0, columns * sizeof(u64));
+    vector_foreach(row, rows) {
+        int i = 0;
+        // difference between byte length and unicode glpyh width
+        vector_foreach(column, row) {
+            widths[i]  = MAX(widths[i], buffer_length(column));
+            i++;
+        }
+    }
+    vector_foreach(row, rows) {
+        buffer column;
+        int i = 0;
+        vector_foreach(column, row) bprintf(out, "%b%S", column, widths[i++]- buffer_length(column) +1);
+        bprintf(out, "\n");
+    }    
+    return out;
+}
+
 void format_number(buffer s, u64 x, int base, int pad)
 {
     if ((x > 0) || (pad > 0)) {

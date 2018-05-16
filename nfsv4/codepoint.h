@@ -29,7 +29,7 @@ static inline char *codestring(codepoint set, unsigned int value)
     for ( i=0; set[i].description && (set[i].value != value) ; i++);
     
     if (set[i].description == 0){
-        printf ("nocode \n");
+        printf ("nocode %d\n", value);
         return "unknown code";
     } else {
         return set[i].description;

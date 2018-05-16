@@ -19,34 +19,6 @@ void push_session_id(rpc r, u8 *session)
     r->b->end += NFS4_SESSIONID_SIZE;
 }
 
-status parse_create_session(void *z, buffer b)
-{
-    nfs4 c = z;
-    // check length - maybe do that generically in transact (parse callback, empty buffer)
-
-    memcpy(c->session, b->contents + b->start, sizeof(c->session));
-    b->start +=sizeof(c->session);
-    read_beu32(b); // ?
-    read_beu32(b); // flags
-
-    // forward direction
-    read_beu32(b); // headerpadsize
-    u32 maxreq = read_beu32(b); // maxreqsize
-    normalize(c, maxreq);
-    u32 maxresp = read_beu32(b); // maxresponsesize
-    normalize(c, maxresp);
-    read_beu32(b); // maxresponsesize_cached
-    u32 maxops = read_beu32(b); // ca_maxoperations
-    normalize(c, maxops);    
-    u32 maxreqs = read_beu32(b); // ca_maxrequests
-    normalize(c, maxreqs);        
-    read_beu32(b); // ca_rdma_id
-
-    b->start += 7 * 4;
-    
-    return NFS4_OK;
-}
-
 status parse_exchange_id(void *z, buffer b)
 {
     nfs4 c = z;
@@ -103,15 +75,6 @@ status exchange_id(nfs4 c)
     return NFS4_OK;
 }
 
-status get_root_fh(nfs4 c, buffer b)
-{
-    rpc r = allocate_rpc(c);
-    push_sequence(r);
-    push_op(r, OP_PUTROOTFH, 0, 0);
-    push_op(r, OP_GETFH, parse_filehandle, b);
-    return transact(r);
-}
-
 void push_channel_attrs(rpc r)
 {
     push_be32(r->b, 0); // headerpadsize
@@ -126,6 +89,36 @@ void push_channel_attrs(rpc r)
 // section 18.36, pp 513, rfc 5661
 #define CREATE_SESSION4_FLAG_PERSIST 1
 
+status parse_create_session(void *z, buffer b)
+{
+    nfs4 c = z;
+    // check length - maybe do that generically in transact (parse callback, empty buffer)
+
+    memcpy(c->session, b->contents + b->start, sizeof(c->session));
+    b->start +=sizeof(c->session);
+    u32 seq = read_beu32(b); // ?
+    c->sequence = seq;
+    read_beu32(b); // flags
+
+    // forward direction
+    read_beu32(b); // headerpadsize
+    u32 maxreq = read_beu32(b); // maxreqsize
+    normalize(c, maxreq);
+    u32 maxresp = read_beu32(b); // maxresponsesize
+    normalize(c, maxresp);
+    read_beu32(b); // maxresponsesize_cached
+    u32 maxops = read_beu32(b); // ca_maxoperations
+    normalize(c, maxops);    
+    u32 maxreqs = read_beu32(b); // ca_maxrequests
+    normalize(c, maxreqs);        
+    read_beu32(b); // ca_rdma_id
+
+    b->start += 7 * 4;
+    
+    return NFS4_OK;
+}
+
+
 status create_session(nfs4 c)
 {
     rpc r = allocate_rpc(c);
@@ -139,6 +132,7 @@ status create_session(nfs4 c)
     push_channel_attrs(r); //return
     push_be32(r->b, NFS_PROGRAM);
     //push_auth_sys(r->b);
+    
     push_be32(r->b, 0); // auth params null    
     boolean trash;
     checkr(r, base_transact(r, &trash));
@@ -160,8 +154,10 @@ status reclaim_complete(nfs4 c)
     rpc r = allocate_rpc(c);
     push_sequence(r);
     push_op(r, OP_RECLAIM_COMPLETE, 0, 0);
+    // if true, current fh is the object for which reclaim is complete
     push_be32(r->b, 0);
     boolean bs;
+    print_buffer("reclaim", r->b);
     checkr(r, base_transact(r, &bs));
     if (bs) return error(NFS4_PROTOCOL, "early session expiration during setup");
     return NFS4_OK;
@@ -172,9 +168,14 @@ status rpc_connection(nfs4 c)
     check(nfs4_connect(c));
     check(exchange_id(c));
     check(create_session(c));
-    if (!config_boolean("NFS_USE_PUTROOTFH", false)) {
+    if (!config_boolean("NFS_USE_PUTROOTFH", false)){
+        rpc r = allocate_rpc(c);
+        push_sequence(r);
+        push_op(r, OP_PUTROOTFH, 0, 0);
         c->root_filehandle = allocate_buffer(c->h, NFS4_FHSIZE);
-        check(get_root_fh(c, c->root_filehandle));
+        push_op(r, OP_GETFH, parse_filehandle, c->root_filehandle);
+        check(transact(r));
     }
-    return reclaim_complete(c);
+    return NFS4_OK;
+    // return reclaim_complete(c);
 }

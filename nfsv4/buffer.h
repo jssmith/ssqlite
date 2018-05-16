@@ -46,6 +46,15 @@ typedef struct buffer {
             b;\
         })
 
+#define alloca_wrap_string(__s) ({                         \
+            buffer b = alloca(sizeof(struct buffer));     \
+            b->contents =(void *) __s;                  \
+            b->end = b->capacity = strlen(__s);         \
+            b->start  =0 ;\
+            b->h = 0;     \
+            b;\
+        })
+
 
 static bytes buffer_length(buffer b) 
 {
@@ -146,4 +155,11 @@ static inline void deallocate_buffer(buffer b)
         deallocate(b->h, b->contents, b->capacity);
         deallocate(b->h, b, sizeof(struct buffer));
     }
+}
+
+static inline boolean buffer_compare(buffer a, buffer b)
+{
+    if (buffer_length(a) != buffer_length(b)) return false;
+    if (memcmp(buffer_ref(a, 0), buffer_ref(b, 0), buffer_length(a))) return false;
+    return true;
 }

@@ -69,7 +69,7 @@ static void print_int(buffer b, u64 n)
     
 value error(char *fmt, ...)
 {
-    buffer b = allocate_buffer(0, 80);
+    buffer b = allocate_buffer(h, 80);
     va_list ap;
     buffer f = alloca_wrap_buffer(fmt, strlen(fmt));
     va_start (ap, fmt);
@@ -189,22 +189,58 @@ static value create(client c, vector args)
     return 0;
 }
 
+static value recursive_delete(client c, char *base)
+{
+    int res = nfs4_unlink(c->c, base);        
+    if (res == NFS4_EISDIR) {
+        int s = 0;
+        struct nfs4_properties p;
+        nfs4_dir d;
+        char path[1024];
+        ncheck(c, nfs4_opendir(c->c, base, &d));
+        while (!(s = nfs4_readdir(d, &p))) {
+            sprintf(path, "%s/%s", base, p.name);
+            recursive_delete(c, path);
+        }
+        nfs4_closedir(d);
+        nfs4_unlink(c->c, path);        
+    }
+}
+
 static value delete(client c, vector args)
 {
+    buffer first = fifo_peek(args);
+    if (buffer_compare(first, alloca_wrap_string("-rf"))) {
+        fifo_pop(args);
+        return(recursive_delete(c, fifo_pop(args)));
+    }
     ncheck(c, nfs4_unlink(c->c, relative_path(c, args)));
     return 0;
 }
 
-static value ropen_command(client c, vector args)
-{
-    nfs4_file f;
-    ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_RDONLY, 0, &f));
-    return TAG(f, FILE_TAG);
-}
 
 // maybe break out creat also
-static value wopen_command(client c, vector args)
+static value open_command(client c, vector args)
 {
+    u64 flags = NFS4_WRONLY | NFS4_CREAT | NFS4_RDONLY;
+    buffer first = fifo_peek(args);
+    if (*(u8 *)buffer_ref(first, 0) == '-') {
+        flags = 0;
+        for (int i = 1; i < buffer_length(first); i++){
+            switch(*(u8 *)buffer_ref(first, i)){
+            case 'w':
+                flags |= NFS4_WRONLY;
+                break;
+            case 't':
+                flags |=  NFS4_TRUNC;
+                break;
+            case 'c':
+                flags |=  NFS4_CREAT;
+                break;                
+            }
+        }
+        fifo_pop(args);
+    }
     nfs4_file f;
     struct nfs4_properties p;
     p.mask = NFS4_PROP_MODE;
@@ -218,7 +254,7 @@ static value read_command(client c, vector args)
     nfs4_file f = dispatch_tag(c, FILE_TAG, args);
     struct nfs4_properties n;
     ncheck(c, nfs4_fstat(f, &n));
-    buffer b = allocate_buffer(0, n.size);
+    buffer b = allocate_buffer(h, n.size);
     ncheck(c, nfs4_pread(f, b->contents, 0, n.size));
     b->end  = n.size;
     return TAG(b, BUFFER_TAG);
@@ -226,10 +262,28 @@ static value read_command(client c, vector args)
 
 static value set_mode(client c, vector args)
 {
+    nfs4_file f;
+    ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_WRONLY, 0, &f));
+    struct nfs4_properties n;
+    n.mask = NFS4_PROP_MODE;
+    u64 m;
+    parse_u64(fifo_pop(args), 8, &m);
+    n.mode = m;
+    nfs4_change_properties(f, &n);
+    nfs4_close(f);
 }
 
 static value set_owner(client c, vector args)
 {
+    nfs4_file f;
+    struct nfs4_properties p;
+    ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_WRONLY, 0, &f));    
+    p.mask |= NFS4_PROP_USER;
+    u64 u;
+    parse_u64(fifo_pop(args), 10, &u);
+    p.user = u;    
+    nfs4_change_properties(f, &p);
+    nfs4_close(f);    
 }
 
 static value md5_command(client c, vector args)
@@ -349,19 +403,27 @@ static value ls(client c, vector args)
     nfs4_dir d;
     ncheck(c, nfs4_opendir(c->c, relative_path(c, args), &d));
     struct nfs4_properties k;
-    buffer line = allocate_buffer(c->h, 100);
+    vector out = allocate_vector(c->h, 10);
     int s = 0;
     while (!s) {
         s = nfs4_readdir(d, &k);
         if (!s) {
-            line->start = line->end = 0;
-            format_mode(line, &k);
-            bprintf(line, " %d %d %s\n", k.user, k.size, k.name);
-            write(1, line->contents + line->start, buffer_length(line));
+            vector row = allocate_vector(c->h, 10);
+            vector mode = allocate_buffer(c->h, 10);                                  
+            format_mode(mode, &k);
+            vector_push(row, mode);
+            vector_push(row, aprintf(c->h, "%d", k.user));
+            vector_push(row, aprintf(c->h, "%d", k.group));
+            vector_push(row, aprintf(c->h, "%d", k.size));
+            vector_push(row, aprintf(c->h, "%s", k.name));
+            vector_push(out, row);
         }
     }
+    buffer formatted = tabular(mallocheap, out);
+    write(1, formatted->contents, buffer_length(formatted));
     nfs4_closedir(d);
-    if (s != NFS4_ENOENT) error("readdir: %s\n", nfs4_error_string(c->c));
+    printf ("zig: %d %d\n", s, NFS4_ENOENT);
+    if (s != NFS4_ENOENT) return error("readdir: %s\n", nfs4_error_string(c->c));
     return NFS4_OK;
 }
 
@@ -385,16 +447,6 @@ static value mkdir_command (client c, vector args)
     return 0;
 }
 
-static value enable_trace (client c, vector args)
-{
-    setenv("NFS_PACKET_TRACE", "true", true);
-    setenv ("NFS_TRACE", "true", true);
-    value v =  dispatch (c, args);
-    unsetenv("NFS_PACKET_TRACE");
-    unsetenv("NFS_TRACE");
-    return v;
-}
-
 
 //  specify lock type and upgrade
 static value lock(client c, vector args)
@@ -403,6 +455,24 @@ static value lock(client c, vector args)
     u64 to = pop_integer_argument(args);
     nfs4_file f = dispatch_tag(c, FILE_TAG, args);
     ncheck(c, nfs4_lock_range(f, WRITE_LT, from, to));
+}
+
+static value set_config(client c, vector args)
+{
+    buffer n = fifo_pop(args);
+    buffer v = fifo_pop(args);
+    push_character(n, 0);
+    push_character(v, 0);
+    char *ns = buffer_ref(n, 0);
+    char *old = getenv(ns);
+    setenv(ns, buffer_ref(v, 0), true);
+    value result =  dispatch (c, args);
+    if (old) {
+        setenv(ns, old, true);
+    } else {
+        unsetenv(ns);
+    }
+    return result;
 }
 
 static value unlock(client c, vector args)
@@ -427,14 +497,13 @@ static struct command nfs_commands[] = {
     {"generate", generate, ""},        
     {"ls", ls, ""},
     {"cd", cd, ""},
-    {"ropen", ropen_command, ""},
-    {"wopen", wopen_command, ""},        
+    {"open", open_command, ""},        
     {"chmod", set_mode, ""},
     {"chown", set_owner, ""},
     {"conn", conn, ""},
-    {"local", local, ""},    
+    {"local", local, ""},
+    {"config", set_config, ""},        
     {"compare", compare, ""},
-    {"trace", enable_trace, ""},        
     {"lock", lock, ""},
     {"truncate", truncate_command, ""},                        
     {"unlock", unlock, ""},                            
@@ -456,12 +525,13 @@ static value help(client c, vector args)
 value dispatch(client c, vector n)
 {
     int i;
-    buffer command = vector_pop(n);
+    buffer command = fifo_pop(n);
     if (!c) return TAG("no session, set NFS4_SERVER environment or use explcit connect command", ERROR_TAG);
-    if (command) 
+    if (command) {
         for (i = 0; c->commands[i].name[0] ; i++ )
             if (strncmp(c->commands[i].name, command->contents, buffer_length(command)) == 0) 
                 return c->commands[i].f(c, n);
+    }
 
     error("no such command %b\n", command);
 }

@@ -46,10 +46,21 @@ typedef unsigned long u64;
 #include <vector.h>
 #include <stdarg.h>
 
-static int parse_u64(buffer s, u64 *target)
+static inline s8 digit_of(u8 x)
+{
+    if ((x <= 'f') && (x >= 'a')) return(x - 'a' + 10);
+    if ((x <= 'F') && (x >= 'A')) return(x - 'A' + 10);
+    if ((x <= '9') && (x >= '0')) return(x - '0');
+    return(-1);
+}
+
+
+static int parse_u64(buffer s, u64 base, u64 *target)
 {
     u64 result = 0;
-    foreach_character (i, s) result = result * 10 + (i - '0');
+    // digit of in range of base, error path
+    foreach_character (i, s)
+        result = result * base + digit_of(i);
     *target = result;
     return STATUS_OK;
 }
@@ -67,6 +78,7 @@ static status print_u64(buffer d, u64 s)
 }
 
 extern heap mallocheap;
+extern heap stack;
 
 #include <ticks.h>
 void vbprintf(buffer s, buffer fmt, va_list ap);
@@ -86,3 +98,5 @@ void bprintf(buffer b, char *fmt, ...);
 void format_number(buffer s, u64 x, int base, int pad);
 heap init_heap();
 #include <freelist.h>
+buffer tabular(heap h, vector rows);
+

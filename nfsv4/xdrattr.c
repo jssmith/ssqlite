@@ -1,13 +1,5 @@
 #include <nfs4_internal.h>
 
-static inline s8 digit_of(u8 x)
-{
-    if ((x <= 'f') && (x >= 'a')) return(x - 'a' + 10);
-    if ((x <= 'F') && (x >= 'A')) return(x - 'A' + 10);
-    if ((x <= '9') && (x >= '0')) return(x - '0');
-    return(-1);
-}
-
 status parse_int(buffer b, u32 *result)
 {
   *result = 0;

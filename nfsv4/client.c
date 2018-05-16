@@ -1,12 +1,15 @@
 #include <nfs4_internal.h>
 #include <time.h>
 #include <pwd.h>
+#include <signal.h>
 
 // consider not.. including?
 void fill_default_user(nfs4_properties p)
 {
     struct passwd *u = getpwent();
-    
+    p->user = u->pw_uid;
+    p->group = u->pw_gid;
+    // consider populating the vector of other group memberships
 }
 
 
@@ -26,21 +29,29 @@ char *nfs4_error_string(nfs4 n)
 // should return the number of bytes read, can be short
 int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
 {
-    buffer b = alloca_wrap_buffer(dest, len);    
-    while (buffer_length(b)) {
-        rpc r = file_rpc(f->c, f->filehandle);
-        offset += push_read(r, offset, b, &f->latest_sid);
-        rpc_send(r);
+    u64 total = 0;
+
+    while (1) {
+        rpc r = file_rpc(f);
+        u64 transferred = push_read(r, offset,  dest + total, len - total, &f->latest_sid);
+        total += transferred;
+        offset += transferred;
+        if (total < len) {
+            // reestablish connection here
+            api_check(r->c, rpc_send(r));
+        } else {
+            // block on all the preceeding(?) reads
+            return api_check(f->c, transact(r));
+        }
     }
-    return NFS4_OK;        
-    // wait for last completion...just drain the whole pipe
 }
 
 int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
 {
+    // not in the asynch case
     buffer b = alloca_wrap_buffer(source, length);
     while (buffer_length(b)) {
-        rpc r = file_rpc(r->c, f->filehandle);
+        rpc r = file_rpc(f);
         offset += push_write(r, offset, b, &f->latest_sid);
         rpc_send(r);        
     }
@@ -60,7 +71,7 @@ static status set_expected_size(void *z, buffer b)
 
 int nfs4_append(nfs4_file f, void *source, bytes length)
 {
-    rpc r = file_rpc(f->c, f->filehandle);
+    rpc r = file_rpc(f);
     struct nfs4_properties p;
     p.mask = NFS4_PROP_SIZE;
     p.size = f->expected_size;
@@ -77,7 +88,7 @@ int nfs4_append(nfs4_file f, void *source, bytes length)
     u64 offset = f->expected_size;
         
     while (buffer_length(b)) {
-        if (!r) r = file_rpc(f->c, f->filehandle);
+        if (!r) r = file_rpc(f);
         // join
         offset += push_write(r, offset, b, &f->latest_sid);
         rpc_send(r);
@@ -85,7 +96,7 @@ int nfs4_append(nfs4_file f, void *source, bytes length)
     }
     // drain
     
-    r = file_rpc(f->c, f->filehandle);
+    r = file_rpc(f);
     push_unlock(r, &f->latest_sid, WRITE_LT, f->expected_size, f->expected_size + length);
     rpc_send(r);    
     // fix direct transmission of nfs4 error codes
@@ -102,24 +113,39 @@ static status parse_getfilehandle(buffer b, buffer fh)
 
 status get_expected_size(void *z, buffer b)
 {
+    nfs4_file f = z;
+    struct nfs4_properties p;
+    parse_fattr(&p, b);
+    f->expected_size = p.size;
     return NFS4_OK;
 }
 
 int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
 {
-    nfs4_file f = allocate(c->h, sizeof(struct nfs4_file));
+    nfs4_file f = freelist_allocate(c->files);
     f->path = path;
     f->c = c;
     f->asynch_writes = flags & NFS4_SERVER_ASYNCH; 
     rpc r = allocate_rpc(f->c);
     push_sequence(r);
     char *final = push_initial_path(r, path);
+    // property merge
     push_open(r, final, flags, f, p);
     push_op(r, OP_GETFH, parse_filehandle, f->filehandle);
     push_op(r, OP_GETATTR, get_expected_size, f);
-    push_fattr_mask(r, NFS4_PROP_SIZE);
-    *dest = f;
-    return api_check(c, transact(r));
+    // force write for trunc
+    if (flags & NFS4_TRUNC) {
+        api_check(c, transact(r));
+        struct nfs4_properties t;
+        t.mask = NFS4_PROP_SIZE;
+        t.size = 0;
+        f->expected_size = 0;
+        return nfs4_change_properties(f, &t);
+    } else {
+        push_fattr_mask(r, NFS4_PROP_SIZE);
+        *dest = f;
+        return api_check(c, transact(r));
+    }
 }
 
 int nfs4_close(nfs4_file f)
@@ -141,7 +167,7 @@ int nfs4_stat(nfs4 c, char *path, nfs4_properties dest)
 
 int nfs4_fstat(nfs4_file f, nfs4_properties dest)
 {
-    rpc r = file_rpc(f->c, f->filehandle);
+    rpc r = file_rpc(f);
     push_op(r, OP_GETATTR, parse_fattr, dest);
     push_fattr_mask(r, STANDARD_PROPERTIES);
     return api_check(r->c, transact(r));
@@ -153,7 +179,7 @@ int nfs4_unlink(nfs4 c, char *path)
     rpc r = allocate_rpc(c);
     push_sequence(r);
     char *final = push_initial_path(r, path);
-    push_op(r, OP_REMOVE, 0, 0);
+    push_op(r, OP_REMOVE, parse_change_info, 0);
     push_string(r->b, final, strlen(final));
     return api_check(c, transact(r));    
 }
@@ -164,25 +190,31 @@ int nfs4_opendir(nfs4 c, char *path, nfs4_dir *dest)
     rpc r = allocate_rpc(c);
     push_sequence(r);    
     push_resolution(r, path);
-    nfs4_dir d = allocate(c->h, sizeof(struct nfs4_dir));
-    d->filehandle = allocate_buffer(c->h, NFS4_FHSIZE);
-    d->entries = 0;
+    nfs4_dir d = freelist_allocate(c->dirs);
+    d->ref = 0;
     d->cookie = 0;
-    push_op(r, OP_GETFH, parse_filehandle, d->filehandle);
-    memset(d->verifier, 0, sizeof(d->verifier));
-    d->c = c;
+    memset(d->verifier, 0, sizeof(d->verifier));    
+    push_op(r, OP_GETFH, parse_filehandle, d->f.filehandle);
     *dest = d;
     return api_check(r->c, transact(r));    
 }
-                      
+
+// this swapping buffer descriptor dance could be eliminated if we
+// develop a plan for zero-copy
 int nfs4_readdir(nfs4_dir d, nfs4_properties dest)
 {
-    int more = 1;
-    if (!d->complete)  {
-        if ((buffer_length(d->entries)  == 0))
-            api_check(d->c, rpc_readdir(d, &d->entries));
-        api_check(d->c, parse_dirent(d->entries, dest, &more, &d->cookie));
-        if (more) return NFS4_OK;
+    int valid = 1;
+    if (!d->complete) {
+        if (!d->ref || (buffer_length(&d->entries) == 0))
+            api_check(d->f.c, rpc_readdir(d));
+        api_check(d->f.c, parse_dirent(&d->entries, dest, &valid, &d->cookie));
+        if (valid) {
+            if (!buffer_length(&d->entries)) {
+                deallocate_buffer(d->ref);
+                d->ref = 0;
+            }
+            return NFS4_OK;
+        }
         d->complete = true;
     }
     return NFS4_ENOENT;   
@@ -190,8 +222,8 @@ int nfs4_readdir(nfs4_dir d, nfs4_properties dest)
 
 int nfs4_closedir(nfs4_dir d)
 {
-    deallocate_buffer(d->entries);
-    
+    if (d->ref)
+        deallocate_buffer(d->ref);
 }
 
 // new filename in properties? could also take the mode from there
@@ -243,7 +275,7 @@ int nfs4_synch(nfs4 c)
 // an open file stateid. we could try to hide that, but ...
 int nfs4_change_properties(nfs4_file f, nfs4_properties p)
 {
-    rpc r = file_rpc(f->c, f->filehandle);
+    rpc r = file_rpc(f);
     push_op(r, OP_SETATTR, 0, 0);
     push_stateid(r, &f->latest_sid);
     push_fattr(r, p);
@@ -257,14 +289,14 @@ int nfs4_default_properties(nfs4 c, nfs4_properties p)
 
 int nfs4_lock_range(nfs4_file f, int locktype, bytes offset, bytes length)
 {
-    rpc r = file_rpc(f->c, f->filehandle);
+    rpc r = file_rpc(f);
     push_lock(r, &f->open_sid, locktype, offset, length, &f->latest_sid);
     return api_check(r->c, transact(r));        
 }
 
 int nfs4_unlock_range(nfs4_file f, int locktype, bytes offset, bytes length)
 {
-    rpc r = file_rpc(f->c, f->filehandle);
+    rpc r = file_rpc(f);
     push_unlock(r, &f->latest_sid, locktype, offset, length);
     return api_check(r->c, transact(r));            
 }
@@ -291,7 +323,18 @@ static void *nfs4_allocate_remoteop(void *z)
 static void *nfs4_allocate_file(void *z)
 {
     nfs4 c = z;
-    return(allocate_buffer(c->h, c->buffersize));
+    nfs4_file f = allocate(c->h, sizeof(struct nfs4_file));
+    f->filehandle = allocate_buffer(c->h, NFS4_FHSIZE);
+    return(f);
+}
+
+static void *nfs4_allocate_dir(void *z)
+{
+    nfs4 c = z;
+    nfs4_dir d = allocate(c->h, sizeof(struct nfs4_dir));
+    d->f.filehandle = allocate_buffer(c->h, NFS4_FHSIZE);
+    d->f.c = c;
+    return(d);
 }
 
 heap mallocheap;
@@ -309,7 +352,8 @@ int nfs4_create(char *hostname, nfs4 *dest)
     c->rpcs = create_freelist(h, nfs4_allocate_rpc, c);
     c->buffers = create_freelist(h, nfs4_allocate_buffer, c);
     c->remoteops = create_freelist(h, nfs4_allocate_remoteop, c);
-    c->files = create_freelist(h, nfs4_allocate_file, c);            
+    c->files = create_freelist(h, nfs4_allocate_file, c);
+    c->dirs = create_freelist(h, nfs4_allocate_dir, c);                
     
     c->xid = 0xb956bea4; // also randomize
     c->maxops = config_u64("NFS_OPS_LIMIT", 16);
@@ -318,18 +362,24 @@ int nfs4_create(char *hostname, nfs4 *dest)
     c->default_properties.user = NFS4_ID_ANONYMOUS;
     c->default_properties.group = NFS4_ID_ANONYMOUS;    
 
-    // xxx - we're actually using very few bits from tv_usec, make a better
-    // instance id
-    struct timeval p;
-    gettimeofday(&p, 0);
-    memcpy(c->instance_verifier, &p.tv_usec, NFS4_VERIFIER_SIZE);
-
+    // this can be much larger
     c->maxresp = config_u64("NFS_READ_LIMIT", 65536);
     c->maxreq = config_u64("NFS_WRITE_LIMIT", 65536);
     c->buffersize = MAX(c->maxresp,  c->maxreq);
     c->error_string = allocate_buffer(c->h, 128);
     c->outstanding = allocate_vector(c->h, 5);
+    fill_default_user(&c->default_properties);
+    
+    // would be nice if this werent a global property, or if it didnt exist at all
+    if (config_boolean("NFS_IGNORE_SIGPIPE", true))
+        signal(SIGPIPE, SIG_IGN);
 
+    // xxx - we're actually using very few bits from tv_usec, make a better
+    // instance id
+    struct timeval p;
+    gettimeofday(&p, 0);
+    memcpy(c->instance_verifier, &p.tv_usec, NFS4_VERIFIER_SIZE);
+    
     *dest = c;
     // defer connection to allow for override of user and group fields?
     api_check(c, rpc_connection(c));

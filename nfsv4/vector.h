@@ -54,6 +54,16 @@ static void *fifo_pop(vector v)
     return res;
 }
 
+static void *fifo_peek(vector v)
+{
+    if ((v->end - v->start) < sizeof(void *))
+        return 0;
+    
+    void *res;
+    memcpy(&res, v->contents + v->start, sizeof(void *));
+    return res;
+}
+
 static void *vector_pop(vector v)
 {
     if ((v->end - v->start) < sizeof(void *))

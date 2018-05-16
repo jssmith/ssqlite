@@ -30,7 +30,8 @@ struct nfs4 {
     freelist rpcs;
     freelist buffers;
     freelist files;
-    freelist remoteops;            
+    freelist remoteops;
+    freelist dirs;                
     u32 xid; // should be per slot
     u32 server_address;
     u64 clientid;
@@ -67,11 +68,11 @@ struct nfs4_file {
 };
 
 struct nfs4_dir {
-    nfs4 c;
-    buffer filehandle;
+    struct nfs4_file f;
     u64 cookie;
     u8 verifier[NFS4_VERIFIER_SIZE];
-    buffer entries;
+    struct buffer entries;
+    buffer ref;
     boolean complete;
 };
 
@@ -83,7 +84,8 @@ typedef struct rpc {
     u32 session_offset;
     vector ops;
     // optional payload for zero copy
-    boolean outstanding; // replace with a map
+    boolean outstanding; // replace with a map on the slot
+    u32 response_length;
 } *rpc;
 
 // closure
@@ -115,6 +117,7 @@ static inline void push_op(rpc r, u32 op, completion c, void *a)
     rop->op = op;
     vector_push(r->ops, rop);
     push_be32(r->b, op);
+    r->response_length += 8;
     if (config_boolean("NFS_TRACE", false))
         eprintf("pushed op: %C\n", nfsops, op);
 }
@@ -160,9 +163,9 @@ status transact(rpc r);
 status read_input(nfs4 c, boolean *badsession);
 status nfs4_connect(nfs4 s);
 status rpc_connection(nfs4 c);
-rpc file_rpc(nfs4 c, buffer filehandle);
+rpc file_rpc(nfs4_file f);
 status push_create(rpc r, nfs4_properties p);
-status rpc_readdir(nfs4_dir d, buffer *result);
+status rpc_readdir(nfs4_dir d);
 status base_transact(rpc r, boolean *badsession);
 status rpc_send(rpc r);
 
