@@ -13,6 +13,7 @@ typedef struct appd {
     sqlite3_vfs *parent;
     vfs active_vfs;
     vfs base_vfs;
+    cvfs cache;
     bool has_txn;
 } *appd;
 
@@ -95,6 +96,7 @@ static int tcblSync(sqlite3_file *pFile, int flags)
         }
         if (!rc) {
             if (fh->checkpoint_txn_ct > 20) {
+                TRACE("checkpoint %p", pFile);
                 rc = vfs_checkpoint(fh->tcbl_fh);
             }
         }
@@ -469,8 +471,21 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
     int memvfs_only = env_int("TCBL_BASE_VFS_ONLY", 0, 1);
     if (!memvfs_only) {
         INFO("Activating tcbl with transactional layer");
+        size_t cache_num_pages = (size_t) env_int("TCBL_CACHE_NUM_PAGES", 0, 0);
+        if (cache_num_pages > 0) {
+            size_t cache_page_size = (size_t) env_int("TCBL_CACHE_PAGE_SIZE", 1048576, 1048576);
+            INFO("creating tcbl cache - page size: %lu, num pages: %lu", cache_page_size, cache_num_pages);
+            rc = vfs_cache_allocate(&ad->cache, cache_page_size, cache_num_pages);
+            if (rc) {
+                rc = SQLITE_ERROR;
+                goto exit;
+            }
+        } else {
+            INFO("no tcbl cache");
+            ad->cache = NULL;
+        }
         ad->has_txn = true;
-        rc = tcbl_allocate((tvfs*) &ad->active_vfs, ad->base_vfs, SQLITE3_TCBL_PAGE_SIZE);
+        rc = tcbl_allocate_2((tvfs*) &ad->active_vfs, ad->base_vfs, SQLITE3_TCBL_PAGE_SIZE, ad->cache);
         if (rc) {
             rc = SQLITE_ERROR;
             goto exit;

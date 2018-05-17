@@ -202,6 +202,7 @@ int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len, size_t *
     size_t total_res_len = 0;
     // TODO more precise zero when copy_len is less than full
     memset(data, 0, len);
+    bool cache_hit = true;
     while (read_offset < block_offset + block_len) {
         bool did_create;
         rc = vfs_cache_find(cvfs_h->cvfs, read_offset, true, &e, &did_create);
@@ -209,6 +210,7 @@ int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len, size_t *
             return rc;
         }
         if (did_create) {
+            cache_hit = false;
 //            printf("filling data in range %ld %ld\n",
 //                   e->data - c->cache_data,
 //                   e->data - c->cache_data + page_size);
@@ -218,7 +220,7 @@ int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len, size_t *
             }
         }
 #ifdef TCBL_CACHE_VERBOSE
-        printf("CACHE: get page %lu - %s - len %d\n", read_offset, did_create ? "loaded" : "found", e->entry_len);
+        printf("CACHE: get page %lu - %s - len %lu\n", read_offset, did_create ? "loaded" : "found", e->entry_len);
 #endif
         size_t copy_len = block_read_size;
         if (block_read_size + block_begin_skip > e->entry_len) {
@@ -243,6 +245,19 @@ int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len, size_t *
         block_begin_skip = 0;
         block_read_size = MIN(page_size, offset + len - read_offset);
     }
+    if (cache_hit) {
+        cvfs_h->cvfs->cache_hit_ct += 1;
+    } else {
+        cvfs_h->cvfs->cache_miss_ct += 1;
+    }
+#ifdef TCBL_CACHE_VERBOSE
+    {
+        uint64_t cache_access_ct = cvfs_h->cvfs->cache_hit_ct + cvfs_h->cvfs->cache_miss_ct;
+        if (cache_access_ct % 20 == 0) {
+            printf("CACHE: hit rate %0.3f%%\n", 100. * cvfs_h->cvfs->cache_hit_ct / cache_access_ct);
+        }
+    };
+#endif
     if (out_len != NULL) {
         *out_len = total_res_len;
     }

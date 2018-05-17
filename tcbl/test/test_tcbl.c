@@ -2184,7 +2184,6 @@ int main(void)
     printf("\ngeneric tests - cached - checkpointed\n");
     rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_cached_checkpoint, generic_post_group);
     if (stop_on_error && rc) return rc;
-//    return 0;
 
     const struct CMUnitTest tcbl_tests[] = {
         cmocka_unit_test(test_tcbl_open_close),

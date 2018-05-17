@@ -26,6 +26,8 @@ typedef struct cvfs {
     size_t num_pages;
     size_t num_index_entries;
     size_t len;
+    uint64_t cache_hit_ct;
+    uint64_t cache_miss_ct;
 } *cvfs;
 
 typedef struct cvfs_h {

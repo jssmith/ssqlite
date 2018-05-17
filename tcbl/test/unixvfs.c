@@ -13,6 +13,8 @@
 
 #include "unixvfs.h"
 
+#define SLEEP_SLOWDOWN_USEC 10000
+
 typedef struct unixvfs_fh {
     struct vfs_fh vfs_fh;
     int fd;
@@ -108,6 +110,10 @@ static int unix_vfs_read(vfs_fh vfs_fh, void *data, size_t offset, size_t len, s
 {
     unixvfs_fh fh = (unixvfs_fh) vfs_fh;
 
+#ifdef SLEEP_SLOWDOWN_USEC
+    usleep(SLEEP_SLOWDOWN_USEC);
+#endif
+
     void* pos = data;
     ssize_t read_offset = offset;
     size_t remaining = len;
@@ -136,6 +142,11 @@ static int unix_vfs_read(vfs_fh vfs_fh, void *data, size_t offset, size_t len, s
 static int unix_vfs_write(vfs_fh vfs_fh, const void *data, size_t offset, size_t len)
 {
     unixvfs_fh fh = (unixvfs_fh) vfs_fh;
+
+#ifdef SLEEP_SLOWDOWN_USEC
+    usleep(SLEEP_SLOWDOWN_USEC);
+#endif
+
     const void* pos = data;
     ssize_t write_offset = offset;
     size_t remaining = len;

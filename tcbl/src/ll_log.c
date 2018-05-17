@@ -250,8 +250,8 @@ int bc_log_txn_begin(bc_log l, bc_log_h h)
     // DEBUGGING - check the header
     char header_buff[sizeof(struct bc_log_header)];
     vfs_read(h->log->log_fh, header_buff, 0, sizeof(struct bc_log_header));
-    printf("begin txn with log header version %lu\n",
-           ((struct bc_log_header *) header_buff)->checkpoint_seq);
+//    printf("begin txn with log header version %lu\n",
+//           ((struct bc_log_header *) header_buff)->checkpoint_seq);
     // END - DEBUGGING - check the header
     size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
 
