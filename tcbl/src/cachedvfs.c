@@ -14,6 +14,8 @@
 //    }
 //}
 
+#define TCBL_CACHE_VERBOSE
+
 static void vfs_cache_initialize(cvfs c)
 {
     memset(c->cache_index, 0, c->num_index_entries * sizeof(struct cvfs_entry));
@@ -67,6 +69,9 @@ int vfs_cache_allocate(struct cvfs **cvfs, size_t page_size, size_t num_pages)
     } else {
         *cvfs = c;
     }
+#ifdef TCBL_CACHE_VERBOSE
+    printf("CACHE: Initializing %lu pages of page size %lu\n", num_pages, page_size);
+#endif
     return rc;
 }
 
@@ -128,6 +133,9 @@ static int vfs_cache_find(cvfs cvfs, size_t offs, bool create, cvfs_entry *out_e
             ev->data = NULL;
             cvfs->lru_last = ev->lru_prev;
             cvfs->lru_last->lru_next = NULL;
+#ifdef TCBL_CACHE_VERBOSE
+            printf("CACHE: evict page %lu\n", ev->offset);
+#endif
         }
         // Add to LRU
         e->lru_next = cvfs->lru_first;
@@ -159,12 +167,18 @@ int vfs_cache_open(cvfs cvfs, struct cvfs_h **cvfs_h,
     h->fill_fn = fill_fn;
     h->fill_ctx = fill_ctx;
     *cvfs_h = h;
+#ifdef TCBL_CACHE_VERBOSE
+    printf("CACHE: opened handle %p\n", h);
+#endif
     return TCBL_OK;
 }
 
 int vfs_cache_close(cvfs_h cvfs_h)
 {
     tcbl_free(NULL, cvfs_h, sizeof(struct cvfs_h));
+#ifdef TCBL_CACHE_VERBOSE
+    printf("CACHE: closed handle %p\n", cvfs_h);
+#endif
     return TCBL_OK;
 }
 
@@ -186,6 +200,8 @@ int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len, size_t *
     size_t block_read_size = MIN(len, page_size - alignment_shift);
 
     size_t total_res_len = 0;
+    // TODO more precise zero when copy_len is less than full
+    memset(data, 0, len);
     while (read_offset < block_offset + block_len) {
         bool did_create;
         rc = vfs_cache_find(cvfs_h->cvfs, read_offset, true, &e, &did_create);
@@ -201,11 +217,23 @@ int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len, size_t *
                 return rc;
             }
         }
-        memcpy(dst, &e->data[block_begin_skip], block_read_size);
-        total_res_len += MIN(block_read_size, e->entry_len);
-        if (block_read_size > e->entry_len) {
+#ifdef TCBL_CACHE_VERBOSE
+        printf("CACHE: get page %lu - %s - len %d\n", read_offset, did_create ? "loaded" : "found", e->entry_len);
+#endif
+        size_t copy_len = block_read_size;
+        if (block_read_size + block_begin_skip > e->entry_len) {
             rc = TCBL_BOUNDS_CHECK;
+            if (e->entry_len > block_begin_skip) {
+                copy_len = e->entry_len - block_begin_skip;
+            } else {
+                copy_len = 0;
+            }
         }
+        memcpy(dst, &e->data[block_begin_skip], copy_len);
+//        if (block_begin_skip + copy_len < block_read_size) {
+//            memset(&dst[copy_len], 0, page_size - block_read_size - copy_len);
+//        }
+        total_res_len += copy_len;
 
         if (rc != TCBL_OK) {
             break;
@@ -237,10 +265,20 @@ int vfs_cache_update(cvfs_h cvfs_h, void* data, size_t offset, size_t len)
     size_t block_begin_skip = alignment_shift;
     size_t block_write_size = MIN(len, page_size - alignment_shift);
 
+#ifdef TCBL_CACHE_VERBOSE
+    printf("CACHE: update range offset %lu len %lu\n", offset, len);
+#endif
+
     while (read_offset < block_offset + block_len) {
         rc = vfs_cache_find(cvfs_h->cvfs, read_offset, false, &e, NULL);
+#ifdef TCBL_CACHE_VERBOSE
+        printf("CACHE: update page %lu %s\n", read_offset, rc == TCBL_OK ? "found" : "not found - skipped");
+#endif
         if (rc == TCBL_OK) {
             memcpy(&e->data[block_begin_skip], src, block_write_size);
+            if (e->entry_len < block_begin_skip + block_write_size) {
+                e->entry_len = block_begin_skip + block_write_size;
+            }
         } else if (rc == TCBL_NOT_FOUND) {
             goto next;
         } else {

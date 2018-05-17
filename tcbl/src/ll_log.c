@@ -67,9 +67,10 @@ int bc_log_create(bc_log l, vfs vfs, vfs_fh data_fh, cvfs_h cache_h, const char 
     if (rc == TCBL_OK) {
         checkpoint_seq = ((bc_log_header) buff)->checkpoint_seq;
     } else if (rc == TCBL_BOUNDS_CHECK) {
+        printf("wrting new log header\n");
         // write a new header
         bc_log_header h = (bc_log_header) buff;
-        h->checkpoint_seq = checkpoint_seq = 0;
+        h->checkpoint_seq = checkpoint_seq;
         if (data_fh != NULL) {
             rc = vfs_file_size(data_fh, &h->newlen);
             if (rc) return rc;
@@ -134,7 +135,8 @@ int bc_log_checkpoint(bc_log l)
 
     char cp_fh_bytes[l->underlying_vfs->vfs_info->vfs_fh_size];
     vfs_fh cp_fh = (vfs_fh) &cp_fh_bytes;
-    vfs_open(l->underlying_vfs, checkpoint_coordinator_name, &cp_fh);
+    rc = vfs_open(l->underlying_vfs, checkpoint_coordinator_name, &cp_fh);
+    if (rc) return rc;
 
     // TODO this should be a nonblocking lock operation that fails if commit is in progress
     rc = vfs_lock(cp_fh, VFS_LOCK_EX);
@@ -144,7 +146,8 @@ int bc_log_checkpoint(bc_log l)
     char log_index_bytes[log_index_sz];
 
     size_t log_index_start_sz;
-    vfs_file_size(cp_fh, &log_index_start_sz);
+    rc = vfs_file_size(cp_fh, &log_index_start_sz);
+    if (rc) return rc;
 
     uint64_t start_checkpoint_seq = 1;
     if (log_index_start_sz == log_index_sz) {
@@ -201,18 +204,23 @@ int bc_log_checkpoint(bc_log l)
     if (rc) goto exit_a;
 
     // Create a new log file
-    rc = vfs_close(l->log_fh);
-    if (rc) goto exit_a;
+//    rc = vfs_close(l->log_fh);
+//    if (rc) goto exit_a;
 
     rc = vfs_delete(l->underlying_vfs, l->log_name);
     if (rc) goto exit_a;
 
-    rc = vfs_open(l->underlying_vfs, l->log_name, &l->log_fh);
+    vfs_fh new_log_fh;
+    rc = vfs_open(l->underlying_vfs, l->log_name, &new_log_fh);
     if (rc) goto exit_a;
 
     ((bc_log_header) log_header_bytes)->checkpoint_seq = new_checkpoint_seq;
     ((bc_log_header) log_header_bytes)->newlen = newlen;
-    rc = vfs_write(l->log_fh, log_header_bytes, 0, log_header_sz);
+    rc = vfs_write(new_log_fh, log_header_bytes, 0, log_header_sz);
+    if (rc) goto exit_a;
+    printf("created new log file with checkpoint sequence %lu\n", new_checkpoint_seq);
+
+    rc = vfs_close(new_log_fh);
 
     exit_a:
     cleanup_rc = vfs_lock(cp_fh, VFS_LOCK_EX | VFS_LOCK_UN);
@@ -238,6 +246,13 @@ int bc_log_txn_begin(bc_log l, bc_log_h h)
     size_t log_size;
     rc = vfs_file_size(h->log->log_fh, &log_size);
     if (rc) return rc;
+
+    // DEBUGGING - check the header
+    char header_buff[sizeof(struct bc_log_header)];
+    vfs_read(h->log->log_fh, header_buff, 0, sizeof(struct bc_log_header));
+    printf("begin txn with log header version %lu\n",
+           ((struct bc_log_header *) header_buff)->checkpoint_seq);
+    // END - DEBUGGING - check the header
     size_t log_entry_size = sizeof(struct bc_log_entry) + h->log->page_size;
 
     // Update the cache by applying logs as far as possible, limited by other open
@@ -451,6 +466,7 @@ int bc_log_write(bc_log_h h, size_t offs, void* data, size_t newlen)
     if (offs % page_size != 0) {
         return TCBL_BAD_ARGUMENT;
     }
+    // TODO bring this back...
 //    if (h->added_entries == NULL) {
 //        vfs_lock(h->log->log_fh, VFS_LOCK_EX);
 //    }

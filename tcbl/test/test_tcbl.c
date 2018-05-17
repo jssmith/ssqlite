@@ -111,6 +111,7 @@ static void test_write_read_by_char(void **state)
     size_t sz = 100;
     char buff[sz];
     for (int i = 0; i < sz; i++) {
+        printf("%d\n", i);
         buff[0] = (char) i;
         RC_OK(vfs_write(fh, buff, i, 1));
     }
@@ -2141,49 +2142,49 @@ int main(void)
     if (stop_on_error && rc) return rc;
 
     const struct CMUnitTest generic_vfs_tests[] = {
-//        cmocka_unit_test_setup_teardown(test_nothing, generic_setup_1fh, generic_teardown),
-//        cmocka_unit_test_setup_teardown(test_begin_end, generic_setup_1fh, generic_teardown),
-//        cmocka_unit_test_setup_teardown(test_write_read, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_nothing, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_begin_end, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_write_read, generic_setup_1fh, generic_teardown),
         cmocka_unit_test_setup_teardown(test_write_read_by_char, generic_setup_1fh, generic_teardown),
-//        cmocka_unit_test_setup_teardown(test_vfs_bounds, generic_setup_1fh, generic_teardown),
-//        cmocka_unit_test_setup_teardown(test_read_unaligned, generic_setup_1fh, generic_teardown),
-//        cmocka_unit_test_setup_teardown(test_write_unaligned, generic_setup_1fh, generic_teardown),
-//        cmocka_unit_test_setup_teardown(test_partial_read, generic_setup_1fh, generic_teardown),
-//        cmocka_unit_test_setup_teardown(test_write_gap, generic_setup_1fh, generic_teardown),
-//        cmocka_unit_test_setup_teardown(test_truncate, generic_setup_1fh, generic_teardown),
-//        cmocka_unit_test_setup_teardown(test_vfs_delete, generic_setup_0fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_vfs_bounds, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_read_unaligned, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_write_unaligned, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_partial_read, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_write_gap, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_truncate, generic_setup_1fh, generic_teardown),
+        cmocka_unit_test_setup_teardown(test_vfs_delete, generic_setup_0fh, generic_teardown),
     };
-//    printf("\ngeneric tests - memvfs\n");
-//    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_memvfs, generic_post_group);
-//    if (stop_on_error && rc) return rc;
-//    printf("\ngeneric tests - unixvfs\n");
-//    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_unixvfs, generic_post_group);
-//    if (stop_on_error && rc) return rc;
-//    printf("\ngeneric tests - uncommitted\n");
-//    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_txn, generic_post_group);
-//    if (stop_on_error && rc) return rc;
-//    printf("\ngeneric tests - committed\n");
-//    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_commit, generic_post_group);
-//    if (stop_on_error && rc) return rc;
-//    printf("\ngeneric tests - autocommit\n");
-//    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_autocommit, generic_post_group);
-//    if (stop_on_error && rc) return rc;
-//    printf("\ngeneric tests - checkpointed\n");
-//    cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_checkpoint, generic_post_group);
-//    if (stop_on_error && rc) return rc;
-//
-//    printf("\ngeneric tests - cached - uncommitted\n");
-//    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_cached_txn, generic_post_group);
-//    if (stop_on_error && rc) return rc;
-//
-//    printf("\ngeneric tests - cached - committed\n");
-//    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_cached_commit, generic_post_group);
-//    if (stop_on_error && rc) return rc;
+    printf("\ngeneric tests - memvfs\n");
+    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_memvfs, generic_post_group);
+    if (stop_on_error && rc) return rc;
+    printf("\ngeneric tests - unixvfs\n");
+    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_unixvfs, generic_post_group);
+    if (stop_on_error && rc) return rc;
+    printf("\ngeneric tests - uncommitted\n");
+    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_txn, generic_post_group);
+    if (stop_on_error && rc) return rc;
+    printf("\ngeneric tests - committed\n");
+    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_commit, generic_post_group);
+    if (stop_on_error && rc) return rc;
+    printf("\ngeneric tests - autocommit\n");
+    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_autocommit, generic_post_group);
+    if (stop_on_error && rc) return rc;
+    printf("\ngeneric tests - checkpointed\n");
+    cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_checkpoint, generic_post_group);
+    if (stop_on_error && rc) return rc;
+
+    printf("\ngeneric tests - cached - uncommitted\n");
+    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_cached_txn, generic_post_group);
+    if (stop_on_error && rc) return rc;
+
+    printf("\ngeneric tests - cached - committed\n");
+    rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_cached_commit, generic_post_group);
+    if (stop_on_error && rc) return rc;
 
     printf("\ngeneric tests - cached - checkpointed\n");
     rc = cmocka_run_group_tests(generic_vfs_tests, generic_pre_group_tcbl_cached_checkpoint, generic_post_group);
     if (stop_on_error && rc) return rc;
-    return 0;
+//    return 0;
 
     const struct CMUnitTest tcbl_tests[] = {
         cmocka_unit_test(test_tcbl_open_close),

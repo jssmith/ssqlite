@@ -54,7 +54,7 @@ static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
     if (rc) goto exit;
 
     if (tcbl_vfs->cache != NULL) {
-        rc = vfs_cache_open(tcbl_vfs->cache, &fh->cache_h, cache_fill, fh->underlying_fh);
+        rc = vfs_cache_open(tcbl_vfs->cache, &fh->cache_h, cache_fill, fh);
         if (rc) goto exit;
     } else {
         fh->cache_h = NULL;
@@ -137,6 +137,9 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len, 
     char buff[page_size];
     rc = TCBL_OK;
     size_t total_read_len = 0;
+//    printf(">>> %lu %lu %lu\n", read_offset, block_offset, block_len);
+//    printf("2.1>><< %p\n", fh);
+//    printf("2.2>><< %p\n", fh->underlying_fh);
     while (read_offset < block_offset + block_len) {
         bool found_data;
         void *p;
@@ -164,6 +167,8 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len, 
 //                if (fh->cache_h != NULL) {
 //                    rc = vfs_cache_len_get(fh->cache_h, &underlying_size);
 //                } else {
+//                printf("1.1>><< %p\n", fh);
+//                printf("1.2>><< %p\n", fh->underlying_fh);
                     vfs_file_size(fh->underlying_fh, &underlying_size);
 //                }
                 if (underlying_size < read_offset + block_begin_skip + block_read_size) {
@@ -185,6 +190,7 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len, 
         read_offset += page_size;
         block_begin_skip = 0;
         block_read_size = MIN(page_size, offset + len - read_offset);
+//        printf(">>> %lu %lu %lu\n", read_offset, block_offset, block_len);
     }
 
     txn_end:
