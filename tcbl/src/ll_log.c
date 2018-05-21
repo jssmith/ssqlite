@@ -2,6 +2,7 @@
 #include <sys/param.h>
 #include "runtime.h"
 #include "ll_log.h"
+#include "tcbl_vfs.h"
 #include "sglib.h"
 
 //#define DEBUG_PRINT
@@ -122,9 +123,10 @@ int bc_log_checkpoint(bc_log l)
     // TODO - maybe check whether have active txn
     int rc, cleanup_rc;
     size_t log_name_len = strlen(l->log_name);
-
+    printf("checkpoint on log %s\n", l->log_name);
     char checkpoint_coordinator_name[log_name_len + 4];
     rc = str_append(checkpoint_coordinator_name, l->log_name, "-cp", sizeof(checkpoint_coordinator_name));
+    printf("checkpoint coordinator is %s\n", checkpoint_coordinator_name);
     if (rc) return rc;
 
     size_t log_entry_size = sizeof(struct bc_log_entry) + l->page_size;
@@ -155,8 +157,11 @@ int bc_log_checkpoint(bc_log l)
         if (rc) goto exit_a;
         start_checkpoint_seq = ((bc_log_index) log_index_bytes)->checkpoint_seq;
     } else if (log_index_start_sz != 0) {
+        printf("invalid size log index");
         rc = TCBL_INTERNAL_ERROR;
         goto exit_a;
+    } else {
+        printf("zero file size log index, assuming default starting checkpoint seq\n");
     }
 
     size_t log_file_size;
@@ -167,6 +172,8 @@ int bc_log_checkpoint(bc_log l)
     if (rc) goto exit_a;
     uint64_t log_checkpoint_seq = ((bc_log_header) log_header_bytes)->checkpoint_seq;
     if (log_checkpoint_seq != start_checkpoint_seq) {
+        printf("log checkpoint seq file: %ld <> counter: %ld\n",
+            log_checkpoint_seq, start_checkpoint_seq);
         rc = TCBL_INTERNAL_ERROR;
         goto exit_a;
     }
@@ -191,7 +198,7 @@ int bc_log_checkpoint(bc_log l)
     memset(commit_entry, 0, log_entry_size);
     commit_entry->flag = LOG_FLAG_CHECKPOINT;
     rc = vfs_write(l->log_fh, commit_entry_bytes, final_log_file_size, log_entry_size);
-    printf("wrote checkpoint record at offset %ld\n", final_log_file_size);
+    printf("wrote checkpoint record at offset %ld for log %s\n", final_log_file_size, l->log_name);
     exit_b:
     cleanup_rc = vfs_lock(l->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
     rc = rc ? rc : cleanup_rc;
@@ -201,11 +208,11 @@ int bc_log_checkpoint(bc_log l)
     uint64_t new_checkpoint_seq = start_checkpoint_seq + 1;
     ((bc_log_index) log_index_bytes)->checkpoint_seq = new_checkpoint_seq;
     rc = vfs_write(cp_fh, log_index_bytes, 0, log_index_sz);
+    printf("updated the index header %s %ld\n", checkpoint_coordinator_name, new_checkpoint_seq);
     if (rc) goto exit_a;
 
-    // Create a new log file
-//    rc = vfs_close(l->log_fh);
-//    if (rc) goto exit_a;
+    // Create a new log file but leave the old one open because we
+    // want to be able to apply the log to updating the cache.
 
     rc = vfs_delete(l->underlying_vfs, l->log_name);
     if (rc) goto exit_a;
@@ -218,7 +225,7 @@ int bc_log_checkpoint(bc_log l)
     ((bc_log_header) log_header_bytes)->newlen = newlen;
     rc = vfs_write(new_log_fh, log_header_bytes, 0, log_header_sz);
     if (rc) goto exit_a;
-    printf("created new log file with checkpoint sequence %lu\n", new_checkpoint_seq);
+    printf("created new log file with checkpoint sequence %lu for %s\n", new_checkpoint_seq, l->log_name);
 
     rc = vfs_close(new_log_fh);
 
@@ -227,6 +234,7 @@ int bc_log_checkpoint(bc_log l)
     rc = rc ? rc : cleanup_rc;
     cleanup_rc = vfs_close(cp_fh);
     rc = rc ? rc : cleanup_rc;
+    printf("bc log checkpoint returns %d\n", rc);
     return rc;
 }
 
@@ -500,6 +508,10 @@ int log_entry_comparator(bc_log_entry e1, bc_log_entry e2)
 
 int bc_log_read(bc_log_h h, size_t offs, bool *found_data, void** out_data, size_t *out_newlen)
 {
+//#ifdef TCBL_PERF_STATS
+//    tcbl_stats_counter_inc(&((tcbl_fh) h->log->data_fh)->stats, TCBL_BC_LOG_READ);
+//#endif
+//
     size_t page_size = h->log->page_size;
     if (offs % page_size != 0) {
         return TCBL_BAD_ARGUMENT;

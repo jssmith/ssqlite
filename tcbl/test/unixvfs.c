@@ -1,4 +1,3 @@
-#define _XOPEN_SOURCE 500
 #define _DARWIN_C_SOURCE
 
 #include <unistd.h>
@@ -13,7 +12,7 @@
 
 #include "unixvfs.h"
 
-#define SLEEP_SLOWDOWN_USEC 10000
+//#define SLEEP_SLOWDOWN_USEC 10000
 
 typedef struct unixvfs_fh {
     struct vfs_fh vfs_fh;
@@ -75,6 +74,7 @@ static int unix_vfs_delete(vfs vfs, const char* file_name)
         if (errno == ENOENT) {
             return TCBL_FILE_NOT_FOUND;
         }
+        printf("io error on delete\n");
         return TCBL_IO_ERROR;
     }
     return TCBL_OK;
@@ -100,6 +100,7 @@ static int unix_vfs_close(vfs_fh vfs_fh)
     if (fh->fd) {
         int rc = close(fh->fd);
         if (rc) {
+            printf("io error on close\n");
             return TCBL_IO_ERROR;
         }
     }
@@ -126,6 +127,7 @@ static int unix_vfs_read(vfs_fh vfs_fh, void *data, size_t offset, size_t len, s
             return TCBL_BOUNDS_CHECK;
         }
         if (len_read == -1) {
+            printf("end of file on read");
             return TCBL_IO_ERROR;
         }
         total_len_read += len_read;
@@ -153,6 +155,7 @@ static int unix_vfs_write(vfs_fh vfs_fh, const void *data, size_t offset, size_t
     while (remaining > 0) {
         ssize_t len_written = pwrite(fh->fd, pos, remaining, write_offset);
         if (len_written == -1) {
+            printf("unable to write\n");
             return TCBL_IO_ERROR;
         }
         pos += len_written;
@@ -164,12 +167,23 @@ static int unix_vfs_write(vfs_fh vfs_fh, const void *data, size_t offset, size_t
 
 static int unix_vfs_lock(vfs_fh vfs_fh, int lock_operation)
 {
+//    printf(">>>> lock %p %d\n", vfs_fh, lock_operation);
     unixvfs_fh fh = (unixvfs_fh) vfs_fh;
     if ((lock_operation & 0xb) != lock_operation) {
         return TCBL_BAD_ARGUMENT;
     }
-    int rc = flock(fh->fd, lock_operation);
+//    printf("locking fd %d\n", fh->fd);
+    int rc;
+    if (lock_operation & VFS_LOCK_UN) {
+//        printf("bare unlock\n");
+        rc = flock(fh->fd, VFS_LOCK_UN);
+    } else {
+        rc = flock(fh->fd, lock_operation);
+    }
     if (rc) {
+        perror("problem locking file");
+//        printf("%d - %d\n", errno, EINVAL);
+//        printf("error on lock\n");
         return TCBL_IO_ERROR;
     }
     return TCBL_OK;
@@ -192,6 +206,7 @@ static int unix_vfs_truncate(vfs_fh vfs_fh, size_t len)
     unixvfs_fh fh = (unixvfs_fh) vfs_fh;
     int rc = ftruncate(fh->fd, len);
     if (rc) {
+        printf("io error on truncate\n");
         return TCBL_IO_ERROR;
     }
     return TCBL_OK;

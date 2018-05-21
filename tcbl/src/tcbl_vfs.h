@@ -8,6 +8,7 @@
 #include "ll_log.h"
 #include "vfs.h"
 #include "cachedvfs.h"
+#include "perfstats.h"
 
 typedef struct tvfs *tvfs;
 
@@ -41,6 +42,9 @@ typedef struct tcbl_fh {
     struct bc_log txn_log;
     struct bc_log_h txn_log_h;
     bool txn_active;
+#ifdef TCBL_PERF_STATS
+    struct tcbl_stats stats;
+#endif
 } *tcbl_fh;
 
 int tcbl_allocate(tvfs* tvfs, vfs underlying_vfs, size_t page_size);

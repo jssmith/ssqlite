@@ -1,5 +1,3 @@
-#define _XOPEN_SOURCE 500
-
 #include <stdarg.h>
 #include <stddef.h>
 #include <setjmp.h>

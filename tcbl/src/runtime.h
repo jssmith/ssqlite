@@ -20,6 +20,8 @@
 #define TCBL_INTERNAL_ERROR     0x0d
 #define TCBL_NOT_FOUND          0x0e
 
+#define TCBL_PERF_STATS
+
 //#define TCBL_MEMVFS_VERBOSE
 
 //#define TCBL_MEMORY_TESTING

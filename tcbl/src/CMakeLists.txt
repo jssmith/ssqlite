@@ -5,4 +5,8 @@ add_library(tcbl
         ll_log.h
         ll_log.c
         runtime.h
-        sglib.h cachedvfs.h cachedvfs.c)
+        sglib.h
+        cachedvfs.h
+        cachedvfs.c
+        perfstats.c
+        perfstats.h)

@@ -14,7 +14,7 @@
 //    }
 //}
 
-#define TCBL_CACHE_VERBOSE
+//#define TCBL_CACHE_VERBOSE
 
 static void vfs_cache_initialize(cvfs c)
 {
@@ -90,7 +90,7 @@ uint64_t hash(uint64_t x) {
     return x;
 }
 
-static int vfs_cache_find(cvfs cvfs, size_t offs, bool create, cvfs_entry *out_entry, bool* out_did_create)
+static int vfs_cache_find(cvfs cvfs, tcbl_stats stats, size_t offs, bool create, cvfs_entry *out_entry, bool* out_did_create)
 {
     cvfs_entry e;
     size_t cache_index_pos = hash(offs) % cvfs->num_index_entries;
@@ -136,6 +136,9 @@ static int vfs_cache_find(cvfs cvfs, size_t offs, bool create, cvfs_entry *out_e
 #ifdef TCBL_CACHE_VERBOSE
             printf("CACHE: evict page %lu\n", ev->offset);
 #endif
+#ifdef TCBL_PERF_STATS
+            tcbl_stats_counter_inc(stats, TCBL_COUNTER_CACHE_EVICT);
+#endif
         }
         // Add to LRU
         e->lru_next = cvfs->lru_first;
@@ -157,7 +160,7 @@ static int vfs_cache_find(cvfs cvfs, size_t offs, bool create, cvfs_entry *out_e
 
 int vfs_cache_open(cvfs cvfs, struct cvfs_h **cvfs_h,
                    int (*fill_fn)(void *, void *, size_t, size_t, size_t *),
-                   void* fill_ctx)
+                   void* fill_ctx, tcbl_stats stats)
 {
     struct cvfs_h *h = tcbl_malloc(NULL, sizeof(struct cvfs_h));
     if (h == NULL) {
@@ -166,6 +169,9 @@ int vfs_cache_open(cvfs cvfs, struct cvfs_h **cvfs_h,
     h->cvfs = cvfs;
     h->fill_fn = fill_fn;
     h->fill_ctx = fill_ctx;
+#ifdef TCBL_PERF_STATS
+    h->stats = stats;
+#endif
     *cvfs_h = h;
 #ifdef TCBL_CACHE_VERBOSE
     printf("CACHE: opened handle %p\n", h);
@@ -205,7 +211,7 @@ int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len, size_t *
     bool cache_hit = true;
     while (read_offset < block_offset + block_len) {
         bool did_create;
-        rc = vfs_cache_find(cvfs_h->cvfs, read_offset, true, &e, &did_create);
+        rc = vfs_cache_find(cvfs_h->cvfs, cvfs_h->stats, read_offset, true, &e, &did_create);
         if (rc) {
             return rc;
         }
@@ -245,18 +251,12 @@ int vfs_cache_get(cvfs_h cvfs_h, void* data, size_t offset, size_t len, size_t *
         block_begin_skip = 0;
         block_read_size = MIN(page_size, offset + len - read_offset);
     }
+#ifdef TCBL_PERF_STATS
     if (cache_hit) {
-        cvfs_h->cvfs->cache_hit_ct += 1;
+        tcbl_stats_counter_inc(cvfs_h->stats, TCBL_COUNTER_CACHE_HIT);
     } else {
-        cvfs_h->cvfs->cache_miss_ct += 1;
+        tcbl_stats_counter_inc(cvfs_h->stats, TCBL_COUNTER_CACHE_MISS);
     }
-#ifdef TCBL_CACHE_VERBOSE
-    {
-        uint64_t cache_access_ct = cvfs_h->cvfs->cache_hit_ct + cvfs_h->cvfs->cache_miss_ct;
-        if (cache_access_ct % 20 == 0) {
-            printf("CACHE: hit rate %0.3f%%\n", 100. * cvfs_h->cvfs->cache_hit_ct / cache_access_ct);
-        }
-    };
 #endif
     if (out_len != NULL) {
         *out_len = total_res_len;
@@ -285,7 +285,7 @@ int vfs_cache_update(cvfs_h cvfs_h, void* data, size_t offset, size_t len)
 #endif
 
     while (read_offset < block_offset + block_len) {
-        rc = vfs_cache_find(cvfs_h->cvfs, read_offset, false, &e, NULL);
+        rc = vfs_cache_find(cvfs_h->cvfs, cvfs_h->stats, read_offset, false, &e, NULL);
 #ifdef TCBL_CACHE_VERBOSE
         printf("CACHE: update page %lu %s\n", read_offset, rc == TCBL_OK ? "found" : "not found - skipped");
 #endif

@@ -1,8 +1,8 @@
 #include <sys/param.h>
 #include <string.h>
 
-#include "tcbl_vfs.h"
 #include "runtime.h"
+#include "tcbl_vfs.h"
 #include "sglib.h"
 
 typedef struct tcbl_change_log_header {
@@ -49,12 +49,21 @@ static int tcbl_open(vfs vfs, const char* file_name, vfs_fh* file_handle_out)
     fh->vfs = vfs;
     fh->underlying_fh = NULL;
     fh->txn_active = NULL;
+#ifdef TCBL_PERF_STATS
+    tcbl_stats_init(&fh->stats);
+#endif
 
     rc = vfs_open(tcbl_vfs->underlying_vfs, file_name, &fh->underlying_fh);
     if (rc) goto exit;
 
     if (tcbl_vfs->cache != NULL) {
-        rc = vfs_cache_open(tcbl_vfs->cache, &fh->cache_h, cache_fill, fh);
+        rc = vfs_cache_open(tcbl_vfs->cache, &fh->cache_h, cache_fill, fh,
+#ifdef TCBL_PERF_STATS
+            &fh->stats
+#else
+            NULL
+#endif
+        );
         if (rc) goto exit;
     } else {
         fh->cache_h = NULL;
@@ -114,6 +123,9 @@ static int tcbl_read(vfs_fh file_handle, void* data, size_t offset, size_t len, 
 {
     int rc;
     tcbl_fh fh = (tcbl_fh) file_handle;
+#ifdef TCBL_PERF_STATS
+    tcbl_stats_counter_inc(&fh->stats, TCBL_COUNTER_READ);
+#endif
     size_t page_size = ((tcbl_vfs) fh->vfs)->page_size;
 
     size_t alignment_shift = offset % page_size;
@@ -253,6 +265,10 @@ static int tcbl_write(vfs_fh file_handle, const void* data, size_t offset, size_
 {
     int rc;
     tcbl_fh fh = (tcbl_fh) file_handle;
+//    printf("write %s\n", fh->txn_log.log_name);
+#ifdef TCBL_PERF_STATS
+    tcbl_stats_counter_inc(&fh->stats, TCBL_COUNTER_WRITE);
+#endif
     size_t page_size = ((tcbl_vfs) fh->vfs)->page_size;
     char buff[page_size];
 
@@ -330,6 +346,9 @@ static int tcbl_txn_begin(vfs_fh file_handle)
 {
     int rc;
     tcbl_fh fh = (tcbl_fh) file_handle;
+#ifdef TCBL_PERF_STATS
+    tcbl_stats_counter_inc(&fh->stats, TCBL_COUNTER_TXN_BEGIN);
+#endif
     if (fh->txn_active) {
         return TCBL_TXN_ACTIVE;
     }
@@ -345,6 +364,9 @@ static int tcbl_txn_commit(vfs_fh file_handle)
 {
     int rc;
     tcbl_fh fh = (tcbl_fh) file_handle;
+#ifdef TCBL_PERF_STATS
+    tcbl_stats_counter_inc(&fh->stats, TCBL_COUNTER_TXN_COMMIT);
+#endif
 
     if (!fh->txn_active) {
         return TCBL_NO_TXN_ACTIVE;
@@ -359,6 +381,9 @@ static int tcbl_txn_abort(vfs_fh file_handle)
 {
     int rc;
     tcbl_fh fh = (tcbl_fh) file_handle;
+#ifdef TCBL_PERF_STATS
+    tcbl_stats_counter_inc(&fh->stats, TCBL_COUNTER_TXN_ABORT);
+#endif
 
     if (!fh->txn_active) {
         return TCBL_NO_TXN_ACTIVE;
@@ -372,6 +397,9 @@ static int tcbl_txn_abort(vfs_fh file_handle)
 static int tcbl_checkpoint(vfs_fh file_handle)
 {
     tcbl_fh fh = (tcbl_fh) file_handle;
+#ifdef TCBL_PERF_STATS
+    tcbl_stats_counter_inc(&fh->stats, TCBL_COUNTER_CHECKPOINT);
+#endif
 
     if (fh->txn_active) {
         // There may be no fundamental reason for not doing a checkpoint while

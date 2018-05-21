@@ -13,6 +13,7 @@ typedef struct appd {
     sqlite3_vfs *parent;
     vfs active_vfs;
     vfs base_vfs;
+    vfs log_vfs;
     cvfs cache;
     bool has_txn;
 } *appd;
@@ -20,9 +21,10 @@ typedef struct appd {
 typedef struct tcbl_sqlite3_fh {
     sqlite3_file base;
     appd ad;
-    vfs_fh tcbl_fh;
+    vfs_fh fh;
     bool has_txn;
     bool txn_active;
+    bool is_log_file;
     uint64_t checkpoint_txn_ct;
 } *tcbl_sqlite3_fh;
 
@@ -43,6 +45,9 @@ static bool info_logging;
 static inline int sqlite3_rc(int s)
 {
     TRACE("result %s", s == TCBL_OK ? "ok" : s == TCBL_BOUNDS_CHECK ? "bounds" : "error");
+    if (s != TCBL_OK && s != TCBL_BOUNDS_CHECK) {
+        TRACE("error code %d\n", s);
+    }
     return s == TCBL_OK ? SQLITE_OK : s == TCBL_BOUNDS_CHECK ? SQLITE_IOERR_SHORT_READ : SQLITE_ERROR;
 }
 
@@ -50,7 +55,7 @@ static int tcblClose(sqlite3_file *pFile)
 {
     tcbl_sqlite3_fh fh = (tcbl_sqlite3_fh) pFile;
     TRACE("close %p\n", fh);
-    return sqlite3_rc(vfs_close(fh->tcbl_fh));
+    return sqlite3_rc(vfs_close(fh->fh));
 }
 
 static int tcblRead(sqlite3_file *pFile,
@@ -60,7 +65,7 @@ static int tcblRead(sqlite3_file *pFile,
 {
     TRACE("read %p %lld %d", pFile, iOfst, iAmt);
     tcbl_sqlite3_fh fh = (tcbl_sqlite3_fh) pFile;
-    return sqlite3_rc(vfs_read(fh->tcbl_fh, zBuf, iOfst, iAmt));
+    return sqlite3_rc(vfs_read(fh->fh, zBuf, iOfst, iAmt));
 }
 
 static int tcblWrite(sqlite3_file *pFile,
@@ -71,7 +76,7 @@ static int tcblWrite(sqlite3_file *pFile,
     TRACE("write %p %lld %d", pFile, iOfst, iAmt);
     tcbl_sqlite3_fh fh = (tcbl_sqlite3_fh) pFile;
     fh->checkpoint_txn_ct += 1;
-    return sqlite3_rc(vfs_write(fh->tcbl_fh, z, iOfst, iAmt));
+    return sqlite3_rc(vfs_write(fh->fh, z, iOfst, iAmt));
 }
 
 static int tcblTruncate(sqlite3_file *pFile,
@@ -80,7 +85,7 @@ static int tcblTruncate(sqlite3_file *pFile,
     TRACE("truncate %p %lld", pFile, size);
     tcbl_sqlite3_fh fh = (tcbl_sqlite3_fh) pFile;
     fh->checkpoint_txn_ct += 1;
-    return sqlite3_rc(vfs_truncate(fh->tcbl_fh, size));
+    return sqlite3_rc(vfs_truncate(fh->fh, size));
 }
 
 static int tcblSync(sqlite3_file *pFile, int flags)
@@ -90,14 +95,16 @@ static int tcblSync(sqlite3_file *pFile, int flags)
     int rc = TCBL_OK;
     if (fh->has_txn) {
         if (fh->txn_active) {
-            rc = vfs_txn_commit(fh->tcbl_fh);
+            rc = vfs_txn_commit(fh->fh);
             fh->txn_active = false;
             fh->checkpoint_txn_ct += 1;
         }
         if (!rc) {
             if (fh->checkpoint_txn_ct > 20) {
                 TRACE("checkpoint %p", pFile);
-                rc = vfs_checkpoint(fh->tcbl_fh);
+                rc = vfs_checkpoint(fh->fh);
+                tcbl_stats_print(&((tcbl_fh) fh->fh)->stats);
+                fh->checkpoint_txn_ct = 0;
             }
         }
     }
@@ -109,7 +116,7 @@ static int tcblFileSize(sqlite3_file *pFile, sqlite_int64 *pSize)
     TRACE("size %p", pFile);
     tcbl_sqlite3_fh fh = (tcbl_sqlite3_fh) pFile;
     size_t file_size;
-    int rc = sqlite3_rc(vfs_file_size(fh->tcbl_fh, &file_size));
+    int rc = sqlite3_rc(vfs_file_size(fh->fh, &file_size));
     *pSize = (sqlite_int64) file_size;
     return sqlite3_rc(rc);
 }
@@ -136,9 +143,13 @@ static int tcblFileControl(sqlite3_file *pFile, int op, void *pArg)
     TRACE("file control %p %x", pFile, op);
     if (op == SQLITE_FCNTL_PRAGMA) {
         TRACE("fc = pragma %s\n", ((char **) pArg)[1]);
-    }
-
-    if (op == SQLITE_FCNTL_PRAGMA) {
+#ifdef TCBL_PERF_STATS
+        if (strcmp("stats", ((char **) pArg)[1]) == 0) {
+            tcbl_sqlite3_fh fh = (tcbl_sqlite3_fh) pFile;
+            tcbl_stats_print(&((tcbl_fh) fh->fh)->stats);
+            return SQLITE_OK;
+        }
+#endif
         return SQLITE_NOTFOUND;
     }
 
@@ -206,6 +217,18 @@ static int tcblUnfetch(sqlite3_file *pFile, sqlite3_int64 iOfst, void *pPage)
 
 static sqlite3_io_methods tcbl_io_methods;
 
+static bool has_ext(const char *name, const char *ext)
+{
+    size_t name_len = strlen(name);
+    size_t ext_len = strlen(ext);
+    return (name_len > ext_len && strcmp(&name[name_len - ext_len], ext) == 0);
+}
+
+static bool has_log_ext(const char* name)
+{
+    return has_ext(name, "-journal") || has_ext(name, "-wal");
+}
+
 static int tcblOpen(sqlite3_vfs *pVfs,
                     const char *zName,
                     sqlite3_file *pFile,
@@ -217,16 +240,23 @@ static int tcblOpen(sqlite3_vfs *pVfs,
     appd ad = pVfs->pAppData;
     fh->ad = ad;
     fh->base.pMethods = (const struct sqlite3_io_methods *) &tcbl_io_methods;
-    int rc = vfs_open(ad->active_vfs, zName, &fh->tcbl_fh);
+    bool is_log_file = has_log_ext(zName);
+    int rc;
+    if (is_log_file) {
+        rc = vfs_open(ad->log_vfs, zName, &fh->fh);
+    } else {
+        rc = vfs_open(ad->active_vfs, zName, &fh->fh);
+    }
     if (!rc) {
         if (pOutFlags) {
             *pOutFlags = flags;
         }
     }
-    fh->has_txn = ad->has_txn;
+    fh->has_txn = !is_log_file && ad->has_txn;
     fh->txn_active = false;
+    fh->is_log_file = is_log_file;
     fh->checkpoint_txn_ct = 0;
-    TRACE("have fh %p", fh->tcbl_fh);
+    TRACE("have fh %p", fh->fh);
     return sqlite3_rc(rc);
 }
 
@@ -234,7 +264,12 @@ static int tcblDelete(sqlite3_vfs *pVfs, const char *zPath, int dirSync)
 {
     TRACE("delete %p", pVfs);
     appd ad = pVfs->pAppData;
-    return sqlite3_rc(vfs_delete(ad->active_vfs, zPath));
+    bool is_log_file = has_log_ext(zPath);
+    if (is_log_file) {
+        return sqlite3_rc(vfs_delete(ad->log_vfs, zPath));
+    } else {
+        return sqlite3_rc(vfs_delete(ad->active_vfs, zPath));
+    }
 }
 
 
@@ -248,7 +283,12 @@ static int tcblAccess(sqlite3_vfs *pVfs,
     if (flags == SQLITE_ACCESS_EXISTS) {
         appd ad = pVfs->pAppData;
         int exists;
-        rc = vfs_exists(ad->active_vfs, zPath, &exists);
+        bool is_log_file = has_log_ext(zPath);
+        if (is_log_file) {
+            rc = vfs_exists(ad->log_vfs, zPath, &exists);
+        } else {
+            rc = vfs_exists(ad->active_vfs, zPath, &exists);
+        }
         *pResOut = exists ? 1 : 0;
     } else if (flags == SQLITE_ACCESS_READWRITE) {
         *pResOut = 1;
@@ -459,6 +499,11 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
             goto exit;
         }
         base_vfs_name = "unix";
+        rc = memvfs_allocate(&ad->log_vfs);
+        if (rc) {
+            rc = SQLITE_ERROR;
+            goto exit;
+        }
     } else {
         rc = memvfs_allocate(&ad->base_vfs);
         if (rc) {
@@ -466,6 +511,7 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
             goto exit;
         }
         base_vfs_name = "memory";
+        ad->log_vfs = ad->base_vfs;
     }
 
     int memvfs_only = env_int("TCBL_BASE_VFS_ONLY", 0, 1);

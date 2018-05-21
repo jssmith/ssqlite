@@ -1,5 +1,3 @@
-#define _XOPEN_SOURCE 500
-
 #include <string.h>
 #include <stdio.h>
 #include <sys/param.h>
@@ -134,6 +132,7 @@ static int memvfs_delete(vfs vfs, const char *file_name)
     memvfs_file f;
     memvfs_find_existing_file((memvfs) vfs, file_name, &f);
     if (!f) {
+        printf("file not found in memvfs delete\n");
         rc = TCBL_FILE_NOT_FOUND;
         goto exit;
     } else {

@@ -30,7 +30,7 @@ static void setup_1h(cache_test_env env, size_t underlying_sz)
     prep_data(orig_data, underlying_sz, 2342);
     RC_OK(vfs_open(env->underlying_fs, "test", &env->ufh));
     RC_OK(vfs_write(env->ufh, orig_data, 0, underlying_sz));
-    RC_OK(vfs_cache_open(env->cache, &env->ch, fill_fn, env->ufh));
+    RC_OK(vfs_cache_open(env->cache, &env->ch, fill_fn, env->ufh, NULL));
 }
 
 static void teardown(cache_test_env env)

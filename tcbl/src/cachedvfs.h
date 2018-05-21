@@ -4,6 +4,7 @@
 #include <stddef.h>
 
 #include "vfs.h"
+#include "perfstats.h"
 
 typedef struct cvfs_entry *cvfs_entry;
 
@@ -26,14 +27,15 @@ typedef struct cvfs {
     size_t num_pages;
     size_t num_index_entries;
     size_t len;
-    uint64_t cache_hit_ct;
-    uint64_t cache_miss_ct;
 } *cvfs;
 
 typedef struct cvfs_h {
     cvfs cvfs;
     int (*fill_fn)(void *, void *, size_t, size_t, size_t *);
     void *fill_ctx;
+#ifdef TCBL_PERF_STATS
+    tcbl_stats stats;
+#endif
 } *cvfs_h;
 
 
@@ -45,7 +47,7 @@ int vfs_cache_allocate(cvfs *, size_t page_size, size_t num_pages);
 
 int vfs_cache_open(cvfs, cvfs_h *,
                    int (*fill_fn)(void *ctx, void *data, size_t offset, size_t len, size_t *out_len),
-                   void* fill_ctx);
+                   void* fill_ctx, tcbl_stats stats);
 int vfs_cache_close(cvfs_h);
 int vfs_cache_get(cvfs_h, void* data, size_t offset, size_t len, size_t *out_len);
 int vfs_cache_update(cvfs_h, void* data, size_t offset, size_t len);
