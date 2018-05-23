@@ -7,6 +7,7 @@ SQLITE_EXTENSION_INIT1
 #include "../src/tcbl_vfs.h"
 #include "memvfs.h"
 #include "unixvfs.h"
+#include "vfs_comparison.h"
 
 
 typedef struct appd {
@@ -466,8 +467,24 @@ int load_test_db(vfs memvfs, const char *memvfs_fn, const char *local_fs_fn) {
     if (fh) {
         vfs_close(fh);
     }
-    INFO("finished preloading - rc=%d", rc);
+    INFO("finished preloading %s to %s - rc=%d\n", local_fs_fn, memvfs_fn, rc);
     return rc;
+}
+
+int preload(char *preload_arg, vfs vfs)
+{
+    size_t len = strlen(preload_arg);
+    char preload_arg_cpy[len + 1];
+    memcpy(preload_arg_cpy, preload_arg, len + 1);
+    char* local_filename = strtok(preload_arg_cpy, ":");
+    char *vfs_filename = strtok(NULL, ":");
+    if (!vfs_filename) {
+        TRACE("invalid format in TCBL_MEMVFS_PRELOAD");
+        return SQLITE_ERROR;
+    }
+    printf("%s %s %s\n", local_filename, vfs_filename, preload_arg);
+
+    return load_test_db(vfs, vfs_filename, local_filename);
 }
 
 int sqlite3_sqlitetcbl_init(sqlite3 *db,
@@ -485,6 +502,7 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
 
     char* unix_mountpoint = getenv("TCBL_UNIX_MOUNTPOINT");
     char *preload_arg = getenv("TCBL_MEMVFS_PRELOAD");
+    char *cmp_arg = getenv("TCBL_CMP_PRELOAD");
 
     if (unix_mountpoint && preload_arg) {
         // conflicting environment variables
@@ -544,23 +562,38 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
 
     // parse TCBL_PRELOAD, which has format host_file_path:tcbl_file_path
     if (preload_arg) {
-        size_t len = strlen(preload_arg);
-        char preload_arg_cpy[len + 1];
-        memcpy(preload_arg_cpy, preload_arg, len + 1);
-        char* local_filename = strtok(preload_arg_cpy, ":");
-        char *vfs_filename = strtok(NULL, ":");
-        if (!vfs_filename) {
-            TRACE("invalid format in TCBL_MEMVFS_PRELOAD");
-            rc = SQLITE_ERROR;
-            goto exit;
-        }
-        printf("%s %s %s\n", local_filename, vfs_filename, preload_arg);
-
-        rc = load_test_db(ad->base_vfs, vfs_filename, local_filename);
+        rc = preload(preload_arg, ad->base_vfs);
         if (rc) {
             rc = SQLITE_ERROR;
             goto exit;
         }
+    }
+
+    if (cmp_arg) {
+        vfs cmp_vfs;
+        vfs mirror_vfs;
+        rc = memvfs_allocate(&mirror_vfs);
+        if (rc) {
+            rc = SQLITE_ERROR;
+            goto exit;
+        }
+        vfs mirror_tcbl;
+        rc = tcbl_allocate_2((tvfs*) &mirror_tcbl, mirror_vfs, SQLITE3_TCBL_PAGE_SIZE, NULL);
+        if (rc) {
+            rc = SQLITE_ERROR;
+            goto exit;
+        }
+        rc = preload(cmp_arg, mirror_vfs);
+        if (rc) {
+            rc = SQLITE_ERROR;
+            goto exit;
+        }
+        rc = comparison_vfs_allocate(&cmp_vfs, ad->active_vfs, mirror_tcbl);
+        if (rc) {
+            rc = SQLITE_ERROR;
+            goto exit;
+        }
+        ad->active_vfs = cmp_vfs;
     }
 
     tcbl_sqlite3_vfs.pNext = sqlite3_vfs_find(0);

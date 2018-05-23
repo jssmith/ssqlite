@@ -66,6 +66,7 @@ add_library(sqlite3tcbl SHARED
         ../src/cachedvfs.c
         ../src/perfstats.h
         ../src/perfstats.c
-        )
+        vfs_comparison.h
+        vfs_comparison.c)
 
 add_library(vfslog SHARED vfslog.c)

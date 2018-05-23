@@ -2218,6 +2218,8 @@ int main(void)
     rc = cmocka_run_group_tests(fuzz_vfs_tests, generic_pre_group_memvfs, generic_post_group);
     printf("\nfuzz tests - committed\n");
     rc = cmocka_run_group_tests(fuzz_vfs_tests, generic_pre_group_tcbl_commit, generic_post_group);
+    printf("\nfuzz tests - cached\n");
+    rc = cmocka_run_group_tests(fuzz_vfs_tests, generic_pre_group_tcbl_cached_checkpoint, generic_post_group);
 
     const struct CMUnitTest fuzz_vfs_tests_concurrent[] = {
             cmocka_unit_test_setup_teardown(test_paired_updates, generic_setup_2fh, generic_teardown),
