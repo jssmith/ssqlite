@@ -1,7 +1,7 @@
 #ifndef TCBL_VFS_COMPARISON_H
 #define TCBL_VFS_COMPARISON_H
 
-#include "runtime.h"
+#include "tcbl_runtime.h"
 #include "vfs.h"
 
 typedef struct comparison_vfs_fh {

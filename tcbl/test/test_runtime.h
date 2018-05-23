@@ -1,7 +1,7 @@
 #ifndef TCBL_TEST_RUNTIME_H
 #define TCBL_TEST_RUNTIME_H
 
-#include "runtime.h"
+#include "tcbl_runtime.h"
 #include <stdarg.h>
 #include <stddef.h>
 #include <setjmp.h>

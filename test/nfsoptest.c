@@ -178,5 +178,5 @@ int main(int argc, char* argv[])
 {
     // test_opens();
     // test_locking();
-    test_double_locking();
+    //test_double_locking();
 }

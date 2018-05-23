@@ -148,6 +148,7 @@ def write_config(config_file, config):
     with open(config_file) as f:
         print(f.read())
 
+
 def do_tpcc_mem(s3_database_source, test_duration, frac_read):
     db_local_path = "/tmp/tpcc.db"
     if not os.path.isfile(db_local_path):
@@ -165,7 +166,6 @@ def do_tpcc_mem(s3_database_source, test_duration, frac_read):
     write_config("/tmp/tpcc-config", config)
     env = os.environ.copy()
     if vfs == "tcbl":
-        #env["TCBL_BASE_VFS_ONLY"] = "1"
         env["TCBL_MEMVFS_PRELOAD"] = "%s:%s" % (db_local_path, db_local_path)
 
     p = subprocess.Popen(["python3", "tpcc.py",
@@ -191,6 +191,46 @@ def do_tpcc_mem(s3_database_source, test_duration, frac_read):
         res_json = None
     return { "out" : stdout_str, "err": stderr_str, "result" : res_json }
 
+def do_tpcc_nfs_mem(test_duration, frac_read):
+    vfs = "tcbl"
+    config = {
+        "database": "tpcc.db",
+        "vfs": vfs,
+        "journal_mode": "delete",
+        "locking_mode": "exclusive",
+        "cache_size": 2000
+    }
+    json_output_file = "/tmp/res_%s.json" % invocation_id
+    write_config("/tmp/tpcc-config", config)
+    env = os.environ.copy()
+    if vfs == "tcbl":
+        env["TCBL_MEMVFS_NFS_PRELOAD"] = socket.gethostbyname(efs_location)
+
+    print("xxxx")
+    p = subprocess.Popen(["python3", "tpcc.py",
+            "--no-load",
+            "--duration=%d" % test_duration,
+            "--frac-read=%f" % frac_read,
+            "--config=/tmp/tpcc-config",
+            "--json-output=%s" % json_output_file,
+            "sqlite"],
+            env=env,
+            encoding="utf-8",
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    (stdout_str, stderr_str) = p.communicate()
+    print("return code %s" % p.returncode)
+    print("yyyy")
+
+
+    if os.path.isfile(json_output_file):
+        with open(json_output_file) as f:
+            try:
+                res_json = json.load(f)
+            except json.JSONDecodeError:
+                res_json = None
+    else:
+        res_json = None
+    return { "out" : stdout_str, "err": stderr_str, "result" : res_json }
 def lambda_handler(event, context):
     global invocation_id
     invocation_id = "%016x" % random.getrandbits(64)
@@ -209,7 +249,8 @@ def lambda_handler(event, context):
         "write": lambda: test_write(database_location),
         "create": lambda: test_create(database_location),
         "tpcc": lambda: do_tpcc(database_location_efs, test_duration, frac_read),
-        "tpcc-mem": lambda: do_tpcc_mem(s3_database_source, test_duration, frac_read) }
+        "tpcc-mem": lambda: do_tpcc_mem(s3_database_source, test_duration, frac_read),
+        "tpcc-nfs-mem": lambda: do_tpcc_nfs_mem(test_duration, frac_read) }
     test_result = tests[event["test"]]()
     result = {
         "LambdaId": lambda_id,

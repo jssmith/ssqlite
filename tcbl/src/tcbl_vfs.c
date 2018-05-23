@@ -1,7 +1,7 @@
 #include <sys/param.h>
 #include <string.h>
 
-#include "runtime.h"
+#include "tcbl_runtime.h"
 #include "tcbl_vfs.h"
 #include "sglib.h"
 

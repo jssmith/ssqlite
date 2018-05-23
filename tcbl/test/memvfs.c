@@ -6,7 +6,7 @@
 
 #include "memvfs.h"
 #include "sglib.h"
-#include "runtime.h"
+#include "tcbl_runtime.h"
 
 typedef struct memvfs_file {
     char *name;

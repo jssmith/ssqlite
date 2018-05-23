@@ -43,6 +43,7 @@ if [ ! $DEV_MODE ]; then
     popd
 fi
 cp nfsv4/nfs4.so build-dist
+cp nfsv4/nfs4.so build-dist/libnfs4.so
 cp tcbl/linuxbuild/test/libsqlite3tcbl.so build-dist
 
 pushd .

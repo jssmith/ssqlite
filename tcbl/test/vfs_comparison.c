@@ -177,24 +177,24 @@ int cmp_txn_commit(vfs_fh file_handle)
     return MAX(rc1, rc2);
 }
 
-int cmp_txn_abort(vfs_fh file_handle)
-{
-    comparison_vfs_fh cmp_vfs_fh = (comparison_vfs_fh) file_handle;
-    int rc1, rc2;
-    rc1 = vfs_txn_abort(cmp_vfs_fh->vfs_fh_a);
-    rc2 = vfs_txn_abort(cmp_vfs_fh->vfs_fh_b);
-    if (rc1 != rc2) {
-        printf("CMP FAILURE: %d %d\n", rc1, rc2);
-    }
-    return MAX(rc1, rc2);
-}
-
 int cmp_checkpoint(vfs_fh file_handle)
 {
     comparison_vfs_fh cmp_vfs_fh = (comparison_vfs_fh) file_handle;
     int rc1, rc2;
     rc1 = vfs_checkpoint(cmp_vfs_fh->vfs_fh_a);
     rc2 = vfs_checkpoint(cmp_vfs_fh->vfs_fh_b);
+    if (rc1 != rc2) {
+        printf("CMP FAILURE: %d %d\n", rc1, rc2);
+    }
+    return MAX(rc1, rc2);
+}
+
+int cmp_txn_abort(vfs_fh file_handle)
+{
+    comparison_vfs_fh cmp_vfs_fh = (comparison_vfs_fh) file_handle;
+    int rc1, rc2;
+    rc1 = vfs_txn_abort(cmp_vfs_fh->vfs_fh_a);
+    rc2 = vfs_txn_abort(cmp_vfs_fh->vfs_fh_b);
     if (rc1 != rc2) {
         printf("CMP FAILURE: %d %d\n", rc1, rc2);
     }

@@ -3,11 +3,12 @@
 #include "sqlite3ext.h"
 SQLITE_EXTENSION_INIT1
 
-#include "../src/runtime.h"
+#include "tcbl_runtime.h"
 #include "../src/tcbl_vfs.h"
 #include "memvfs.h"
 #include "unixvfs.h"
 #include "vfs_comparison.h"
+#include "nfsvfs.h"
 
 
 typedef struct appd {
@@ -487,6 +488,49 @@ int preload(char *preload_arg, vfs vfs)
     return load_test_db(vfs, vfs_filename, local_filename);
 }
 
+int nfs_preload(char *preload_arg, vfs dst_vfs)
+{
+    printf("preload starting fo");
+    int rc;
+    vfs src_vfs;
+    char *servername = preload_arg;
+    rc = nfs_vfs_allocate(&src_vfs, servername);
+    if (rc) return rc;
+
+    vfs_fh  s_fh;
+    rc = vfs_open(src_vfs, "tpcc.db", &s_fh);
+    if (rc) return rc;
+
+    vfs_fh d_fh;
+    rc = vfs_open(dst_vfs, "tpcc.db", &d_fh);
+    if (rc) return rc;
+
+    size_t file_size;
+    rc = vfs_file_size(s_fh, &file_size);
+    if (rc) return rc;
+    printf("have file size %ld\n", file_size);
+
+    size_t max_read_sz = 1048576;
+    char buff[max_read_sz];
+    size_t offs = 0;
+
+    while (offs < file_size) {
+        size_t len = MIN(max_read_sz, file_size - offs);
+        printf("read offs %ld len %ld\n", offs, len);
+        rc = vfs_read(s_fh, buff, offs, len);
+        if (rc) return rc;
+        rc = vfs_write(d_fh, buff, offs, len);
+        if (rc) return rc;
+        offs += len;
+    }
+
+    vfs_close(d_fh);
+    vfs_close(s_fh);
+    vfs_free(src_vfs);
+
+    return TCBL_OK;
+}
+
 int sqlite3_sqlitetcbl_init(sqlite3 *db,
                      char **pzErrMsg,
                      const sqlite3_api_routines *pApi)
@@ -503,6 +547,9 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
     char* unix_mountpoint = getenv("TCBL_UNIX_MOUNTPOINT");
     char *preload_arg = getenv("TCBL_MEMVFS_PRELOAD");
     char *cmp_arg = getenv("TCBL_CMP_PRELOAD");
+    char *nfs_preload_arg = getenv("TCBL_MEMVFS_NFS_PRELOAD");
+
+    printf("going to work\n");
 
     if (unix_mountpoint && preload_arg) {
         // conflicting environment variables
@@ -563,6 +610,15 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
     // parse TCBL_PRELOAD, which has format host_file_path:tcbl_file_path
     if (preload_arg) {
         rc = preload(preload_arg, ad->base_vfs);
+        if (rc) {
+            rc = SQLITE_ERROR;
+            goto exit;
+        }
+    }
+
+    printf("ready to preload\n");
+    if (nfs_preload_arg) {
+        rc = nfs_preload(preload_arg, ad->base_vfs);
         if (rc) {
             rc = SQLITE_ERROR;
             goto exit;

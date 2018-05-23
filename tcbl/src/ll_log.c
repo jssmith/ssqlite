@@ -1,6 +1,6 @@
 #include <string.h>
 #include <sys/param.h>
-#include "runtime.h"
+#include "tcbl_runtime.h"
 #include "ll_log.h"
 #include "tcbl_vfs.h"
 #include "sglib.h"
@@ -198,7 +198,7 @@ int bc_log_checkpoint(bc_log l)
     memset(commit_entry, 0, log_entry_size);
     commit_entry->flag = LOG_FLAG_CHECKPOINT;
     rc = vfs_write(l->log_fh, commit_entry_bytes, final_log_file_size, log_entry_size);
-    printf("wrote checkpoint record at offset %ld for log %s\n", final_log_file_size, l->log_name);
+//    printf("wrote checkpoint record at offset %ld for log %s\n", final_log_file_size, l->log_name);
     exit_b:
     cleanup_rc = vfs_lock(l->log_fh, VFS_LOCK_EX | VFS_LOCK_UN);
     rc = rc ? rc : cleanup_rc;
@@ -208,7 +208,7 @@ int bc_log_checkpoint(bc_log l)
     uint64_t new_checkpoint_seq = start_checkpoint_seq + 1;
     ((bc_log_index) log_index_bytes)->checkpoint_seq = new_checkpoint_seq;
     rc = vfs_write(cp_fh, log_index_bytes, 0, log_index_sz);
-    printf("updated the index header %s %ld\n", checkpoint_coordinator_name, new_checkpoint_seq);
+//    printf("updated the index header %s %ld\n", checkpoint_coordinator_name, new_checkpoint_seq);
     if (rc) goto exit_a;
 
     // Create a new log file but leave the old one open because we
@@ -225,7 +225,7 @@ int bc_log_checkpoint(bc_log l)
     ((bc_log_header) log_header_bytes)->newlen = newlen;
     rc = vfs_write(new_log_fh, log_header_bytes, 0, log_header_sz);
     if (rc) goto exit_a;
-    printf("created new log file with checkpoint sequence %lu for %s\n", new_checkpoint_seq, l->log_name);
+//    printf("created new log file with checkpoint sequence %lu for %s\n", new_checkpoint_seq, l->log_name);
 
     rc = vfs_close(new_log_fh);
 
@@ -234,7 +234,7 @@ int bc_log_checkpoint(bc_log l)
     rc = rc ? rc : cleanup_rc;
     cleanup_rc = vfs_close(cp_fh);
     rc = rc ? rc : cleanup_rc;
-    printf("bc log checkpoint returns %d\n", rc);
+//    printf("bc log checkpoint returns %d\n", rc);
     return rc;
 }
 

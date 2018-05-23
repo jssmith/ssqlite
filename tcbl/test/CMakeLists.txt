@@ -9,7 +9,7 @@ add_executable(test_tcbl
         unixvfs.h
         unixvfs.c
         ../src/sglib.h
-        ../src/runtime.h
+        ../src/tcbl_runtime.h
         ../src/tcbl_vfs.h
         test_runtime.h
         test_util.c
@@ -29,7 +29,7 @@ add_executable(test_ll_log
         memvfs.c
         test_runtime.h
         test_util.c
-        ../src/runtime.h
+        ../src/tcbl_runtime.h
         test_ll_log.c
         ../src/cachedvfs.h
         ../src/cachedvfs.c)
@@ -40,7 +40,7 @@ add_executable(test_cache
         memvfs.h
         memvfs.c
         test_runtime.h
-        ../src/runtime.h
+        ../src/tcbl_runtime.h
         test_cache.c
         test_util.c
         ../src/cachedvfs.h
@@ -60,13 +60,17 @@ add_library(sqlite3tcbl SHARED
         ../src/tcbl_vfs.h
         ../src/ll_log.h
         ../src/ll_log.c
-        ../src/runtime.h
+        ../src/tcbl_runtime.h
         ../src/sglib.h
         ../src/cachedvfs.h
         ../src/cachedvfs.c
         ../src/perfstats.h
         ../src/perfstats.c
         vfs_comparison.h
-        vfs_comparison.c)
+        vfs_comparison.c
+        nfsvfs.c
+        nfsvfs.h)
+
+target_link_libraries(sqlite3tcbl nfs4)
 
 add_library(vfslog SHARED vfslog.c)

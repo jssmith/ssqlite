@@ -2,7 +2,7 @@
 
 #include <unistd.h>
 #include <stdio.h>
-#include <runtime.h>
+#include <tcbl_runtime.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/file.h>
