@@ -166,6 +166,7 @@ def do_tpcc_mem(s3_database_source, test_duration, frac_read):
     write_config("/tmp/tpcc-config", config)
     env = os.environ.copy()
     if vfs == "tcbl":
+        #env["TCBL_BASE_VFS_ONLY"] = "1"
         env["TCBL_MEMVFS_PRELOAD"] = "%s:%s" % (db_local_path, db_local_path)
 
     p = subprocess.Popen(["python3", "tpcc.py",
@@ -191,10 +192,12 @@ def do_tpcc_mem(s3_database_source, test_duration, frac_read):
         res_json = None
     return { "out" : stdout_str, "err": stderr_str, "result" : res_json }
 
+
 def do_tpcc_nfs_mem(test_duration, frac_read):
+    db_local_path = "/tmp/tpcc.db"
     vfs = "tcbl"
     config = {
-        "database": "tpcc.db",
+        "database": db_local_path,
         "vfs": vfs,
         "journal_mode": "delete",
         "locking_mode": "exclusive",
@@ -204,9 +207,9 @@ def do_tpcc_nfs_mem(test_duration, frac_read):
     write_config("/tmp/tpcc-config", config)
     env = os.environ.copy()
     if vfs == "tcbl":
-        env["TCBL_MEMVFS_NFS_PRELOAD"] = socket.gethostbyname(efs_location)
+        #env["TCBL_BASE_VFS_ONLY"] = "1"
+        env["TCBL_MEMVFS_PRELOAD"] = "%s:%s" % (db_local_path, db_local_path)
 
-    print("xxxx")
     p = subprocess.Popen(["python3", "tpcc.py",
             "--no-load",
             "--duration=%d" % test_duration,
@@ -218,8 +221,6 @@ def do_tpcc_nfs_mem(test_duration, frac_read):
             encoding="utf-8",
             stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     (stdout_str, stderr_str) = p.communicate()
-    print("return code %s" % p.returncode)
-    print("yyyy")
 
 
     if os.path.isfile(json_output_file):
@@ -250,7 +251,7 @@ def lambda_handler(event, context):
         "create": lambda: test_create(database_location),
         "tpcc": lambda: do_tpcc(database_location_efs, test_duration, frac_read),
         "tpcc-mem": lambda: do_tpcc_mem(s3_database_source, test_duration, frac_read),
-        "tpcc-nfs-mem": lambda: do_tpcc_nfs_mem(test_duration, frac_read) }
+        "tpcc-mem-nfs" lambda: do_tpcc_nfs_mem(test_duration, frac_read) }
     test_result = tests[event["test"]]()
     result = {
         "LambdaId": lambda_id,

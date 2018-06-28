@@ -123,10 +123,10 @@ int bc_log_checkpoint(bc_log l)
     // TODO - maybe check whether have active txn
     int rc, cleanup_rc;
     size_t log_name_len = strlen(l->log_name);
-    printf("checkpoint on log %s\n", l->log_name);
+//    printf("checkpoint on log %s\n", l->log_name);
     char checkpoint_coordinator_name[log_name_len + 4];
     rc = str_append(checkpoint_coordinator_name, l->log_name, "-cp", sizeof(checkpoint_coordinator_name));
-    printf("checkpoint coordinator is %s\n", checkpoint_coordinator_name);
+//    printf("checkpoint coordinator is %s\n", checkpoint_coordinator_name);
     if (rc) return rc;
 
     size_t log_entry_size = sizeof(struct bc_log_entry) + l->page_size;

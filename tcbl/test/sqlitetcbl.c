@@ -105,7 +105,9 @@ static int tcblSync(sqlite3_file *pFile, int flags)
             if (fh->checkpoint_txn_ct > 20) {
                 TRACE("checkpoint %p", pFile);
                 rc = vfs_checkpoint(fh->fh);
-                tcbl_stats_print(&((tcbl_fh) fh->fh)->stats);
+#ifdef TCBL_PERF_STATS
+//                tcbl_stats_print(&((tcbl_fh) fh->fh)->stats);
+#endif
                 fh->checkpoint_txn_ct = 0;
             }
         }
@@ -490,7 +492,7 @@ int preload(char *preload_arg, vfs vfs)
 
 int nfs_preload(char *preload_arg, vfs dst_vfs)
 {
-    printf("preload starting fo");
+    printf("preload starting from %s\n", preload_arg);
     int rc;
     vfs src_vfs;
     char *servername = preload_arg;
@@ -514,15 +516,21 @@ int nfs_preload(char *preload_arg, vfs dst_vfs)
     char buff[max_read_sz];
     size_t offs = 0;
 
+    struct timespec begin_time;
+    clock_gettime(CLOCK_MONOTONIC, &begin_time);
     while (offs < file_size) {
         size_t len = MIN(max_read_sz, file_size - offs);
-        printf("read offs %ld len %ld\n", offs, len);
+//        printf("read offs %ld len %ld\n", offs, len);
         rc = vfs_read(s_fh, buff, offs, len);
         if (rc) return rc;
         rc = vfs_write(d_fh, buff, offs, len);
         if (rc) return rc;
         offs += len;
     }
+    struct timespec end_time;
+    clock_gettime(CLOCK_MONOTONIC, &end_time);
+    uint64_t elapsed = (end_time.tv_sec - begin_time.tv_sec) * 1000000000 + (end_time.tv_nsec - begin_time.tv_nsec);
+    printf("elapsed time for nfs loading is %ld\n", elapsed);
 
     vfs_close(d_fh);
     vfs_close(s_fh);
@@ -618,7 +626,7 @@ int sqlite3_sqlitetcbl_init(sqlite3 *db,
 
     printf("ready to preload\n");
     if (nfs_preload_arg) {
-        rc = nfs_preload(preload_arg, ad->base_vfs);
+        rc = nfs_preload(nfs_preload_arg, ad->base_vfs);
         if (rc) {
             rc = SQLITE_ERROR;
             goto exit;
