@@ -1,7 +1,7 @@
 import os
 import sqlite3
-
-from subprocess import Popen, PIPE, STDOUT
+import sys
+from subprocess import PIPE, STDOUT, Popen
 
 print('Loading function')
 
