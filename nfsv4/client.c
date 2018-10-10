@@ -307,6 +307,7 @@ static void *nfs4_allocate_rpc(void *z)
     rpc r = allocate(c->h, sizeof(struct rpc));
     r->b = freelist_allocate(c->buffers);
     r->ops = allocate_vector(c->h, c->buffersize);
+    return(r);
 }
 
 static void *nfs4_allocate_buffer(void *z)
