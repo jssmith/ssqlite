@@ -240,7 +240,15 @@ status parse_filehandle(void *z, buffer b)
 status discard_string(buffer b)
 {
     u32 len = read_beu32(b);
+
     b->start += len*4;
+
+    // handle trying to discard beyond the length of the buffer
+    // by discarding only until the end of the buffer
+    if (b->start > b->end) {
+      b->start = b->end;
+    }
+
 }
 
 status read_fs4_status(buffer b)
