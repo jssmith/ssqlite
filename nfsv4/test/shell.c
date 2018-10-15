@@ -531,9 +531,9 @@ value dispatch(client c, vector n)
         for (i = 0; c->commands[i].name[0] ; i++ )
             if (strncmp(c->commands[i].name, command->contents, buffer_length(command)) == 0) 
                 return c->commands[i].f(c, n);
+        error("no such command %b\n", command);
     }
-
-    error("no such command %b\n", command);
+    error("no command entered", command);
 }
 
 
