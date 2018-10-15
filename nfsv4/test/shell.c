@@ -224,6 +224,9 @@ static value open_command(client c, vector args)
 {
     u64 flags = NFS4_WRONLY | NFS4_CREAT | NFS4_RDONLY;
     buffer first = fifo_peek(args);
+    if (!first) {
+        return error("no argument specified for open");
+    }
     if (*(u8 *)buffer_ref(first, 0) == '-') {
         flags = 0;
         for (int i = 1; i < buffer_length(first); i++){
