@@ -533,7 +533,7 @@ value dispatch(client c, vector n)
                 return c->commands[i].f(c, n);
         error("no such command %b\n", command);
     }
-    error("no command entered", command);
+    error("attempted to parse null for command", command);
 }
 
 
