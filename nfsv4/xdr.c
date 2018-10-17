@@ -240,7 +240,12 @@ status parse_filehandle(void *z, buffer b)
 status discard_string(buffer b)
 {
     u32 len = read_beu32(b);
-    b->start += len*4;
+    
+    // bytes are followed by enough (0 to 3) residual zero bytes, r, to make 
+    // the total byte count a multiple of four.
+    len = (len + 3) & ~0x03;
+
+    b->start += len;
 }
 
 status read_fs4_status(buffer b)
