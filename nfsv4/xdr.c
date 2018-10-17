@@ -243,9 +243,8 @@ status discard_string(buffer b)
     
     // bytes are followed by enough (0 to 3) residual zero bytes, r, to make 
     // the total byte count a multiple of four.
-    while (len % 4 != 0) {
-      len += 1;
-    }
+    len = (len + 3) & ~0x03;
+
     b->start += len;
 }
 
