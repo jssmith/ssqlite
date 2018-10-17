@@ -37,6 +37,7 @@ status parse_exchange_id(void *z, buffer b)
     discard_string(b);        
     
     //    nfs_impl_id4     eir_server_impl_id<1>;
+    u32 eir_server_impl_id_length = read_beu32(b);
 
     // utf8str_cis   nii_domain;
     discard_string(b);
