@@ -240,7 +240,7 @@ status parse_filehandle(void *z, buffer b)
 status discard_string(buffer b)
 {
     u32 len = read_beu32(b);
-    b->start += len*4;
+    b->start += len;
 }
 
 status read_fs4_status(buffer b)
