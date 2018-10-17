@@ -29,8 +29,26 @@ status parse_exchange_id(void *z, buffer b)
     //    state_protect4_r eir_state_protect;
     //    server_owner4    eir_server_owner;
     b->start += 12;
-    discard_string(b);     //    opaque           eir_server_scope<NFS4_OPAQUE_LIMIT>;
-    discard_string(b);        //    nfs_impl_id4     eir_server_impl_id<1>;
+
+    //    opaque           eir_server_scope<NFS4_OPAQUE_LIMIT>;
+    discard_string(b);     
+    
+    //    opaque           eir_server_scope<NFS4_OPAQUE_LIMIT>;
+    discard_string(b);        
+    
+    //    nfs_impl_id4     eir_server_impl_id<1>;
+
+    // utf8str_cis   nii_domain;
+    discard_string(b);
+    // utf8str_cs    nii_name;
+    discard_string(b);
+    
+    // nfstime4      nii_date;
+    // int64_t         seconds;
+    u64 seconds = read_beu64(b);
+    // uint32_t        nseconds;
+    u32 nseconds = read_beu32(b);
+
     return NFS4_OK;
 }
 
