@@ -195,6 +195,5 @@ status rpc_connection(nfs4 c)
         push_op(r, OP_GETFH, parse_filehandle, c->root_filehandle);
         check(transact(r));
     }
-    return NFS4_OK;
-    // return reclaim_complete(c);
+    return reclaim_complete(c);
 }
