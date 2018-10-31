@@ -19,22 +19,23 @@
     p.mask = NFS4_PROP_MODE; // TODO: need to understand this flag
     p.mode = 0666; // TODO
     nfs4_file f;
-    if (nfs4_open(client, "/sample.txt", NFS4_RDONLY, &p, &f) != NFS4_OK) {// TODO: file path
+    if (nfs4_open(client, "/sample.txt", NFS4_RDONLY | NFS4_CREAT | NFS4_WRONLY | NFS4_SERVER_ASYNCH, &p, &f) != NFS4_OK) {// TODO: file path
         printf("Failed to open /efs/sample.txt\n");
         exit(1);
     } 
     
-    int status = nfs4_fstat(f, &p);
+    //int status = nfs4_fstat(f, &p);
     // read a file via nfs4
     assert(f != NULL);
     void *buffer = calloc(100, 1); // 100 bytes buffer
     if (nfs4_pread(f, buffer, 0, 50) != NFS4_OK) { // read first 50 bytes from that file
         puts("Failed to read /efs/sample.txt\n");
         exit(1);
-    } 
+    }
+    //printf("%d\n", nfs4_pread(f, buffer, 0, 50));
     char *content = (char *)buffer;
-    printf("----%s----\n", content);
-
+    printf("%d: ----%s----\n", strlen(content), content);
+    
 
     return 0;
  }
