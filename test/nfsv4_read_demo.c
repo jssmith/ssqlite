@@ -6,12 +6,18 @@
  int main(int argc, char **argv) {
      nfs4 client;
      char *server;
+     char *filename = "/sample.txt";
+
      // create a nfs4 client
-     if ((server = getenv("NFS4_SERVER"))) {
-        if (nfs4_create(server, &client)) {
-            printf ("open client fail %s\n", nfs4_error_string(client));
-            exit(1);
-        }
+     server = getenv("NFS4_SERVER");
+     if (server == NULL) {
+        printf("Failed to read NFS4_SERVER from environment");
+        exit(1);
+     }
+
+    if (nfs4_create(server, &client)) {
+        printf ("open client fail %s\n", nfs4_error_string(client));
+        exit(1);
     }
 
     // open a file via nfs4
@@ -19,23 +25,22 @@
     p.mask = NFS4_PROP_MODE; // TODO: need to understand this flag
     p.mode = 0666; // TODO
     nfs4_file f;
-    if (nfs4_open(client, "/sample.txt", NFS4_RDONLY, &p, &f) != NFS4_OK) {// TODO: file path
-        printf("Failed to open /efs/sample.txt\n");
+    
+    if (nfs4_open(client, filename, NFS4_RDONLY, &p, &f) != NFS4_OK) {// TODO: file path
+        printf("Failed to open %s\n", filename);
         exit(1);
     } 
     
-    int status = nfs4_fstat(f, &p);
     // read a file via nfs4
     assert(f != NULL);
     void *buffer = calloc(100, 1); // 100 bytes buffer
-    if (nfs4_pread(f, buffer, 0, 50) != NFS4_OK) { // read first 50 bytes from that file
-        puts("Failed to read /efs/sample.txt\n");
+    int read_status = nfs4_pread(f, buffer, 0, 51);
+    if (read_status != NFS4_OK) { // read first 50 bytes from that file
+        printf("Failed to read %s\n", filename);
         exit(1);
     } 
     char *content = (char *)buffer;
-    printf("----%s----\n", content);
-
-
+    printf("result:\t%s\n", content);
     return 0;
  }
  
