@@ -37,18 +37,12 @@
     // read a file via nfs4
     assert(f != NULL);
 
-    // pad a byte for the \0
-    void *buffer = calloc(block_size + 1, 1); 
+    int write_status = nfs4_pwrite(f, (void*) "some words", 0, 6);
+    if (write_status != NFS4_OK) { 
+        printf("Failed to write to %s\n", filename);
+        exit(1);
+    } 
 
-    for (int bytes_read = 0; bytes_read < num_bytes; bytes_read += block_size) {
-      int read_status = nfs4_pread(f, buffer, bytes_read, block_size);
-      if (read_status != NFS4_OK) { 
-          printf("Failed to read %s\n", filename);
-          exit(1);
-      } 
-    }
-    char *content = (char *)buffer;
-    printf("last block:\t%s\n", content);
     return 0;
  }
  

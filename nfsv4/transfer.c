@@ -42,7 +42,7 @@ u64 push_write(rpc r, bytes offset, buffer b, stateid sid)
     // always assume we should fill the outgoing buffer
     u64 transfer = MIN(buffer_length(b), r->b->capacity - r->b->start);    
     push_string(r->b, b->contents, transfer);
-    b->start += remaining;
+    b->start += transfer;
     return transfer;
 }
 
