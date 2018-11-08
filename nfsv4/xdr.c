@@ -45,7 +45,7 @@ void push_sequence(rpc r)
     push_be32(r->b, r->c->sequence);
     push_be32(r->b, 0x00000000);  // slotid
     push_be32(r->b, 0x00000000);  // highest slotid
-    push_be32(r->b, 0x00000001);  // sa_cachethis
+    push_be32(r->b, 0x00000000);  // sa_cachethis
     r->c->sequence++;
     r->response_length += 36;
 }

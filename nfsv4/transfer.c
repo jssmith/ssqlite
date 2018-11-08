@@ -10,7 +10,11 @@ status finish_read(void *dest, buffer b)
     u32 len = read_beu32(b);
     memcpy(dest, buffer_ref(b, 0), len);
     // assumes ordering
-    b->start += len;
+
+    // data is padded into multiple of 4
+    // round length up to nearest multiple of 4
+    u32 four_multiple_len = (len + 3) & ~0x03;
+    b->start += four_multiple_len;
     return NFS4_OK;
 }
 
