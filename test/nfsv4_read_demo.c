@@ -6,7 +6,7 @@
  int main(int argc, char **argv) {
      nfs4 client;
      char *server;
-     char *filename = "/aeneid.txt";
+     char *filename = "/writer2.txt";
      int block_size = 100;
      int num_blocks = 100;
      int num_bytes = block_size * num_blocks;
@@ -29,7 +29,7 @@
     p.mode = 0666; // TODO
     nfs4_file f;
     
-    if (nfs4_open(client, filename, NFS4_RDONLY, &p, &f) != NFS4_OK) {// TODO: file path
+    if (nfs4_open(client, filename, NFS4_WRONLY, &p, &f) != NFS4_OK) {// TODO: file path
         printf("Failed to open %s\n", filename);
         exit(1);
     } 

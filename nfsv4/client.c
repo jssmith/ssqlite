@@ -53,7 +53,7 @@ int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
     while (buffer_length(b)) {
         rpc r = file_rpc(f);
         offset += push_write(r, offset, b, &f->latest_sid);
-        rpc_send(r);        
+        transact(r);        
     }
     // wait for last completion...just drain the whole pipe
     return NFS4_OK;    
