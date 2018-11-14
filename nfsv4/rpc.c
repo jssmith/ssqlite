@@ -69,11 +69,11 @@ static status parse_response(rpc r, buffer b)
             break;
         }
         if (rop->parse) {
-            if (config_boolean("NFS_DECODE", true)) {
+            if (config_boolean("NFS_DECODE_TRACE", false)) {
                 printf ("start decode %p %lld\n", b, buffer_length(b));            
             }
             st = rop->parse(rop->parse_argument, b);
-            if (config_boolean("NFS_DECODE", true)) {
+            if (config_boolean("NFS_DECODE_TRACE", false)) {
               printf ("finish %p %lld\n", b, buffer_length(b));
             }
             if (st) break;
