@@ -32,9 +32,21 @@ u64 push_read(rpc r, bytes offset, void *dest, bytes length, stateid sid)
     return transfer;
 }
 
+status parse_write(void *dest, buffer b)
+{
+    // count4         count;
+    u32 count = read_beu32(b);
+    //stable_how4     committed;
+    u32 committed = read_beu32(b);
+    //verifier4       writeverf;
+    b->start += NFS4_VERIFIER_SIZE;
+
+    return NFS4_OK;
+}
+
 u64 push_write(rpc r, bytes offset, buffer b, stateid sid)
 {
-    push_op(r, OP_WRITE, 0, 0);
+    push_op(r, OP_WRITE, parse_write, 0);
     push_stateid(r, sid);
     push_be64(r->b, offset);
     push_be32(r->b, FILE_SYNC4); // could pass
