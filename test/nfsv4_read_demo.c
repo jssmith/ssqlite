@@ -6,14 +6,14 @@
 int main(int argc, char **argv) {
    nfs4 client;
    char *server;
-   char *filename = "/writer3.txt";
-   int block_size = 100;
+   char *filename = "/writer4.txt";
+   int block_size = 26;
    char block_content[block_size];
 
    for (int i = 0; i < block_size; i++) {
      block_content[i] = 'a' + i % 26;
    }
-   int num_blocks = 100;
+   int num_blocks = 3;
    int num_bytes = block_size * num_blocks;
 
    // create a nfs4 client
@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
   nfs4_file f;
   
   if (nfs4_open(client, filename, NFS4_RDWRITE | NFS4_CREAT, &p, &f) != NFS4_OK) {
-      printf("Failed to open %s\n", filename);
+      printf("Failed to open %s:%s\n", filename, nfs4_error_string(client));
       exit(1);
   } 
   assert(f != NULL);
@@ -43,7 +43,7 @@ int main(int argc, char **argv) {
   for (int bytes_written = 0; bytes_written < num_bytes; bytes_written += block_size) {
       int write_status = nfs4_pwrite(f, (void*) block_content, bytes_written, block_size);
       if (write_status != NFS4_OK) { 
-          printf("Failed to write to %s\n", filename);
+          printf("Failed to write to %s:%s\n", filename, nfs4_error_string(client));
           exit(1);
       } 
   }
