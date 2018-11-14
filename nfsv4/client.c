@@ -55,7 +55,7 @@ int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
         offset += push_write(r, offset, b, &f->latest_sid);
 
         if (buffer_length(b)) {
-          api_check(r->c, rpc_send(r);
+          api_check(r->c, rpc_send(r));
         } else {
           return api_check(f->c, transact(r));
         }
