@@ -6,7 +6,7 @@
 int main(int argc, char **argv) {
    nfs4 client;
    char *server;
-   char *filename = "/writer4.txt";
+   char *filename = "/sample.txt";
    int block_size = 26;
    char block_content[block_size];
 

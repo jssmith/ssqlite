@@ -67,3 +67,5 @@ NFS_PACKET_TRACE: upon `rpc_send` will write `sent [contents of sent buffer]`
 NFS_TCP_NODELAY: in `nfs4_connect`
 NFS_USE_ROOTFH: in `rpc_connection` sends an operation to set the root file handle
 NFS_IGNORE_SIGPIPE
+NFS_DECODE: in `parse_response` print the start and finish of decoding a portion of a buffer
+

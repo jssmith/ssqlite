@@ -7,7 +7,7 @@
  int main(int argc, char **argv) {
      nfs4 client;
      char *server;
-     char *filename = "/aeneid.txt";
+     char *filename = "/sample.txt";
      int block_size = 100;
      int num_blocks = 100;
      int num_bytes = block_size * num_blocks;
