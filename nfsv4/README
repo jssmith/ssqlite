@@ -69,4 +69,5 @@ NFS_USE_ROOTFH: in `rpc_connection` sends an operation to set the root file hand
 NFS_IGNORE_SIGPIPE
 NFS_DECODE_TRACE: in `parse_response` print the start and finish of decoding a portion of a buffer
 NFS_PUSH_SEQ_TRACE: in `parse_sequence` print the sequence number in hex
+NFS_RECLAIM_TRACE: in `reclaim_complete` print content of reclaim op buffer
 
