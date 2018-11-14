@@ -18,8 +18,6 @@ error presented on this nfs4 instance.
 
 returns a file
 
-
-
    int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
    int nfs4_pread(nfs4_file f, void *buf, bytes offset, bytes length)
    int nfs4_append(nfs4_file f, void *source, bytes offset)
@@ -59,3 +57,13 @@ hardlinks for . and .. are not defined by the server.
    
 special token NFS4_ENTIRE_FILE when passed into the length
 [timeout semantics]
+
+Environment Variables for Configuration
+
+NFS_AUTH_NULL: in `allocate_rpc` 
+
+NFS_TRACE: upon `push_op` will write `pushed op: [OPERATION]_ID`
+NFS_PACKET_TRACE: upon `rpc_send` will write `sent [contents of sent buffer]`
+NFS_TCP_NODELAY: in `nfs4_connect`
+NFS_USE_ROOTFH: in `rpc_connection` sends an operation to set the root file handle
+NFS_IGNORE_SIGPIPE

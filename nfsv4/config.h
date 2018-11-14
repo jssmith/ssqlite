@@ -1,9 +1,22 @@
 #include <stdlib.h>
+#include <stdio.h>
 
 static inline int config_boolean(char *name, int def)
 {
-    // xxx parse this! so we can turn off default true
-    return getenv(name)?1:def;
+    char* value = getenv(name);
+    if (value == 0) {
+        return def;
+    }
+
+    if (strcmp(value, "0") == 0) {
+        return 0;
+    }
+
+    if (strcmp(value, "1") == 0) {
+        return 1;
+    }
+
+    return def;
 }
 
 static inline unsigned long config_u64(char *name, unsigned long def)
