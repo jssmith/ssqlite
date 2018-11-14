@@ -41,7 +41,9 @@ void push_sequence(rpc r)
     push_op(r, OP_SEQUENCE, parse_sequence, r->c);
     r->session_offset = r->b->end; // is this always safe?
     push_session_id(r, r->c->session);
-    printf ("push sequence %x\n", r->c->sequence);
+    if (config_boolean("NFS_PUSH_SEQ_TRACE", false)) {
+        printf ("push sequence %x\n", r->c->sequence);
+    }
     push_be32(r->b, r->c->sequence);
     push_be32(r->b, 0x00000000);  // slotid
     push_be32(r->b, 0x00000000);  // highest slotid
