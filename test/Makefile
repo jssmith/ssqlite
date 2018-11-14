@@ -8,6 +8,9 @@ all: vfsbench testnfsvfs nfsv4_read_demo
 nfsv4_read_demo: nfsv4_read_demo.c
 	gcc -Wall -g -std=gnu99 -I../nfsv4 -L../nfsv4 -lnfs4 $< -o $@
 
+nfsv4_write_demo: nfsv4_write_demo.c
+	gcc -Wall -g -std=gnu99 -I../nfsv4 -L../nfsv4 -lnfs4 $< -o $@
+
 vfsbench: vfsbench.c check-env
 	$(CC) $(CFLAGS) $< -o $@
 
