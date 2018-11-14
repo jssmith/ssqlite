@@ -3,7 +3,7 @@ CFLAGS=-g -std=gnu99 -I. -I$(SQLITE) -L$(SQLITE)/.libs -lsqlite3
 
 .PHONY: check-env
 
-all: vfsbench testnfsvfs nfsv4_read_demo
+all: vfsbench testnfsvfs nfsv4_read_demo nfsv4_write_demo
 
 nfsv4_read_demo: nfsv4_read_demo.c
 	gcc -Wall -g -std=gnu99 -I../nfsv4 -L../nfsv4 -lnfs4 $< -o $@
