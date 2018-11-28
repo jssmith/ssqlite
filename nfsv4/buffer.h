@@ -1,4 +1,4 @@
-
+#include <assert.h>
 #define STATUS_OK 0
 
 static char nibbles[]={'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
@@ -58,6 +58,7 @@ typedef struct buffer {
 
 static bytes buffer_length(buffer b) 
 {
+    assert(b->end >= b->start);
     return b->end - b->start;
 }
 
