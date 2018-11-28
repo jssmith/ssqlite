@@ -12,6 +12,7 @@ if __name__ == '__main__':
 
     if not args.test_file.startswith('/'):
         raise ValueError('test-file should start with \'/\'')
+
     mount(args.mount_point)
-    open(args.test_file)
-    read(128)
+    with open(args.test_file) as f:
+        f.read(128)
