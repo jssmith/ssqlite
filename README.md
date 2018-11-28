@@ -139,13 +139,17 @@ To build it yourself follow these [instructions](build_sqlite_python.md).
 Building and Running NFSv4 Benchmark
 ====================================
 
+## Build Benchmark
+
 1. In `/nfsv4`, run `make` to build `libnfs4.so`, then `export LD_LIBRARY_PATH=$PWD` to include `libnfs4.so`
 
 2. In `/test`, run `make nfsv4_read_write_test`
 
 3. Set the nfs server with `export NFS4_SERVER=$SSQL_EFS_NAME.efs.$AWS_DEFAULT_REGION.amazonaws.com`
 
-4. `./nfsv4_read_write_test write /some_file_name` to run write benchmark
+## Run Benchmark
 
-5. `./nfsv4_read_write_test read /some_file_name` to run read benchmark
+`./nfsv4_read_write_test write /some_file_name` to run write benchmark
+
+`./nfsv4_read_write_test read /some_file_name` to run read benchmark
 
