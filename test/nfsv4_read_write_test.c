@@ -37,9 +37,8 @@ void print_perf(const char* mode, const char* op_name, u_int64_t block_size, u_i
   u_int64_t blocks_per_sec = num_blocks * 1000000000 / elapsed_ns;
   u_int64_t bytes_per_sec = blocks_per_sec * block_size;
   printf("%s %s, block size %ld: %ld blocks in %ld ns\n", 
-      mode, op_name, block_size, num_blocks, elapsed_ns);
+    mode, op_name, block_size, num_blocks, elapsed_ns);
   printf("%'ld blocks per sec, %'ld bytes per sec\n", blocks_per_sec, bytes_per_sec);
-
 }
 
 void fill_random(char* zBuf, u_int64_t size)
@@ -55,13 +54,13 @@ void fill_random(char* zBuf, u_int64_t size)
 void create_client(nfs4* client) {
    char* server = getenv("NFS4_SERVER");
    if (server == NULL) {
-      printf("Failed to read NFS4_SERVER from environment");
-      exit(1);
+     printf("Failed to read NFS4_SERVER from environment");
+     exit(1);
    }
 
   if (nfs4_create(server, client)) {
-      printf ("open client fail %s\n", nfs4_error_string(*client));
-      exit(1);
+    printf ("open client fail %s\n", nfs4_error_string(*client));
+    exit(1);
   }
 }
 
@@ -89,8 +88,8 @@ void test_sequential_write(nfs4 client, char* filename, u_int64_t num_blocks, u_
   Timing timing;
   timing_start(&timing);
   for (int bytes_traversed = 0; 
-        bytes_traversed < block_size * num_blocks;
-        bytes_traversed += block_size) {
+       bytes_traversed < block_size * num_blocks;
+       bytes_traversed += block_size) {
     int write_status = nfs4_pwrite(f, (void*) block_content, bytes_traversed, block_size);
     if (write_status != NFS4_OK) { 
       printf("Failed to write to %s:%s\n", filename, nfs4_error_string(client));
@@ -114,8 +113,8 @@ void test_sequential_read(nfs4 client, char* filename, u_int64_t num_blocks, u_i
   Timing timing;
   timing_start(&timing);
   for (int bytes_traversed = 0; 
-        bytes_traversed < block_size * num_blocks; 
-        bytes_traversed += block_size) {
+       bytes_traversed < block_size * num_blocks; 
+       bytes_traversed += block_size) {
     int read_status = nfs4_pread(f, read_dst, bytes_traversed, block_size);
     if (read_status != NFS4_OK) { 
       printf("Failed to read %s:%s\n", filename, nfs4_error_string(client));
@@ -139,19 +138,19 @@ int main(int argc, char **argv) {
   char* filename = argv[2];
 
   void (*test)(nfs4, char*, u_int64_t, u_int64_t);
-   if (strcmp("read", operation) == 0) {
-     test = test_sequential_read;
-   } else if( strcmp("write",operation)==0 ) {
-     test = test_sequential_write;;
-   } else {
-     usage();
-     exit(1);
-   }
+  if (strcmp("read", operation) == 0) {
+    test = test_sequential_read;
+  } else if(strcmp("write", operation) == 0) {
+    test = test_sequential_write;;
+  } else {
+    usage();
+    exit(1);
+  }
 
-   nfs4 client;
-   create_client(&client);
-   u_int64_t block_size = 128;
-   u_int64_t num_blocks = 128;
+  nfs4 client;
+  create_client(&client);
+  u_int64_t block_size = 128;
+  u_int64_t num_blocks = 128;
 
-   test(client, filename, num_blocks, block_size);
+  test(client, filename, num_blocks, block_size);
 }
