@@ -5,6 +5,9 @@ CFLAGS=-g -std=gnu99 -I. -I$(SQLITE) -L$(SQLITE)/.libs -lsqlite3
 
 all: vfsbench testnfsvfs nfsv4_read_demo nfsv4_write_demo
 
+simpletest.so: simpletest.c
+	gcc -fPIC -shared -Wall -lnfs4 -Wl,-soname,simpletest -g -std=gnu99 -I../nfsv4 -L../nfsv4 $< -o simpletest.so
+
 nfsv4_read_write_test: nfsv4_read_write_test.c
 	gcc -Wall -g -std=gnu99 -I../nfsv4 -L../nfsv4 -lnfs4 $< -o $@
 
@@ -15,7 +18,7 @@ testnfsvfs: testnfsvfs.c check-env
 	$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	rm -f vfsbench testnfsvfs nfsv4_read_write_test *~
+	rm -f vfsbench testnfsvfs nfsv4_read_write_test simpletest.so *~
 
 check-env:
 ifndef SQLITE
