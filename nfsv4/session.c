@@ -176,7 +176,9 @@ status reclaim_complete(nfs4 c)
     // if true, current fh is the object for which reclaim is complete
     push_be32(r->b, 0);
     boolean bs;
-    print_buffer("reclaim", r->b);
+    if (config_boolean("NFS_RECLAIM_TRACE", false)) {
+        print_buffer("reclaim", r->b);
+    }
     checkr(r, base_transact(r, &bs));
     if (bs) return error(NFS4_PROTOCOL, "early session expiration during setup");
     return NFS4_OK;
