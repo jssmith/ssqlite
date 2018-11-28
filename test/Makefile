@@ -15,7 +15,7 @@ testnfsvfs: testnfsvfs.c check-env
 	$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	rm -f vfsbench testnfsvfs nfsv4_read_demo *~
+	rm -f vfsbench testnfsvfs nfsv4_read_write_test *~
 
 check-env:
 ifndef SQLITE
