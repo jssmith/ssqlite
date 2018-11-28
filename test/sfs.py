@@ -8,7 +8,8 @@ c_helper = ctypes.CDLL('./simpletest.so')
 #b_file_name = file_name.encode('utf-8')
 c_helper.create_client_py.argtypes = [ctypes.c_char_p]
 c_helper.open_file_py.argtypes = [ctypes.c_char_p]
-c_helper.read_file_py.argtypes = [ctypes.c_int]
+c_helper.open_file_py.restype = ctypes.py_object
+c_helper.read_file_py.argtypes = [ctypes.py_object, ctypes.c_int]
 
 #c_helper.create_client_py(b_host_ip)
 #c_helper.create_file_py(b_file_name)
@@ -20,22 +21,22 @@ def mount(host_ip):
 
 def open(file_name):
     b_file_name = file_name.encode('utf-8')
-    c_helper.open_file_py(b_file_name)
-    return FileObjectWrapper()
+    fp = c_helper.open_file_py(b_file_name)
+    return FileObjectWrapper(fp)
 
 def read(size):
     c_helper.read_file_py(size)
 
 class FileObjectWrapper:
-    def __init__(self):
-      #self._f = fileObject
-      pass
+    def __init__(self, fp):
+      self._fp = fp
 
     def __enter__(self):
       return self
 
     def __exit__(self, type, value, traceback):
-      pass 
+      # TODO ensure file closed
+      pass
 
     def read(self, size):
-      c_helper.read_file_py(size)
+      c_helper.read_file_py(self._fp, size)
