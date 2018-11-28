@@ -1,5 +1,17 @@
+import argparse
+
 from sfs import *
 
-mount('fs-643e36cd.efs.us-west-2.amazonaws.com')
-open('/writer3.txt')
-read(128)
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description='Demonstrate of SFS read with Python')
+    parser.add_argument('--mount-point', type=str, required=True,
+        help='Hostname or IP address of EFS mount point')
+    parser.add_argument('--test-file', type=str, required=True,
+        help='File name of test file to read')
+    args = parser.parse_args()
+
+    if not args.test_file.startswith('/'):
+        raise ValueError('test-file should start with \'/\'')
+    mount(args.mount_point)
+    open(args.test_file)
+    read(128)
