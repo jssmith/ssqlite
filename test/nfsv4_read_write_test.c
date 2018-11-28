@@ -98,6 +98,7 @@ void test_sequential_write(nfs4 client, char* filename, u_int64_t num_blocks, u_
   }
   timing_finish(&timing);
 
+  nfs4_close(f);
   print_perf("write", "sequential", block_size, num_blocks, &timing);
 }
 
@@ -124,6 +125,7 @@ void test_sequential_read(nfs4 client, char* filename, u_int64_t num_blocks, u_i
   timing_finish(&timing);
 
   free(read_dst);
+  nfs4_close(f);
 
   print_perf("read", "sequential", block_size, num_blocks, &timing);
 }
