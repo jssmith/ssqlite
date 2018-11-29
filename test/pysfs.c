@@ -58,8 +58,8 @@ PyObject *read_file_py(PyObject *obj, int offset, int size) {
 void write_file_py(PyObject *obj, const void *data, int offset, int len) {
     nfs4_file f = PyCapsule_GetPointer(obj, "File");
     int write_status = nfs4_pwrite(f, data, offset, len);
-    if (write_status != NFS4_OK) { 
-      printf("Failed to write:%s\n", nfs4_error_string(client));
-      exit(1);
+    if (write_status != NFS4_OK) {
+        printf("Failed to write:%s\n", nfs4_error_string(client));
+        exit(1);
     }
 }

@@ -15,7 +15,7 @@ if __name__ == '__main__':
 
     mount(args.mount_point)
     with open(args.test_file) as f:
-        print(f.read(128))
-        print(f.read(128))
+        print(f.read(128).decode('utf-8'))
+        print(f.read(128).decode('utf-8'))
         f.seek(0)
-        print(f.read(64))
+        print(f.read(64).decode('utf-8'))

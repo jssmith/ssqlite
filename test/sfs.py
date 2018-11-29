@@ -6,14 +6,14 @@ c_helper.create_client_py.argtypes = [ctypes.c_char_p]
 c_helper.open_file_py.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
 c_helper.open_file_py.restype = ctypes.py_object
 c_helper.read_file_py.argtypes = [ctypes.py_object, ctypes.c_int, ctypes.c_int]
-c_helper.read_file.restype = ctypes.py_object
+c_helper.read_file_py.restype = ctypes.py_object
 c_helper.write_file_py.argtypes = [ctypes.py_object, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
 
 def mount(host_ip):
     b_host_ip = host_ip.encode('utf-8')
     c_helper.create_client_py(b_host_ip)
 
-def open(file_name, mode):
+def open(file_name, mode='r'):
     fp = c_helper.open_file_py(file_name.encode('utf-8'), mode.encode('utf-8'))
     return FileObjectWrapper(fp)
 
