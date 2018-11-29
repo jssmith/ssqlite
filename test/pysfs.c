@@ -1,8 +1,7 @@
 #include "nfs4_internal.h"
 #include <string.h>
 
-// TODO get Python include path right
-#include "python3.7m/Python.h"
+#include <Python.h>
 
 char* host_ip;
 char* file_name;
