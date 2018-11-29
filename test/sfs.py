@@ -33,7 +33,14 @@ class FileObjectWrapper:
         pass
 
     def seek(self, pos, whence=0):
-        self._pos = pos + whence
+        if whence == 0:
+            self._pos = pos
+        elif whence == 1:
+            self._pos += pos
+        elif whence == 2:
+            raise NotImplementedError("seeking from end not yet implemented")
+        else:
+            raise ValueError("illegal value of whence")
 
     def read(self, size):
         res = c_helper.read_file_py(self._fp, self._pos, size)
