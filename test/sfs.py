@@ -6,6 +6,7 @@ c_helper.create_client_py.argtypes = [ctypes.c_char_p]
 c_helper.open_file_py.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
 c_helper.open_file_py.restype = ctypes.py_object
 c_helper.read_file_py.argtypes = [ctypes.py_object, ctypes.c_int, ctypes.c_int]
+c_helper.read_file.restype = ctypes.py_object
 c_helper.write_file_py.argtypes = [ctypes.py_object, ctypes.c_void_p, ctypes.c_int, ctypes.c_int]
 
 def mount(host_ip):
@@ -35,8 +36,9 @@ class FileObjectWrapper:
         self._pos = pos + whence
 
     def read(self, size):
-        c_helper.read_file_py(self._fp, self._pos, size)
+        res = c_helper.read_file_py(self._fp, self._pos, size)
         self._pos += size
+        return res
 
     def write(self, content_bytes):
         content_len = len(content_bytes)
