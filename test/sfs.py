@@ -1,6 +1,6 @@
 import ctypes
 
-c_helper = ctypes.CDLL('./simpletest.so')
+c_helper = ctypes.CDLL('./pysfs.so')
 
 c_helper.create_client_py.argtypes = [ctypes.c_char_p]
 c_helper.open_file_py.argtypes = [ctypes.c_char_p]

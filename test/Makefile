@@ -5,8 +5,8 @@ CFLAGS=-g -std=gnu99 -I. -I$(SQLITE) -L$(SQLITE)/.libs -lsqlite3
 
 all: vfsbench testnfsvfs nfsv4_read_demo nfsv4_write_demo
 
-simpletest.so: simpletest.c
-	gcc -fPIC -shared -Wall -lnfs4 -Wl,-soname,simpletest -g -std=gnu99 -I../nfsv4 -L../nfsv4 $< -o simpletest.so
+pysfs.so: pysfs.c
+	gcc -fPIC -shared -Wall -lnfs4 -Wl,-soname,pysfs -g -std=gnu99 -I../nfsv4 -L../nfsv4 $< -o pysfs.so
 
 nfsv4_read_write_test: nfsv4_read_write_test.c
 	gcc -Wall -g -std=gnu99 -I../nfsv4 -L../nfsv4 -lnfs4 $< -o $@
