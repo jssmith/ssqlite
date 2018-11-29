@@ -44,16 +44,15 @@ PyObject *open_file_py(const char* file_name, const char* mode) {
     return obj;
 }
 
-void read_file_py(PyObject *obj, int offset, int size) {
+PyObject *read_file_py(PyObject *obj, int offset, int size) {
     nfs4_file f = PyCapsule_GetPointer(obj, "File");
-    void *read_dst = calloc(size + 1, 1);
-    int read_status = nfs4_pread(f, read_dst, offset, size);
+    char buff[size];
+    int read_status = nfs4_pread(f, buff, offset, size);
     if (read_status != NFS4_OK) {
         printf("Failed to read file:%s\n", nfs4_error_string(client));
         exit(1);
     }
-    printf("---content---\n%s\n-------------\n", (char*) read_dst);
-    free(read_dst);
+    return PyBytes_FromStringAndSize(buff, size);
 }
 
 void write_file_py(PyObject *obj, const void *data, int offset, int len) {

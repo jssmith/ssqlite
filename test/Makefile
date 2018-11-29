@@ -18,7 +18,7 @@ testnfsvfs: testnfsvfs.c check-env
 	$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	rm -f vfsbench testnfsvfs nfsv4_read_write_test simpletest.so *~
+	rm -f vfsbench testnfsvfs nfsv4_read_write_test pysfs.so *~
 
 check-env:
 ifndef SQLITE

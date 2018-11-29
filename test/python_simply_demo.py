@@ -15,7 +15,7 @@ if __name__ == '__main__':
 
     mount(args.mount_point)
     with open(args.test_file) as f:
-        f.read(128)
-        f.read(128)
+        print(f.read(128))
+        print(f.read(128))
         f.seek(0)
-        f.read(64)
+        print(f.read(64))
