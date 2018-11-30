@@ -157,10 +157,10 @@ Building and Running NFSv4 Benchmark
 
 1. Ensure you have Python 3.x installed.
 
-2. In `/test` run `make make pysfs.so`
+2. In `/test` run `make pysfs.so`
 
 ## Run the Python Benchmarks
 
-`python3 python_simply_demo.py --mount-point=$(NFS_SERVER) --test-file=/some_file_name`
+`python3 python_simply_demo.py --mount-point=${NFS_SERVER} --test-file=/some_file_name`
 
-`python3 benchmark.py --mount-point=$(NFS_SERVER) --test-file=/some_file_name`
+`python3 benchmark.py --mount-point=${NFS_SERVER} --test-file=/some_file_name`
