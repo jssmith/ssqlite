@@ -35,7 +35,9 @@ PyObject *open_file_py(const char* file_name, const char* mode) {
     int flags = file_open_mode(mode);
 
     nfs4_file f = malloc(sizeof(struct nfs4_file));
-    if (nfs4_open(client, file_name, flags, &p, &f) != NFS4_OK) {
+    int error_code;
+    if ((error_code = nfs4_open(client, file_name, flags, &p, &f)) != NFS4_OK) {
+        printf("Error code: %d\n", error_code);
         printf("Failed to open %s:%s\n", file_name, nfs4_error_string(client));
         exit(1);
     }
