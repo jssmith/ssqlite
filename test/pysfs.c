@@ -32,9 +32,10 @@ PyObject *open_file_py(const char* file_name, const char* mode) {
     struct nfs4_properties p;
     p.mask = NFS4_PROP_MODE;
     p.mode = 0666;
+    int flags = file_open_mode(mode);
 
     nfs4_file f = malloc(sizeof(struct nfs4_file));
-    if (nfs4_open(client, file_name, NFS4_RDWRITE | NFS4_CREAT, &p, &f) != NFS4_OK) {
+    if (nfs4_open(client, file_name, flags, &p, &f) != NFS4_OK) {
         printf("Failed to open %s:%s\n", file_name, nfs4_error_string(client));
         exit(1);
     }
@@ -61,4 +62,35 @@ void write_file_py(PyObject *obj, const void *data, int offset, int len) {
         printf("Failed to write:%s\n", nfs4_error_string(client));
         exit(1);
     }
+}
+
+/* Assume MODE has been validated before this function get called*/
+int file_open_mode(const char *mode) {
+    char *ptr = mode;
+    int flags = 0;
+    while (*ptr != '\0') {
+        switch (*ptr) {
+            case 'r': // open for reading
+                flags |= NFS4_RDONLY;
+                break;
+            case 'w': // open for writing, truncating the file first if it already exists
+                flags |= (NFS4_TRUNC | NFS4_WRONLY | NFS4_CREAT);
+                break 
+            case 'a': // open for writing, appending if it exits
+                flags |= (NFS4_WRONLY | NFS4_CREAT);
+                break;
+            case 'x':
+                break;
+            case 'b':
+                break;
+            case 't':
+                break;
+            case '+':
+                break;
+            case 'U':
+                break;
+        }
+        ptr++;
+    }
+    return flags;
 }

@@ -14,6 +14,7 @@ def mount(host_ip):
     c_helper.create_client_py(b_host_ip)
 
 def open(file_name, mode='r'):
+    #TODO: needs to validate MODE
     fp = c_helper.open_file_py(file_name.encode('utf-8'), mode.encode('utf-8'))
     return FileObjectWrapper(fp)
 
