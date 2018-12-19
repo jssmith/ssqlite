@@ -16,9 +16,10 @@ class TestOpen(unittest.TestCase):
         self.assertRaises(FileNotFoundError, sfs.open(filename, 'r')) # error on non-exist file
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Testing of SFS open with Python')
-    parser.add_argument('--mount-point', type=str, required=True, help='Hostname or IP address of EFS mount point')
+    parser.add_argument('--mount-point', type=str, required=True,
+        help='Hostname or IP address of EFS mount point')
     args = parser.parse_args()
     sfs.mount(args.mount_point)
     unittest.main()
