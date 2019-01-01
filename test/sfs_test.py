@@ -11,7 +11,7 @@ class TestOpen(unittest.TestCase):
         #'r' open for reading (default)
         # can read, unable to write, error on file does not exist, 
         # error on missing read permission (including directory tree)
-
+        '''
         # 1. generate a 15-character-long string as filename, chance that it exists is close to zero
         filename = '/'+''.join(random.choices(string.ascii_uppercase + string.digits, k=15))
         self.assertRaises(FileNotFoundError, sfs.open, filename, "r") # error on non-exist file
@@ -23,7 +23,9 @@ class TestOpen(unittest.TestCase):
 
         # 3. check if cannot write
         self.assertRaises(io.UnsupportedOperation, f.write, "1")
-
+        '''
+        sfs.throw_FileNotFoundERROR()
+        
 if __name__ == '__main__':
     #parser = argparse.ArgumentParser(description='Testing of SFS open with Python')
     #parser.add_argument('--mount-point', type=str, required=True,

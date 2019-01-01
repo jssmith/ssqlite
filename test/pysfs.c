@@ -98,3 +98,7 @@ int file_open_mode(const char *mode) {
     }
     return flags;
 }
+
+void throw_FileNotFoundERROR (void) {
+    PyErr_SetString(PyExc_FileNotFoundError, "File does not exist");
+}
