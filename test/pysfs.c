@@ -37,6 +37,11 @@ PyObject *open_file_py(const char* file_name, const char* mode) {
     nfs4_file f = malloc(sizeof(struct nfs4_file));
     int error_code;
     if ((error_code = nfs4_open(client, file_name, flags, &p, &f)) != NFS4_OK) {
+        if (error_code == -NFS4_ENOENT) {
+            PyErr_SetString(PyExc_FileNotFoundError, "File does not exist");
+            free(f);
+            return (PyObject *) NULL;
+        }
         printf("Failed to open %s: %s\n", file_name, nfs4_error_string(client));
         exit(1);
     }
@@ -92,4 +97,8 @@ int file_open_mode(const char *mode) {
         ptr++;
     }
     return flags;
+}
+
+void throw_FileNotFoundERROR (void) {
+    PyErr_SetString(PyExc_FileNotFoundError, "File does not exist");
 }
