@@ -15,8 +15,9 @@ def mount(host_ip):
 
 def open(file_name, mode='r'):
     #TODO: needs to validate MODE
-    fp = c_helper.open_file_py(file_name.encode('utf-8'), mode.encode('utf-8'))
-    return FileObjectWrapper(fp)
+    #fp = c_helper.open_file_py(file_name.encode('utf-8'), mode.encode('utf-8'))
+    #return FileObjectWrapper(fp)
+    c_helper.FileNotFoundError()
 
 def read(size):
     c_helper.read_file_py(size)

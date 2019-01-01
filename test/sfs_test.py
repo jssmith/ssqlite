@@ -24,8 +24,8 @@ class TestOpen(unittest.TestCase):
         # 3. check if cannot write
         self.assertRaises(io.UnsupportedOperation, f.write, "1")
         '''
-        sfs.throw_FileNotFoundERROR()
-        
+        f = sfs.open("1", "r")
+
 if __name__ == '__main__':
     #parser = argparse.ArgumentParser(description='Testing of SFS open with Python')
     #parser.add_argument('--mount-point', type=str, required=True,
