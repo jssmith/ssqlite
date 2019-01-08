@@ -14,8 +14,6 @@ NFS4_ENOENT = -2
 class Nfs4_struct(ctypes.Structure):
     pass
 Nfs4 = ctypes.POINTER(Nfs4_struct) 
-nfs4Ptr = ctypes.POINTER(Nfs4)
-
 
 class Nfs4_properties_struct(ctypes.Structure):
     _fields_ = [
@@ -33,22 +31,16 @@ class Nfs4_properties_struct(ctypes.Structure):
     ]
 Nfs4_properties = ctypes.POINTER(Nfs4_properties_struct)
 
-class Stateid(ctypes.Structure):
-    _fileds = [
-        ('sequence', ctypes.c_uint),
-        ('opaque', ctypes.c_char * 12)
-    ]
-
-class Nfs_file_struct(ctypes.Structure):
+class Nfs4_file_struct(ctypes.Structure):
     pass
-Nfs_file = ctypes.POINTER(Nfs_file_struct)
+Nfs4_file = ctypes.POINTER(Nfs4_file_struct)
 
-c_helper.nfs4_create.argtypes = [ctypes.c_char_p, nfs4Ptr]
-c_helper.nfs4_error_string.argtypes = [nfs4Ptr]
+c_helper.nfs4_create.argtypes = [ctypes.c_char_p, ctypes.POINTER(Nfs4)]
+c_helper.nfs4_error_string.argtypes = [Nfs4]
 c_helper.nfs4_error_string.restype = ctypes.c_char_p
-c_helper.nfs4_open.argtypes = [Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_properties, ctypes.POINTER(Nfs_file)]
-c_helper.nfs4_pread.argtypes = [Nfs_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
-c_helper.nfs4_pwrite.argtypes = [Nfs_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
+c_helper.nfs4_open.argtypes = [Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_properties, ctypes.POINTER(Nfs4_file)]
+c_helper.nfs4_pread.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
+c_helper.nfs4_pwrite.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
 
 client = Nfs4()
 
@@ -74,12 +66,11 @@ def open(file_name, mode='r'):
         elif c == 'a':
             flags |= (NFS4_WRONLY | NFS4_CREAT)
    
-    f_ptr = ctypes.pointer(Nfs_file()) 
+    f_ptr = ctypes.pointer(Nfs4_file()) 
     error_code = c_helper.nfs4_open(client, file_name.encode('utf-8'), flags, ctypes.byref(p), f_ptr)
-    print(f_ptr.contents)
     if error_code != NFS4_OK:
         if error_code == -NFS4_ENOENT:
-            raise FileNotFoundError("File does not exist")
+            raise FileNotFoundError("[Errno 2] No such file or directory: " + "'" + file_name + "'")
         print("Failed to open " + file_name.encode('utf-8') + ": " + c_helper.nfs4_error_string(client))
         return
     return FileObjectWrapper(f_ptr.contents)
@@ -107,10 +98,8 @@ class FileObjectWrapper:
             raise ValueError("illegal value of whence")
 
     def read(self, size):
-        f = self._file
         buffer = ctypes.create_string_buffer(size)
-        read_status = c_helper.nfs4_pread(f, buffer, self._pos, size)
-        print("nfs4_pread ends")
+        read_status = c_helper.nfs4_pread(self._file, buffer, self._pos, size)
         if read_status != NFS4_OK:
             print("Failed to read file: " + c_helper.nfs4_error_string(client))
             return
