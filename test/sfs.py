@@ -49,13 +49,11 @@ class Nfs_file(ctypes.Structure):
     ]
 
 c_helper.nfs4_create.argtypes = [ctypes.c_char_p, nfs4Ptr]
-c_helper.nfs4_error_string.argtypes = nfs4Ptr
+c_helper.nfs4_error_string.argtypes = [nfs4Ptr]
 c_helper.nfs4_error_string.restype = ctypes.c_char_p
 c_helper.nfs4_open.argtypes = [Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_properties, ctypes.POINTER(Nfs_file)]
-c_helper.nfs4_error_string.argtypes = Nfs4
-c_helper.nfs4_error_string.restype = ctypes.c_char_p
 c_helper.nfs4_pread.argtypes = [Nfs_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
-c_helper.nfs4_pwrite.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
+c_helper.nfs4_pwrite.argtypes = [Nfs_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
 
 client = ctypes.create_string_buffer(8)
 
