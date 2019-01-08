@@ -17,7 +17,7 @@ Nfs4 = ctypes.POINTER(Nfs4_struct)
 nfs4Ptr = ctypes.POINTER(Nfs4)
 
 
-class Nfs4_properties(ctypes.Structure):
+class Nfs4_properties_struct(ctypes.Structure):
     _fields_ = [
         ('mask', ctypes.c_ulonglong),
         ('name', ctypes.c_char * 256),
@@ -31,6 +31,7 @@ class Nfs4_properties(ctypes.Structure):
         ('access_time', ctypes.c_ulonglong),
         ('modify_time', ctypes.c_ulonglong)
     ]
+Nfs4_properties = ctypes.POINTER(Nfs4_properties_struct)
 
 class Stateid(ctypes.Structure):
     _fileds = [
@@ -38,16 +39,9 @@ class Stateid(ctypes.Structure):
         ('opaque', ctypes.c_char * 12)
     ]
 
-class Nfs_file(ctypes.Structure):
-    _fields_ = [
-        ('c', Nfs4),
-        ('path', ctypes.c_char_p),
-        ('filehandle', ctypes.c_char * 64),
-        ('latest_sid', Stateid),
-        ('open_sid', Stateid),
-        ('asynch_writes', ctypes.c_bool),
-        ('expected_size', ctypes.c_ulong)
-    ]
+class Nfs_file_struct(ctypes.Structure):
+    pass
+Nfs_file = ctypes.POINTER(Nfs_file_struct)
 
 c_helper.nfs4_create.argtypes = [ctypes.c_char_p, nfs4Ptr]
 c_helper.nfs4_error_string.argtypes = [nfs4Ptr]
@@ -67,7 +61,7 @@ def mount(host_ip):
     
 def open(file_name, mode='r'):
     #TODO: needs to validate MODE
-    p = Nfs4_properties()
+    p = Nfs4_properties_struct()
     p.mask = 1<<33
     p.mode = 0o666
     
@@ -79,15 +73,16 @@ def open(file_name, mode='r'):
             flags |= (NFS4_TRUNC | NFS4_WRONLY | NFS4_CREAT)
         elif c == 'a':
             flags |= (NFS4_WRONLY | NFS4_CREAT)
-    
-    f = Nfs_file()
-    error_code = c_helper.nfs4_open(client, file_name.encode('utf-8'), flags, p, ctypes.pointer(f))
+   
+    f_ptr = ctypes.pointer(Nfs_file()) 
+    error_code = c_helper.nfs4_open(client, file_name.encode('utf-8'), flags, ctypes.byref(p), f_ptr)
+    print(f_ptr.contents)
     if error_code != NFS4_OK:
         if error_code == -NFS4_ENOENT:
             raise FileNotFoundError("File does not exist")
         print("Failed to open " + file_name.encode('utf-8') + ": " + c_helper.nfs4_error_string(client))
         return
-    return FileObjectWrapper(f)
+    return FileObjectWrapper(f_ptr.contents)
 
 class FileObjectWrapper:
     def __init__(self, f):
@@ -120,7 +115,7 @@ class FileObjectWrapper:
             print("Failed to read file: " + c_helper.nfs4_error_string(client))
             return
         self._pos += size
-        return str(bytearray(buffer))
+        return bytearray(buffer)
 
     def write(self, content_bytes):
         content_len = len(content_bytes)

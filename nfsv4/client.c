@@ -29,13 +29,14 @@ char *nfs4_error_string(nfs4 n)
 // should return the number of bytes read, can be short
 int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
 {
+    puts("nfs4_pread starts");
     u64 total = 0;
 
     while (1) {
+        printf("nfs4_file: %p\n", f);
         rpc r = file_rpc(f);
-        printf("%p", r);
+        printf("rpc: %p\n", r);
         u64 transferred = push_read(r, offset,  dest + total, len - total, &f->latest_sid);
-        printf("push_read ends.\n");
         total += transferred;
         offset += transferred;
         if (total < len) {
@@ -43,6 +44,7 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
             api_check(r->c, rpc_send(r));
         } else {
             // block on all the preceeding(?) reads
+            puts("nfs4_pread ends");
             return api_check(f->c, transact(r));
         }
     }
@@ -129,7 +131,9 @@ status get_expected_size(void *z, buffer b)
 
 int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
 {
+    puts("nfs4_open starts");
     nfs4_file f = freelist_allocate(c->files);
+    printf("nfs4_file: %p\n", f);
     f->path = path;
     f->c = c;
     f->asynch_writes = flags & NFS4_SERVER_ASYNCH; 
@@ -147,10 +151,13 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
         t.mask = NFS4_PROP_SIZE;
         t.size = 0;
         f->expected_size = 0;
+        puts("nfs4_open ends");
         return nfs4_change_properties(f, &t);
     } else {
         push_fattr_mask(r, NFS4_PROP_SIZE);
         *dest = f;
+        printf("dest points to %p\n", *dest);
+        puts("nfs4_open ends");
         return api_check(c, transact(r));
     }
 }
@@ -349,6 +356,7 @@ heap mallocheap;
 
 int nfs4_create(char *hostname, nfs4 *dest)
 {
+    puts("nfs4_create starts");
     heap h = init_heap();
     mallocheap = h;
     nfs4 c = allocate(h, sizeof(struct nfs4));
@@ -391,6 +399,7 @@ int nfs4_create(char *hostname, nfs4 *dest)
     *dest = c;
     // defer connection to allow for override of user and group fields?
     api_check(c, rpc_connection(c));
+    puts("nfs4_create ends");
     return NFS4_OK;
 }
  
