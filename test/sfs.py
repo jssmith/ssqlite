@@ -56,13 +56,13 @@ c_helper.nfs4_open.argtypes = [Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_propert
 c_helper.nfs4_pread.argtypes = [Nfs_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
 c_helper.nfs4_pwrite.argtypes = [Nfs_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
 
-client = Nfs4(ctypes.create_string_buffer(8))
+client = Nfs4()
 
 def mount(host_ip):
     b_host_ip = host_ip.encode('utf-8')
     print("host_ip: " + host_ip)
     print("create client")
-    if c_helper.nfs4_create(b_host_ip, client) != 0:
+    if c_helper.nfs4_create(b_host_ip, ctypes.pointer(client)) != 0:
         print("open client fail " + c_helper.nfs4_error_string(client))
 
 def open(file_name, mode='r'):
