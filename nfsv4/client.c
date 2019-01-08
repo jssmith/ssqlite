@@ -33,7 +33,9 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
 
     while (1) {
         rpc r = file_rpc(f);
+        printf("%p", r);
         u64 transferred = push_read(r, offset,  dest + total, len - total, &f->latest_sid);
+        printf("push_read ends.\n");
         total += transferred;
         offset += transferred;
         if (total < len) {
