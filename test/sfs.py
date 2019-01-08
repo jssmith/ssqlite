@@ -64,7 +64,7 @@ def mount(host_ip):
     print("create client")
     if c_helper.nfs4_create(b_host_ip, ctypes.pointer(client)) != 0:
         print("open client fail " + c_helper.nfs4_error_string(client))
-
+    
 def open(file_name, mode='r'):
     #TODO: needs to validate MODE
     p = Nfs4_properties()
@@ -87,9 +87,7 @@ def open(file_name, mode='r'):
             raise FileNotFoundError("File does not exist")
         print("Failed to open " + file_name.encode('utf-8') + ": " + c_helper.nfs4_error_string(client))
         return
-
     return FileObjectWrapper(f)
-
 
 class FileObjectWrapper:
     def __init__(self, f):
