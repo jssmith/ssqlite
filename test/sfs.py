@@ -11,8 +11,9 @@ NFS4_TRUNC = 16
 NFS4_OK = 0
 NFS4_ENOENT = -2
 
-class Nfs4(ctypes.Structure):
+class Nfs4_struct(ctypes.Structure):
     pass
+Nfs4 = ctypes.POINTER(Nfs4_struct) 
 nfs4Ptr = ctypes.POINTER(Nfs4)
 
 
@@ -124,8 +125,8 @@ class FileObjectWrapper:
 
     def write(self, content_bytes):
         content_len = len(content_bytes)
-        write_status = c_helper.nfs4_pwrite(self._file, content_bytes, self._pos, content_len);
+        write_status = c_helper.nfs4_pwrite(self._file, content_bytes, self._pos, content_len)
         if write_status != NFS4_OK:
-            print("Failed to write: ", c_helper.nfs4_error_string(client));
+            print("Failed to write: ", c_helper.nfs4_error_string(client))
             return
         self._pos += content_len
