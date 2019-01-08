@@ -56,7 +56,7 @@ c_helper.nfs4_open.argtypes = [Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_propert
 c_helper.nfs4_pread.argtypes = [Nfs_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
 c_helper.nfs4_pwrite.argtypes = [Nfs_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
 
-client = Nfs4()
+client = Nfs4(ctypes.create_string_buffer(8))
 
 def mount(host_ip):
     b_host_ip = host_ip.encode('utf-8')
@@ -115,8 +115,9 @@ class FileObjectWrapper:
 
     def read(self, size):
         f = self._file
-        buffer = (ctypes.c_char * size)()
-        read_status = c_helper.nfs4_pread(f, ctypes.pointer(buffer), self._pos, size)
+        buffer = ctypes.create_string_buffer(size)
+        read_status = c_helper.nfs4_pread(f, buffer, self._pos, size)
+        print("nfs4_pread ends")
         if read_status != NFS4_OK:
             print("Failed to read file: " + c_helper.nfs4_error_string(client))
             return
