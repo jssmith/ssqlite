@@ -1,4 +1,5 @@
 import ctypes
+import io
 
 c_helper = ctypes.CDLL('../nfsv4/libnfs4.so')
 
@@ -10,6 +11,7 @@ NFS4_TRUNC = 16
 
 NFS4_OK = 0
 NFS4_ENOENT = -2
+NFS4ERR_OPENMODE = 10038
 
 class Nfs4_struct(ctypes.Structure):
     pass
@@ -71,6 +73,8 @@ def open(file_name, mode='r'):
     if error_code != NFS4_OK:
         if error_code == -NFS4_ENOENT:
             raise FileNotFoundError("[Errno 2] No such file or directory: " + "'" + file_name + "'")
+        if error_code == -NFS4_EACCES:
+            raise PermissionError("[Errno 13] Permission denied: " + "'" + file_name + "'")
         print("Failed to open " + file_name.encode('utf-8') + ": " + c_helper.nfs4_error_string(client))
         return
     return FileObjectWrapper(f_ptr.contents)
@@ -110,6 +114,8 @@ class FileObjectWrapper:
         content_len = len(content_bytes)
         write_status = c_helper.nfs4_pwrite(self._file, content_bytes, self._pos, content_len)
         if write_status != NFS4_OK:
-            print("Failed to write: ", c_helper.nfs4_error_string(client))
+            if write_status == NFS4ERR_OPENMODE:
+                raise io.UnsupportedOperation("not writable") 
+            print("Failed to write: ", c_helper.nfs4_error_string(client).decode('utf-8'))
             return
         self._pos += content_len
