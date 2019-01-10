@@ -79,7 +79,7 @@ def open(file_name, mode='r'):
             raise FileNotFoundError("[Errno 2] No such file or directory: " + "'" + file_name + "'")
         if error_code == NFS4_EACCES:
             raise PermissionError("[Errno 13] Permission denied: " + "'" + file_name + "'")
-        print("Failed to open " + file_name.encode('utf-8') + ": " + c_helper.nfs4_error_string(client))
+        print("Failed to open " + file_name + ": " + c_helper.nfs4_error_string(client))
         return
     return FileObjectWrapper(f_ptr.contents)
 
@@ -112,7 +112,7 @@ class FileObjectWrapper:
             print("Failed to read file: " + c_helper.nfs4_error_string(client))
             return
         self._pos += size
-        return buffer
+        return bytearray(buffer)
 
     def write(self, content_bytes):
         content_len = len(content_bytes)
