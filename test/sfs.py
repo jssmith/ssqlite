@@ -10,8 +10,10 @@ NFS4_CREAT = 4
 NFS4_TRUNC = 16
 
 NFS4_OK = 0
-NFS4_ENOENT = -2
+NFS4_ENOENT = 2
+NFS4_EACCES = 13
 NFS4ERR_OPENMODE = 10038
+NFS4_PROP_MODE = 1<<33
 
 class Nfs4_struct(ctypes.Structure):
     pass
@@ -56,7 +58,7 @@ def mount(host_ip):
 def open(file_name, mode='r'):
     #TODO: needs to validate MODE
     p = Nfs4_properties_struct()
-    p.mask = 1<<33
+    p.mask = NFS4_PROP_MODE
     p.mode = 0o666
     
     flags = 0
@@ -67,13 +69,15 @@ def open(file_name, mode='r'):
             flags |= (NFS4_TRUNC | NFS4_WRONLY | NFS4_CREAT)
         elif c == 'a':
             flags |= (NFS4_WRONLY | NFS4_CREAT)
-   
+        else:
+            raise NotImplementedError("flags other than 'r', 'w' and 'a' not supported yet")
+
     f_ptr = ctypes.pointer(Nfs4_file()) 
     error_code = c_helper.nfs4_open(client, file_name.encode('utf-8'), flags, ctypes.byref(p), f_ptr)
     if error_code != NFS4_OK:
-        if error_code == -NFS4_ENOENT:
+        if error_code == NFS4_ENOENT:
             raise FileNotFoundError("[Errno 2] No such file or directory: " + "'" + file_name + "'")
-        if error_code == -NFS4_EACCES:
+        if error_code == NFS4_EACCES:
             raise PermissionError("[Errno 13] Permission denied: " + "'" + file_name + "'")
         print("Failed to open " + file_name.encode('utf-8') + ": " + c_helper.nfs4_error_string(client))
         return
@@ -108,7 +112,7 @@ class FileObjectWrapper:
             print("Failed to read file: " + c_helper.nfs4_error_string(client))
             return
         self._pos += size
-        return bytearray(buffer)
+        return buffer
 
     def write(self, content_bytes):
         content_len = len(content_bytes)
