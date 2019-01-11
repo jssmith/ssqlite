@@ -14,20 +14,22 @@ class TestOpen(unittest.TestCase):
         
         # 1. generate a 15-character-long string as filename, chance that it exists is close to zero.
         # Open a file with such filename should raise a FileNotFoundError exception
-        filename = '/'+''.join(random.choices(string.ascii_uppercase + string.digits, k=15))
+        filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
         self.assertRaises(FileNotFoundError, sfs.open, filename, "r") # error on non-exist file
         
-        # 2. check if can read an existing file, make sure you have file 'haha.txt' on your efs root directory
-        new_f = open("/efs/test.txt", 'w+')
-        new_f.write("this is a test file")
+        # 2. check if can read an existing file
+        new_f = open("/efs/test.txt", 'w+') # make sure to run this script as ROOT
+        content = "this is a test file"
+        new_f.write(content)
         new_f.close()
         f = sfs.open('/test.txt', 'r')
-        self.assertEqual(f.read(20).decode('utf-8'), "this is a test file\x00")
+        self.assertEqual(f.read(len(content)).decode('utf-8'), content)
 
         # 3. check if cannot write
         self.assertRaises(io.UnsupportedOperation, f.write, "1")
        
         # 4. check if missing read permission
+        # CURRENTLY NOT WORKING
         new_f = open("/efs/no_read_perm.txt", 'w+')
         new_f.close()
         os.chmod("/efs/no_read_perm.txt", 0o000)

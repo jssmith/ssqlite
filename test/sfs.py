@@ -112,7 +112,7 @@ class FileObjectWrapper:
             print("Failed to read file: " + c_helper.nfs4_error_string(client))
             return
         self._pos += size
-        return bytearray(buffer)
+        return buffer.value
 
     def write(self, content_bytes):
         content_len = len(content_bytes)
