@@ -79,7 +79,7 @@ def open(file_name, mode='r'):
             raise FileNotFoundError("[Errno 2] No such file or directory: " + "'" + file_name + "'")
         if error_code == NFS4_EACCES:
             raise PermissionError("[Errno 13] Permission denied: " + "'" + file_name + "'")
-        print("Failed to open " + file_name + ": " + c_helper.nfs4_error_string(client))
+        print("Failed to open " + file_name + ": " + c_helper.nfs4_error_string(client).decode(encoding='utf-8', errors='ignore'))
         return
     return FileObjectWrapper(f_ptr.contents)
 
@@ -109,7 +109,7 @@ class FileObjectWrapper:
         buffer = ctypes.create_string_buffer(size)
         read_status = c_helper.nfs4_pread(self._file, buffer, self._pos, size)
         if read_status != NFS4_OK:
-            print("Failed to read file: " + c_helper.nfs4_error_string(client))
+            print("Failed to read file: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8', errors='ignore'))
             return
         self._pos += size
         return buffer.value
@@ -120,6 +120,6 @@ class FileObjectWrapper:
         if write_status != NFS4_OK:
             if write_status == NFS4ERR_OPENMODE:
                 raise io.UnsupportedOperation("not writable") 
-            print("Failed to write: ", c_helper.nfs4_error_string(client).decode('utf-8'))
+            print("Failed to write: ", c_helper.nfs4_error_string(client).decode(encoding='utf-8', errors='ignore'))
             return
         self._pos += content_len
