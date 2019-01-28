@@ -105,10 +105,12 @@ class FileObjectWrapper:
         else:
             raise ValueError("illegal value of whence")
 
-    def read(self, size):
+    def read(self, size=-1):
         buffer = ctypes.create_string_buffer(size)
         read_status = c_helper.nfs4_pread(self._file, buffer, self._pos, size)
         if read_status != NFS4_OK:
+            if read_status == NFS4ERR_OPENMODE:
+                raise io.UnsupportedOperation("not readable") 
             print("Failed to read file: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
             return
         self._pos += size
@@ -123,3 +125,4 @@ class FileObjectWrapper:
             print("Failed to write: ", c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
             return
         self._pos += content_len
+        return content_len
