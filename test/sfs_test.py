@@ -18,6 +18,7 @@ class TestOpen(unittest.TestCase):
         # generate a 15-character-long letters-digits-mixed string as filename, 
         # chance that it already exists is close to zero.
         # Open a file with such filename should raise a FileNotFoundError exception
+        random.seed(6) # I like 6
         filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
         self.assertRaises(FileNotFoundError, sfs.open, filename, "r") 
         
@@ -49,8 +50,9 @@ class TestOpen(unittest.TestCase):
         # 1. check if opening a non-existing file will first create a such file
         # generate a 15-character-long letters-digits-mixed string as filename, 
         # chance that it already exists is close to zero.
+        random.seed(8) # I also like 8
         filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
-        f = sfs.open(filename, 'w')
+        f = sfs.open(filename, 'w') 
         self.assertTrue(os.path.isfile('/efs'+filename))
 
         # 2. check if write-only
