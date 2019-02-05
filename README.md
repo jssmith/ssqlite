@@ -153,14 +153,14 @@ Building and Running NFSv4 Benchmark
 
 `./nfsv4_read_write_test read /some_file_name` to run read benchmark
 
-## Build the Python Benchmarks
-
-1. Ensure you have Python 3.x installed.
-
-2. In `/test` run `make pysfs.so`
-
 ## Run the Python Benchmarks
+
+Ensure you have Python 3.x installed
 
 `python3 python_simply_demo.py --mount-point=${NFS_SERVER} --test-file=/some_file_name`
 
 `python3 benchmark.py --mount-point=${NFS_SERVER} --test-file=/some_file_name`
+
+## Run SFS Python Tests
+
+`sudo python3 sfs_test.py ${NFS4_SERVER}`
