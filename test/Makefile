@@ -6,9 +6,6 @@ PY_INCLUDES=$(shell python3-config --includes)
 
 all: vfsbench testnfsvfs nfsv4_read_demo nfsv4_write_demo
 
-pysfs.so: pysfs.c
-	gcc -fPIC -shared -Wall -lnfs4 -Wl,-soname,pysfs -g -std=gnu99 $(PY_INCLUDES) -I../nfsv4 -L../nfsv4 $< -o pysfs.so
-
 nfsv4_read_write_test: nfsv4_read_write_test.c
 	gcc -Wall -g -std=gnu99 -I../nfsv4 -L../nfsv4 -lnfs4 $< -o $@
 
@@ -19,7 +16,7 @@ testnfsvfs: testnfsvfs.c check-env
 	$(CC) $(CFLAGS) $< -o $@
 
 clean:
-	rm -f vfsbench testnfsvfs nfsv4_read_write_test pysfs.so *~
+	rm -f vfsbench testnfsvfs nfsv4_read_write_test *~
 
 check-env:
 ifndef SQLITE
