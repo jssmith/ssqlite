@@ -26,7 +26,8 @@ char *nfs4_error_string(nfs4 n)
     return n->error_string->contents;
 }
 
-// should return the number of bytes read, can be short
+// Read from f into dest and return the number of bytes read or -1 upon error
+// the error is recorded in the nfs4 
 int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
 {
     u64 total = 0;
@@ -38,32 +39,75 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
         offset += transferred;
         if (total < len) {
             // reestablish connection here
-            api_check(r->c, rpc_send(r));
+
+            status s = rpc_send(r);
+            if (nfs4_is_error(s)) {
+                if (total == 0) {
+                  r->c->error_string = s->description;
+                  return -1;
+                } else {
+                  return total;
+                }
+            }
+            total += transferred;
+            offset += transferred;
         } else {
             // block on all the preceeding(?) reads
-            return api_check(f->c, transact(r));
+            status s = transact(r);
+            if (nfs4_is_error(s)) {
+                if (total == 0) {
+                  f->c->error_string = s->description;
+                  return -1;
+                } else {
+                  return total;
+                }
+            }
+            total += transferred;
+            offset += transferred;
+            return total;
         }
     }
 }
 
+// Write from source into f and return bytes written or -1 upon error.
 int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
 {
+    u64 total = 0;
+
     // not in the asynch case
     buffer b = alloca_wrap_buffer(source, length);
     while (buffer_length(b)) {
         rpc r = file_rpc(f);
-        offset += push_write(r, offset, b, &f->latest_sid);
+        u64 transferred = push_write(r, offset, b, &f->latest_sid);
 
         if (buffer_length(b)) {
-          api_check(r->c, rpc_send(r));
+            status s = rpc_send(r);
+            if (nfs4_is_error(s)) {
+                if (total == 0) {
+                    r->c->error_string = s->description;
+                    return -1;
+                } else {
+                    return total;
+                }
+            }
+            total += transferred;
+            offset += transferred;
         } else {
-          return api_check(f->c, transact(r));
+            status s = transact(r);
+            if (nfs4_is_error(s)) {
+                if (total == 0) {
+                    f->c->error_string = s->description;
+                    return -1;
+                } else {
+                    return total;
+                }
+            } else {
+                total += transferred;
+                return total;
+            }
         }
     }
-    // wait for last completion...just drain the whole pipe
-    return NFS4_OK;    
 }
-
 
 static status set_expected_size(void *z, buffer b)
 {
