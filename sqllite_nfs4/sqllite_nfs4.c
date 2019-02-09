@@ -58,7 +58,27 @@ static int nfs4Read(sqlite3_file *pFile,
     if (f->ad->trace) {
         eprintf ("read %s offset:%lld bytes:%d ", f->filename, iOfst, iAmt);
     }
-    translate_status(f->ad, nfs4_pread(f->f, zBuf, iOfst, iAmt));
+    int total_bytes_read = 0;
+    int remaining = iAmt;
+    while (total_bytes_read < iAmt) {
+        int bytes_read = nfs4_pread(f->f, zBuf, iOfst, remaining);
+        if (bytes_read < 0) {
+            if (f->ad->trace) {
+                eprintf ("status %s\n", nfs4_error_string(f->ad->c));
+            }
+            switch(f->f->c->error_num) {
+                case NFS4_EBUSY: return SQLITE_BUSY;
+                case NFS4_ETXTBSY: return SQLITE_LOCKED;
+                case NFS4_ENOMEM: return SQLITE_NOMEM;
+                case NFS4_EROFS: return SQLITE_READONLY;
+                default:  return SQLITE_ERROR;
+            }
+        }
+        total_bytes_read += bytes_read;
+        iOfst += bytes_read;
+        remaining -= bytes_read;
+    }
+    return NFS4_OK;
 }
 
 static int nfs4Write(sqlite3_file *pFile,
@@ -71,8 +91,9 @@ static int nfs4Write(sqlite3_file *pFile,
         eprintf ("write %s offset:%lld bytes:%d ", f->filename, iOfst, iAmt);
 
     int total_bytes_written = 0;
+    int remaining = iAmt;
     while (total_bytes_written < iAmt) {
-        int bytes_written = nfs4_pwrite(f->f, (void *)z, iOfst, iAmt);
+        int bytes_written = nfs4_pwrite(f->f, (void *)z, iOfst, remaining);
         if (bytes_written < 0) {
             if (f->ad->trace) {
                 eprintf ("status %s\n", nfs4_error_string(f->ad->c));
@@ -86,6 +107,8 @@ static int nfs4Write(sqlite3_file *pFile,
             }
         }
         total_bytes_written += bytes_written;
+        iOfst += bytes_written;
+        remaining -= bytes_written;
     }
     return NFS4_OK;
 }
@@ -430,7 +453,28 @@ static int nfs4Fetch(sqlite3_file *pFile,  sqlite3_int64 iOfst, int iAmt, void *
     sqlfile f = (sqlfile)(void *)pFile;
     if (f->ad->trace) 
         eprintf ("fetch %s\n", f->filename);
-    translate_status(f->ad, nfs4_pread(f->f, *pp, iOfst, iAmt));
+
+    int total_bytes_read = 0;
+    int remaining = iAmt;
+    while (total_bytes_read < iAmt) {
+        int bytes_read = nfs4_pread(f->f, *pp, iOfst, iAmt);
+        if (bytes_read < 0) {
+            if (f->ad->trace) {
+                eprintf ("status %s\n", nfs4_error_string(f->ad->c));
+            }
+            switch(f->f->c->error_num) {
+                case NFS4_EBUSY: return SQLITE_BUSY;
+                case NFS4_ETXTBSY: return SQLITE_LOCKED;
+                case NFS4_ENOMEM: return SQLITE_NOMEM;
+                case NFS4_EROFS: return SQLITE_READONLY;
+                default:  return SQLITE_ERROR;
+            }
+        }
+        total_bytes_read += bytes_read;
+        iOfst += bytes_read;
+        remaining -= bytes_read;
+    }
+    return NFS4_OK;
 }
  
 static int nfs4Unfetch(sqlite3_file *pFile, sqlite3_int64 iOfst, void *pPage)

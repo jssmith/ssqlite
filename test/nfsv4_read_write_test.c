@@ -116,8 +116,8 @@ void test_sequential_read(nfs4 client, char* filename, u_int64_t num_blocks, u_i
   for (int bytes_traversed = 0; 
        bytes_traversed < block_size * num_blocks; 
        bytes_traversed += block_size) {
-    int read_status = nfs4_pread(f, read_dst, bytes_traversed, block_size);
-    if (read_status != NFS4_OK) { 
+    int bytes_read = nfs4_pread(f, read_dst, bytes_traversed, block_size);
+    if (bytes_read < block_size) { 
       printf("Failed to read %s:%s\n", filename, nfs4_error_string(client));
       exit(1);
     } 

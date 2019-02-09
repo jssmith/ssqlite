@@ -258,7 +258,17 @@ static value read_command(client c, vector args)
     struct nfs4_properties n;
     ncheck(c, nfs4_fstat(f, &n));
     buffer b = allocate_buffer(h, n.size);
-    ncheck(c, nfs4_pread(f, b->contents, 0, n.size));
+
+    bytes remaining = n.size;
+    bytes total_read = 0;
+    while (total_read < n.size) {
+        bytes read = nfs4_pread(f, b->contents, total_read, remaining);
+        if (read < 0) {
+            return TAG(nfs4_error_string(c->c), ERROR_TAG);
+        }
+        total_read += read;
+        remaining -= read;
+    }
     b->end  = n.size;
     return TAG(b, BUFFER_TAG);
 }
@@ -315,14 +325,16 @@ static value write_command(client c, vector args)
     nfs4_file f = dispatch_tag(c, FILE_TAG, args);    
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
 
-    bytes length = buffer_length(body);
+    bytes total_to_write = buffer_length(body);
+    bytes remaining = buffer_length(body);
     bytes total_written = 0;
-    while (total_written < length) {
-        bytes written = nfs4_pwrite(f, body->contents + body->start, 0, length);
+    while (total_written < total_to_write) {
+        bytes written = nfs4_pwrite(f, body->contents + body->start, total_written, remaining);
         if (written < 0) {
             return TAG(nfs4_error_string(c->c), ERROR_TAG);
         }
         total_written += written;
+        remaining -= written;
     }
 
     nfs4_close(f);
@@ -340,14 +352,16 @@ static value asynch_write_command(client c, vector args)
     // could wire these up monadically
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
 
-    bytes length = buffer_length(body);
+    bytes total_to_write = buffer_length(body);
+    bytes remaining = buffer_length(body);
     bytes total_written = 0;
-    while (total_written < length) {
-        bytes written = nfs4_pwrite(f, body->contents + body->start, 0, length);
+    while (total_written < total_to_write) {
+        bytes written = nfs4_pwrite(f, body->contents + body->start, total_written, remaining);
         if (written < 0) {
             return TAG(nfs4_error_string(c->c), ERROR_TAG);
         }
         total_written += written;
+        remaining -= written;
     }
 
     nfs4_close(f);
