@@ -107,13 +107,13 @@ class FileObjectWrapper:
 
     def read(self, size=-1):
         buffer = ctypes.create_string_buffer(size)
-        read_status = c_helper.nfs4_pread(self._file, buffer, self._pos, size)
-        if read_status != NFS4_OK:
-            if read_status == NFS4ERR_OPENMODE:
-                raise io.UnsupportedOperation("not readable") 
+        bytes_read = c_helper.nfs4_pread(self._file, buffer, self._pos, size)
+        if bytes_read < 0:
+            # if read_status == NFS4ERR_OPENMODE:
+            #    raise io.UnsupportedOperation("not readable") 
             print("Failed to read file: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
             return
-        self._pos += size
+        self._pos += bytes_read
         return buffer.value
 
     def write(self, content_bytes):
