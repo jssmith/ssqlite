@@ -47,6 +47,7 @@ struct nfs4 {
     u32 maxreqs;
     buffer hostname;
     vector outstanding; // should be a map
+    int error_num;
     buffer error_string;
     buffer root_filehandle;
     struct nfs4_properties default_properties;

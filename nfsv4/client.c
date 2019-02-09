@@ -85,6 +85,7 @@ int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
             if (nfs4_is_error(s)) {
                 if (total == 0) {
                     r->c->error_string = s->description;
+                    r->c->error_num = s->error;
                     return -1;
                 } else {
                     return total;

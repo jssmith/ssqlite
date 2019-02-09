@@ -314,7 +314,17 @@ static value write_command(client c, vector args)
     // could wire these up monadically to permit asynch streaming
     nfs4_file f = dispatch_tag(c, FILE_TAG, args);    
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
-    ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, buffer_length(body)));
+
+    bytes length = buffer_length(body);
+    bytes total_written = 0;
+    while (total_written < length) {
+        bytes written = nfs4_pwrite(f, body->contents + body->start, 0, length);
+        if (written < 0) {
+            return TAG(nfs4_error_string(c->c), ERROR_TAG);
+        }
+        total_written += written;
+    }
+
     nfs4_close(f);
     return TAG(f, FILE_TAG);
 }
@@ -329,7 +339,17 @@ static value asynch_write_command(client c, vector args)
     ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_CREAT | NFS4_WRONLY | NFS4_SERVER_ASYNCH, &p, &f));
     // could wire these up monadically
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
-    ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, buffer_length(body)));
+
+    bytes length = buffer_length(body);
+    bytes total_written = 0;
+    while (total_written < length) {
+        bytes written = nfs4_pwrite(f, body->contents + body->start, 0, length);
+        if (written < 0) {
+            return TAG(nfs4_error_string(c->c), ERROR_TAG);
+        }
+        total_written += written;
+    }
+
     nfs4_close(f);
     return TAG(body, BUFFER_TAG);
 }

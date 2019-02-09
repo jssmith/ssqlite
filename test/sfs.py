@@ -117,12 +117,11 @@ class FileObjectWrapper:
         return buffer.value
 
     def write(self, content_bytes):
-        content_len = len(content_bytes)
-        write_status = c_helper.nfs4_pwrite(self._file, content_bytes, self._pos, content_len)
-        if write_status != NFS4_OK:
-            if write_status == NFS4ERR_OPENMODE:
-                raise io.UnsupportedOperation("not writable") 
+        bytes_written = c_helper.nfs4_pwrite(self._file, content_bytes, self._pos, len(content_bytes))
+        if bytes_written < 0:
+            # if write_status == NFS4ERR_OPENMODE:
+            #    raise io.UnsupportedOperation("not writable") 
             print("Failed to write: ", c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
-            return
-        self._pos += content_len
-        return content_len
+            return -1
+        self._pos += bytes_written
+        return bytes_written

@@ -69,7 +69,25 @@ static int nfs4Write(sqlite3_file *pFile,
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
         eprintf ("write %s offset:%lld bytes:%d ", f->filename, iOfst, iAmt);
-    translate_status(f->ad, nfs4_pwrite(f->f, (void *)z, iOfst, iAmt));
+
+    int total_bytes_written = 0;
+    while (total_bytes_written < iAmt) {
+        int bytes_written = nfs4_pwrite(f->f, (void *)z, iOfst, iAmt);
+        if (bytes_written < 0) {
+            if (f->ad->trace) {
+                eprintf ("status %s\n", nfs4_error_string(f->ad->c));
+            }
+            switch(f->f->c->error_num) {
+                case NFS4_EBUSY: return SQLITE_BUSY;
+                case NFS4_ETXTBSY: return SQLITE_LOCKED;
+                case NFS4_ENOMEM: return SQLITE_NOMEM;
+                case NFS5_EROFS: return SQLITE_READONLY;
+                default:  return SQLITE_ERROR;
+            }
+        }
+        total_bytes_written += bytes_written;
+    }
+    return NFS4_OK;
 }
 
 static int nfs4Truncate(sqlite3_file *pFile,
@@ -489,7 +507,9 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     if (flags & SQLITE_OPEN_CREATE)   oflags |= NFS4_CREAT;
     if (flags & SQLITE_OPEN_READWRITE) oflags |= NFS4_RDWRITE;
     
-    nfs4_open(ad->c, f->filename, oflags, 0666, &f->f);
+    struct nfs4_properties p;
+    p.mode = 0666;
+    nfs4_open(ad->c, f->filename, oflags, &p, &f->f);
     
     return SQLITE_CANTOPEN;
 }
