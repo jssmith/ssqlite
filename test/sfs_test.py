@@ -52,7 +52,7 @@ class TestOpen(unittest.TestCase):
         # chance that it already exists is close to zero.
         random.seed(8) # I also like 8
         filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
-        f = sfs.open(filename, 'w') 
+        f = sfs.open(filename, 'w')
         self.assertTrue(os.path.isfile('/efs'+filename))
 
         # 2. check if write-only
