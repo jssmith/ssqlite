@@ -59,7 +59,8 @@ class TestOpen(unittest.TestCase):
         new_f = open('/efs/test.txt', 'w+')
         new_f.write('You cannot read it')
         new_f.close()
-        self.assertRaises(io.UnsupportedOperation, sfs.open, '/test.txt', 'w')
+        f = sfs.open('/test.txt', 'w')
+        self.assertRaises(io.UnsupportedOperation, f.read, 1)
 
         # 3. write to an empty file.
         new_f = open('/efs'+filename, 'w+') # this line truncates the file, makes it empty

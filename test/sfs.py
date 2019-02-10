@@ -66,7 +66,7 @@ def open(file_name, mode='r'):
         if c == 'r':
             flags |= NFS4_RDONLY
         elif c == 'w':
-            flags |= (NFS4_TRUNC | NFS4_WRONLY | NFS4_CREAT) # TODO: NFS4_TRUNC cause XDR decode failed when used in open
+            flags |= (NFS4_TRUNC | NFS4_WRONLY | NFS4_CREAT)
         elif c == 'a':
             flags |= (NFS4_WRONLY | NFS4_CREAT)
         else:
