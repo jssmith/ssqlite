@@ -35,35 +35,26 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
     while (1) {
         rpc r = file_rpc(f);
         u64 transferred = push_read(r, offset,  dest + total, len - total, &f->latest_sid);
-        total += transferred;
-        offset += transferred;
+        status s;
         if (total < len) {
             // reestablish connection here
-
-            status s = rpc_send(r);
-            if (nfs4_is_error(s)) {
-                if (total == 0) {
-                  r->c->error_string = s->description;
-                  return -1;
-                } else {
-                  return total;
-                }
-            }
-            total += transferred;
-            offset += transferred;
+            s = rpc_send(r);
         } else {
             // block on all the preceeding(?) reads
-            status s = transact(r);
-            if (nfs4_is_error(s)) {
-                if (total == 0) {
-                  f->c->error_string = s->description;
-                  return -1;
-                } else {
-                  return total;
-                }
+            s = transact(r);
+        }
+        if (nfs4_is_error(s)) {
+            if (total == 0) {
+                f->c->error_string = s->description;
+                f->c->nfs_error_num = s->error;
+                return -1;
+            } else {
+                return total;
             }
-            total += transferred;
-            offset += transferred;
+        }
+        total += transferred;
+        offset += transferred;
+        if (total >= len) {
             return total;
         }
     }
@@ -76,36 +67,28 @@ int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
 
     // not in the asynch case
     buffer b = alloca_wrap_buffer(source, length);
-    while (buffer_length(b)) {
+    while (1) {
         rpc r = file_rpc(f);
         u64 transferred = push_write(r, offset, b, &f->latest_sid);
-
+        status s;
         if (buffer_length(b)) {
-            status s = rpc_send(r);
-            if (nfs4_is_error(s)) {
-                if (total == 0) {
-                    r->c->error_string = s->description;
-                    r->c->error_num = s->error;
-                    return -1;
-                } else {
-                    return total;
-                }
-            }
-            total += transferred;
-            offset += transferred;
+            s = rpc_send(r);
         } else {
-            status s = transact(r);
-            if (nfs4_is_error(s)) {
-                if (total == 0) {
-                    f->c->error_string = s->description;
-                    return -1;
-                } else {
-                    return total;
-                }
+            s = transact(r);
+        }
+        if (nfs4_is_error(s)) {
+            if (total == 0) {
+                f->c->error_string = s->description;
+                f->c->nfs_error_num = s->error;
+                return -1;
             } else {
-                total += transferred;
                 return total;
             }
+        }
+        total += transferred;
+        offset += transferred;
+        if (buffer_length(b) == 0) {
+            return total;
         }
     }
 }
