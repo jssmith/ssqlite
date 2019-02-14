@@ -283,7 +283,7 @@ static value read_command(client c, vector args)
     buffer b = allocate_buffer(h, n.size);
 
     value result = full_read_write(nfs4_pread, f, b, n.size, c);
-    if (*((int *) result) != 0) {
+    if ((int) result != 0) {
       return result;
     }  
 
