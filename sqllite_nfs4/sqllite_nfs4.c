@@ -63,16 +63,7 @@ static int nfs4Read(sqlite3_file *pFile,
     while (total_bytes_read < iAmt) {
         int bytes_read = nfs4_pread(f->f, zBuf, iOfst, remaining);
         if (bytes_read < 0) {
-            if (f->ad->trace) {
-                eprintf ("status %s\n", nfs4_error_string(f->ad->c));
-            }
-            switch(f->f->c->error_num) {
-                case NFS4_EBUSY: return SQLITE_BUSY;
-                case NFS4_ETXTBSY: return SQLITE_LOCKED;
-                case NFS4_ENOMEM: return SQLITE_NOMEM;
-                case NFS4_EROFS: return SQLITE_READONLY;
-                default:  return SQLITE_ERROR;
-            }
+            return translate_status(f->ad, f->f->c->error_num);
         }
         total_bytes_read += bytes_read;
         iOfst += bytes_read;
@@ -95,16 +86,7 @@ static int nfs4Write(sqlite3_file *pFile,
     while (total_bytes_written < iAmt) {
         int bytes_written = nfs4_pwrite(f->f, (void *)z, iOfst, remaining);
         if (bytes_written < 0) {
-            if (f->ad->trace) {
-                eprintf ("status %s\n", nfs4_error_string(f->ad->c));
-            }
-            switch(f->f->c->error_num) {
-                case NFS4_EBUSY: return SQLITE_BUSY;
-                case NFS4_ETXTBSY: return SQLITE_LOCKED;
-                case NFS4_ENOMEM: return SQLITE_NOMEM;
-                case NFS5_EROFS: return SQLITE_READONLY;
-                default:  return SQLITE_ERROR;
-            }
+            return translate_status(f->ad, f->f->c->error_num);
         }
         total_bytes_written += bytes_written;
         iOfst += bytes_written;
@@ -459,16 +441,7 @@ static int nfs4Fetch(sqlite3_file *pFile,  sqlite3_int64 iOfst, int iAmt, void *
     while (total_bytes_read < iAmt) {
         int bytes_read = nfs4_pread(f->f, *pp, iOfst, iAmt);
         if (bytes_read < 0) {
-            if (f->ad->trace) {
-                eprintf ("status %s\n", nfs4_error_string(f->ad->c));
-            }
-            switch(f->f->c->error_num) {
-                case NFS4_EBUSY: return SQLITE_BUSY;
-                case NFS4_ETXTBSY: return SQLITE_LOCKED;
-                case NFS4_ENOMEM: return SQLITE_NOMEM;
-                case NFS4_EROFS: return SQLITE_READONLY;
-                default:  return SQLITE_ERROR;
-            }
+            return translate_status(f->ad, f->f->c->error_num);
         }
         total_bytes_read += bytes_read;
         iOfst += bytes_read;
