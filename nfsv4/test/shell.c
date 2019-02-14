@@ -262,7 +262,7 @@ static value full_read_write(
 {
     bytes progress = 0;
     while (progress < length) {
-        bytes step = nfs4_pread(
+        bytes step = nfs4_func(
             f,
             loc->contents + loc->start,
             progress,
@@ -344,7 +344,7 @@ static value write_command(client c, vector args)
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
 
     value result = full_read_write(nfs4_pwrite, f, body, buffer_length(body), c);
-    if (*((int *) result) != 0) {
+    if ((int) result != 0) {
       return result;
     }  
 
@@ -363,17 +363,15 @@ static value asynch_write_command(client c, vector args)
     // could wire these up monadically
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
 
-    bytes total_to_write = buffer_length(body);
-    bytes remaining = buffer_length(body);
-    bytes total_written = 0;
-    while (total_written < total_to_write) {
-        bytes written = nfs4_pwrite(f, body->contents + body->start, total_written, remaining);
-        if (written < 0) {
-            return TAG(nfs4_error_string(c->c), ERROR_TAG);
-        }
-        total_written += written;
-        remaining -= written;
-    }
+    value result = full_read_write(
+        nfs4_pwrite,
+        f,
+        body,
+        buffer_length(body),
+        c);
+    if ((int) result != 0) {
+      return result;
+    }  
 
     nfs4_close(f);
     return TAG(body, BUFFER_TAG);
