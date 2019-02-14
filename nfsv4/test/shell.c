@@ -252,6 +252,29 @@ static value open_command(client c, vector args)
     return TAG(f, FILE_TAG);
 }
 
+// Repeats read or write to completion or error
+static value full_read_write(
+    int (*nfs4_func)(nfs4_file, void*, bytes, bytes),
+    nfs4_file f,
+    buffer loc,
+    bytes length,
+    client c) 
+{
+    bytes progress = 0;
+    while (progress < length) {
+        bytes step = nfs4_pread(
+            f,
+            loc->contents + loc->start,
+            progress,
+            length - progress);
+        if (step < 0) {
+            return TAG(nfs4_error_string(c->c), ERROR_TAG);
+        }
+        progress += step;
+    }
+    return 0;
+}
+
 static value read_command(client c, vector args)
 {
     nfs4_file f = dispatch_tag(c, FILE_TAG, args);
@@ -259,16 +282,11 @@ static value read_command(client c, vector args)
     ncheck(c, nfs4_fstat(f, &n));
     buffer b = allocate_buffer(h, n.size);
 
-    bytes remaining = n.size;
-    bytes total_read = 0;
-    while (total_read < n.size) {
-        bytes read = nfs4_pread(f, b->contents, total_read, remaining);
-        if (read < 0) {
-            return TAG(nfs4_error_string(c->c), ERROR_TAG);
-        }
-        total_read += read;
-        remaining -= read;
-    }
+    value result = full_read_write(nfs4_pread, f, b, n.size, c);
+    if (*((int *) result) != 0) {
+      return result;
+    }  
+
     b->end  = n.size;
     return TAG(b, BUFFER_TAG);
 }
@@ -325,17 +343,10 @@ static value write_command(client c, vector args)
     nfs4_file f = dispatch_tag(c, FILE_TAG, args);    
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
 
-    bytes total_to_write = buffer_length(body);
-    bytes remaining = buffer_length(body);
-    bytes total_written = 0;
-    while (total_written < total_to_write) {
-        bytes written = nfs4_pwrite(f, body->contents + body->start, total_written, remaining);
-        if (written < 0) {
-            return TAG(nfs4_error_string(c->c), ERROR_TAG);
-        }
-        total_written += written;
-        remaining -= written;
-    }
+    value result = full_read_write(nfs4_pwrite, f, body, buffer_length(body), c);
+    if (*((int *) result) != 0) {
+      return result;
+    }  
 
     nfs4_close(f);
     return TAG(f, FILE_TAG);
