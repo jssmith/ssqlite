@@ -137,6 +137,7 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
     // property merge
     push_open(r, final, flags, f, p);
     push_op(r, OP_GETFH, parse_filehandle, f->filehandle);
+    /*
     push_op(r, OP_GETATTR, get_expected_size, f);
 
     push_fattr_mask(r, NFS4_PROP_SIZE);
@@ -151,6 +152,20 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
         nfs4_change_properties(f, p); // nfs4_change_properties seems to be buggy
     } 
     return nfs4_status;
+    */
+   if (flags & NFS4_TRUNC) {
+        api_check(c, transact(r));
+        struct nfs4_properties t;
+        t.mask = NFS4_PROP_SIZE;
+        t.size = 0;
+        f->expected_size = 0;
+        *dest = f;
+        return nfs4_change_properties(f, &t);
+    } else {
+        push_fattr_mask(r, NFS4_PROP_SIZE);
+        *dest = f;
+        return api_check(c, transact(r));
+    }
 }
 
 int nfs4_close(nfs4_file f)
