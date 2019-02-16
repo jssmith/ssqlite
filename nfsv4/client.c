@@ -154,13 +154,14 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
     return nfs4_status;
     */
    if (flags & NFS4_TRUNC) {
-        api_check(c, transact(r));
+        int nfs4_status = api_check(c, transact(r));
         struct nfs4_properties t;
         t.mask = NFS4_PROP_SIZE;
         t.size = 0;
         f->expected_size = 0;
         *dest = f;
-        return nfs4_change_properties(f, &t);
+        nfs4_change_properties(f, &t);
+        return nfs4_status;
     } else {
         push_fattr_mask(r, NFS4_PROP_SIZE);
         *dest = f;

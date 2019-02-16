@@ -82,7 +82,6 @@ class TestOpen(unittest.TestCase):
         new_f = open('/efs'+filename, 'w+')
         old_content = 'This is a test file'
         n = new_f.write(old_content)
-        self.assertEqual(n, len(old_content)) # make sure sfs.write returns the correct number of bytes written
         new_f.close()
         f = sfs.open(filename, 'w')
         new_content = 'Writing to a non-empty file'
@@ -107,12 +106,12 @@ class TestOpen(unittest.TestCase):
         f = sfs.open(filename, 'a')
         self.assertTrue(os.path.isfile('/efs'+filename))
 
-        # 2. check if write-only
-        # new_f = open('/efs/test.txt', 'w+')
-        # new_f.write('You cannot read it')
-        # new_f.close()
-        # f = sfs.open('/test.txt', 'a')
-        # self.assertRaises(io.UnsupportedOperation, f.read, 1)
+        # 2. check if write-only TODO: write-only yet to be supported
+        new_f = open('/efs/test.txt', 'w+')
+        new_f.write('You cannot read it')
+        new_f.close()
+        f = sfs.open('/test.txt', 'a')
+        self.assertRaises(io.UnsupportedOperation, f.read, 1)
 
         # 3. write to an empty file.
         # first create an empty file using Python built-in open
@@ -134,7 +133,6 @@ class TestOpen(unittest.TestCase):
         new_f = open('/efs'+filename, 'w+')
         old_content = 'This is a test file'
         n = new_f.write(old_content)
-        self.assertEqual(n, len(old_content)) # make sure sfs.write returns the correct number of bytes written
         new_f.close()
         f = sfs.open(filename, 'a')
         new_content = 'Writing to a non-empty file'
@@ -146,7 +144,7 @@ class TestOpen(unittest.TestCase):
 
 if __name__ == '__main__':
     """
-    run this test by "sudo python3 sfs_test.py ${NFS4_SERVER}"
+    run all tests by "sudo python3 sfs_test.py ${NFS4_SERVER}"
     """
     sfs.mount(sys.argv.pop())
     unittest.main()
