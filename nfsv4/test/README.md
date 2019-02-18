@@ -21,7 +21,7 @@ Reading a file.
 Writing a file with two bytes of random content.
 
     > write open /aeneid.txt generate 2
-    [SEGFAULT]
+    0.027
 
 ## Commands
 
@@ -52,7 +52,6 @@ For example, `write open /sample.txt generate 2` can be thought of as `write(ope
 `truncate`
 `unlock`
 `mkdir` - make a directory 
->>>>>>> shell
 
 ## Environment Flags
 
