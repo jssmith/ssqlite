@@ -168,7 +168,7 @@ static value compare(client c, vector args)
 // optional seed
 static value generate(client v, vector args)
 {
-    u32 seed = 0;
+    u32 seed = 24601;
     u64 len = pop_integer_argument(args);
     buffer result = allocate_buffer(h, len);
     
