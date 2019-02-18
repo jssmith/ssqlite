@@ -36,7 +36,7 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
         rpc r = file_rpc(f);
         u64 transferred = push_read(r, offset,  dest + total, len - total, &f->latest_sid);
         status s;
-        if (total < len) {
+        if (total + transferred < len) {
             // reestablish connection here
             s = rpc_send(r);
         } else {
