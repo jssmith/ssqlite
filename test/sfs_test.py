@@ -18,6 +18,7 @@ class TestOpen(unittest.TestCase):
         # generate a 15-character-long letters-digits-mixed string as filename, 
         # chance that it already exists is close to zero.
         # Open a file with such filename should raise a FileNotFoundError exception
+        random.seed(6) # I like 6
         filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
         self.assertRaises(FileNotFoundError, sfs.open, filename, "r") 
         
@@ -49,6 +50,7 @@ class TestOpen(unittest.TestCase):
         # 1. check if opening a non-existing file will first create a such file
         # generate a 15-character-long letters-digits-mixed string as filename, 
         # chance that it already exists is close to zero.
+        random.seed(8) # I also like 8
         filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
         f = sfs.open(filename, 'w')
         self.assertTrue(os.path.isfile('/efs'+filename))
@@ -57,7 +59,8 @@ class TestOpen(unittest.TestCase):
         new_f = open('/efs/test.txt', 'w+')
         new_f.write('You cannot read it')
         new_f.close()
-        self.assertRaises(io.UnsupportedOperation, sfs.open, '/test.txt', 'w')
+        f = sfs.open('/test.txt', 'w')
+        self.assertRaises(io.UnsupportedOperation, f.read, 1)
 
         # 3. write to an empty file.
         new_f = open('/efs'+filename, 'w+') # this line truncates the file, makes it empty

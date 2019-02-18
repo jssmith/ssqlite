@@ -166,19 +166,19 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
     push_open(r, final, flags, f, p);
     push_op(r, OP_GETFH, parse_filehandle, f->filehandle);
     push_op(r, OP_GETATTR, get_expected_size, f);
+
+    push_fattr_mask(r, NFS4_PROP_SIZE);
+    *dest = f;
+    int nfs4_status = api_check(c, transact(r));
     // force write for trunc
-    if (flags & NFS4_TRUNC) {
-        api_check(c, transact(r));
-        struct nfs4_properties t;
-        t.mask = NFS4_PROP_SIZE;
-        t.size = 0;
+    if (nfs4_status == NFS4_OK && (flags & NFS4_TRUNC)) {
+        //struct nfs4_properties t;
+        p->mask = NFS4_PROP_SIZE;
+        p->size = 0;
         f->expected_size = 0;
-        return nfs4_change_properties(f, &t);
-    } else {
-        push_fattr_mask(r, NFS4_PROP_SIZE);
-        *dest = f;
-        return api_check(c, transact(r));
-    }
+        nfs4_change_properties(f, p); // nfs4_change_properties seems to be buggy
+    } 
+    return nfs4_status;
 }
 
 int nfs4_close(nfs4_file f)
