@@ -87,6 +87,7 @@ class FileObjectWrapper:
     def __init__(self, f):
         self._file = f
         self._pos = 0
+        self._closed = False
 
     def __enter__(self):
         return self
@@ -95,7 +96,62 @@ class FileObjectWrapper:
         # TODO ensure file closed
         pass
 
-    def seek(self, pos, whence=0):
+    def close(self):
+        """Flush and close this stream."""
+        raise io.UnsupportedOperation
+
+    @property
+    def closed(self):
+        return self._closed
+
+    def fileno(self):
+        """Return the underlying file descriptor"""
+        raise io.UnsupportedOperation
+
+    def flush(self):
+        """
+        Flush the write buffers of the stream if applicable. 
+        
+        This does nothing for read-only and non-blocking streams.
+        """
+        raise io.UnsupportedOperation
+
+    def isatty(self):
+        """Return True if the stream is interactive."""
+        raise io.UnsupportedOperation
+
+    def readable(self):
+        """Return True if the stream can be read from."""
+        raise io.UnsupportedOperation
+
+    def readline(self, size=-1):
+        """
+        Read and return one line from the stream. 
+        
+        If size is specified, at most size bytes will be read.
+        The line terminator is always b'\n' for binary files; for text files, the newline argument to open() can be used to select the line terminator(s) recognized.
+        """
+        raise io.UnsupportedOperation
+
+    def readlines(self, hint=-1):
+        """
+        Read and return a list of lines from the stream. 
+        
+        hint can be specified to control the number of lines read: no more lines will be read if the total size (in bytes/characters) of all lines so far exceeds hint.
+        """
+        raise io.UnsupportedOperation
+
+    def seek(self, offset[, whence=0]):
+        """Change the stream position to the given byte offset. 
+        
+        offset is interpreted relative to the position indicated by whence. The default value for whence is SEEK_SET. Values for whence are:
+
+            SEEK_SET or 0 – start of the stream (the default); offset should be zero or positive
+            SEEK_CUR or 1 – current stream position; offset may be negative
+            SEEK_END or 2 – end of the stream; offset is usually negative
+
+        Return the new absolute position.
+        """
         if whence == 0:
             self._pos = pos
         elif whence == 1:
@@ -104,6 +160,35 @@ class FileObjectWrapper:
             raise NotImplementedError("seeking from end not yet implemented")
         else:
             raise ValueError("illegal value of whence")
+        raise io.UnsupportedOperation
+
+    def seekable(self):
+        """Return True if the stream supports random access."""
+        return True
+
+    def tell(self):
+        """Return the current stream position."""
+        return self._pos
+
+    def truncate(self, size=None):
+        """
+        Resize the stream to the given size in bytes (or the current position if size is not specified). 
+
+        The current stream position isn’t changed. This resizing can extend or reduce the current file size. In case of extension, the contents of the new file area depend on the platform (on most systems, additional bytes are zero-filled). The new file size is returned.
+        """
+        raise io.UnsupportedOperation
+
+    def writable(self):
+        """Return True if the stream supports writing."""
+        raise io.UnsupportedOperation
+
+    def writelines(self, lines):
+        """
+        Write a list of lines to the stream.
+
+        Line separators are not added, so it is usual for each of the lines provided to have a line separator at the end.
+        """
+        raise io.UnsupportedOperation
 
     def read(self, size=-1):
         buffer = ctypes.create_string_buffer(size)
