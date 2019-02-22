@@ -40,6 +40,8 @@ class Nfs4_file_struct(ctypes.Structure):
 Nfs4_file = ctypes.POINTER(Nfs4_file_struct)
 
 c_helper.nfs4_create.argtypes = [ctypes.c_char_p, ctypes.POINTER(Nfs4)]
+c_helper.nfs4_error_num.argtypes = [Nfs4]
+c_helper.nfs4_error_num.restype = ctypes.c_int
 c_helper.nfs4_error_string.argtypes = [Nfs4]
 c_helper.nfs4_error_string.restype = ctypes.c_char_p
 c_helper.nfs4_open.argtypes = [Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_properties, ctypes.POINTER(Nfs4_file)]
@@ -199,10 +201,11 @@ class FileObjectWrapper:
 
     def read(self, size=-1):
         buffer = ctypes.create_string_buffer(size)
+        print("offset", self._pos)
         bytes_read = c_helper.nfs4_pread(self._file, buffer, self._pos, size)
         if bytes_read < 0:
-            # if read_status == NFS4ERR_OPENMODE:
-            #    raise io.UnsupportedOperation("not readable") 
+            if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
+                raise io.UnsupportedOperation("not readable") 
             print("Failed to read file: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
             return
         self._pos += bytes_read
@@ -211,8 +214,8 @@ class FileObjectWrapper:
     def write(self, content_bytes):
         bytes_written = c_helper.nfs4_pwrite(self._file, content_bytes, self._pos, len(content_bytes))
         if bytes_written < 0:
-            # if write_status == NFS4ERR_OPENMODE:
-            #    raise io.UnsupportedOperation("not writable") 
+            if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
+                raise io.UnsupportedOperation("not writable") 
             print("Failed to write: ", c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
             return -1
         self._pos += bytes_written
