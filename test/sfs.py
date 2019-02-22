@@ -81,24 +81,26 @@ def open(file_name, mode='r'):
             raise PermissionError("[Errno 13] Permission denied: " + "'" + file_name + "'")
         print("Failed to open " + file_name + ": " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
         return
-    return FileObjectWrapper(f_ptr.contents)
+    return FileObjectWrapper(f_ptr.contents, flags)
 
 class FileObjectWrapper:
-    def __init__(self, f):
+    def __init__(self, f, flags):
         self._file = f
         self._pos = 0
         self._closed = False
+        self._flags = flags
 
     def __enter__(self):
         return self
 
-    def __exit__(self, type, value, traceback):
+    def __exit__(self, exception_type, exception_value, traceback):
         # TODO ensure file closed
         pass
 
     def close(self):
         """Flush and close this stream."""
-        raise io.UnsupportedOperation
+        # TODO support nfs4_close
+        pass
 
     @property
     def closed(self):
@@ -118,11 +120,11 @@ class FileObjectWrapper:
 
     def isatty(self):
         """Return True if the stream is interactive."""
-        raise io.UnsupportedOperation
+        return False
 
     def readable(self):
         """Return True if the stream can be read from."""
-        raise io.UnsupportedOperation
+        return self._flags and NFS4_RDONLY
 
     def readline(self, size=-1):
         """
@@ -141,26 +143,25 @@ class FileObjectWrapper:
         """
         raise io.UnsupportedOperation
 
-    def seek(self, offset[, whence=0]):
+    def seek(self, offset, whence=0):
         """Change the stream position to the given byte offset. 
         
         offset is interpreted relative to the position indicated by whence. The default value for whence is SEEK_SET. Values for whence are:
 
-            SEEK_SET or 0 – start of the stream (the default); offset should be zero or positive
-            SEEK_CUR or 1 – current stream position; offset may be negative
-            SEEK_END or 2 – end of the stream; offset is usually negative
+            SEEK_SET or 0 - start of the stream (the default); offset should be zero or positive
+            SEEK_CUR or 1 - current stream position; offset may be negative
+            SEEK_END or 2 - end of the stream; offset is usually negative
 
         Return the new absolute position.
         """
         if whence == 0:
-            self._pos = pos
+            self._pos = offset
         elif whence == 1:
-            self._pos += pos
+            self._pos += offset
         elif whence == 2:
             raise NotImplementedError("seeking from end not yet implemented")
         else:
             raise ValueError("illegal value of whence")
-        raise io.UnsupportedOperation
 
     def seekable(self):
         """Return True if the stream supports random access."""
@@ -174,13 +175,13 @@ class FileObjectWrapper:
         """
         Resize the stream to the given size in bytes (or the current position if size is not specified). 
 
-        The current stream position isn’t changed. This resizing can extend or reduce the current file size. In case of extension, the contents of the new file area depend on the platform (on most systems, additional bytes are zero-filled). The new file size is returned.
+        The current stream position isn't changed. This resizing can extend or reduce the current file size. In case of extension, the contents of the new file area depend on the platform (on most systems, additional bytes are zero-filled). The new file size is returned.
         """
         raise io.UnsupportedOperation
 
     def writable(self):
         """Return True if the stream supports writing."""
-        raise io.UnsupportedOperation
+        return self._flags and NFS4_WRONLY
 
     def writelines(self, lines):
         """
@@ -188,7 +189,13 @@ class FileObjectWrapper:
 
         Line separators are not added, so it is usual for each of the lines provided to have a line separator at the end.
         """
-        raise io.UnsupportedOperation
+        total_bytes_written = 0
+        for line in lines:
+            bytes_written = self.write(line)
+            if bytes_written < 1:
+                return total_bytes_written
+            total_bytes_written += bytes_written
+        return total_bytes_written
 
     def read(self, size=-1):
         buffer = ctypes.create_string_buffer(size)
