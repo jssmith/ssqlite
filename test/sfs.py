@@ -88,7 +88,7 @@ def open(file_name, mode='r'):
         return
     return FileObjectWrapper(f_ptr.contents, flags)
 
-class FileObjectWrapper:
+class FileObjectWrapper(io.RawIOBase):
     def __init__(self, f, flags):
         self._file = f
         self._pos = 0
@@ -129,7 +129,7 @@ class FileObjectWrapper:
 
     def readable(self):
         """Return True if the stream can be read from."""
-        return self._flags and NFS4_RDONLY
+        return bool(self._flags and NFS4_RDONLY)
 
     def readline(self, size=-1):
         """
@@ -186,7 +186,7 @@ class FileObjectWrapper:
 
     def writable(self):
         """Return True if the stream supports writing."""
-        return self._flags and NFS4_WRONLY
+        return bool(self._flags and NFS4_WRONLY)
 
     def writelines(self, lines):
         """
@@ -217,7 +217,6 @@ class FileObjectWrapper:
         elif size < 0:
             raise ValueError("size must be >= -1")
         buffer = ctypes.create_string_buffer(size)
-        print("offset", self._pos)
         bytes_read = c_helper.nfs4_pread(self._file, buffer, self._pos, size)
         if bytes_read < 0:
             if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
@@ -240,6 +239,18 @@ class FileObjectWrapper:
             segments.append(segment)
             segment = self.read(READ_ALL_CHUNK_SIZE)
         return ''.join(segments)
+
+    def readinto(self, b):
+        """
+        Read bytes into a pre-allocated, writable bytes-like object b, and return the number of bytes read. 
+
+        If the object is in non-blocking mode and no bytes are available, None is returned.
+        """
+        length = len(b)
+        data = self.read(length)
+        for i in range(len(data)):
+            b[i] = data[i]
+        return length
 
     def write(self, content_bytes):
         bytes_written = c_helper.nfs4_pwrite(self._file, content_bytes, self._pos, len(content_bytes))
