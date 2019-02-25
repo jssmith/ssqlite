@@ -3,6 +3,9 @@ import io
 
 c_helper = ctypes.CDLL('../nfsv4/libnfs4.so')
 
+# Number of bytes per call when reading an entire file
+READ_ALL_CHUNK_SIZE = 2**16
+
 NFS4_RDONLY = 1
 NFS4_WRONLY = 2
 NFS4_RDWRITE = 3
@@ -200,6 +203,19 @@ class FileObjectWrapper:
         return total_bytes_written
 
     def read(self, size=-1):
+        """
+        Read up to size bytes from the object and return them.
+
+        If size is -1, all bytes until EOF are returned with possibly 
+        multiple underlying calls. If size is specified, only one call will be
+        made.
+
+        If 0 bytes are returned and size was not 0, the end of file has been reached.
+        """
+        if size == -1:
+            return self.readall()
+        elif size < 0:
+            raise ValueError("size must be >= -1")
         buffer = ctypes.create_string_buffer(size)
         print("offset", self._pos)
         bytes_read = c_helper.nfs4_pread(self._file, buffer, self._pos, size)
@@ -208,8 +224,22 @@ class FileObjectWrapper:
                 raise io.UnsupportedOperation("not readable") 
             print("Failed to read file: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
             return
-        self._pos += bytes_read
+        self._pos += len(buffer.value)
         return buffer.value
+
+    def readall(self):
+        """
+        Read and return all the bytes from the stream until EOF.
+        
+        Use multiple calls if necessary. Return None upon error.
+        """
+        segments = []
+
+        segment = self.read(READ_ALL_CHUNK_SIZE)
+        while segment:
+            segments.append(segment)
+            segment = self.read(READ_ALL_CHUNK_SIZE)
+        return ''.join(segments)
 
     def write(self, content_bytes):
         bytes_written = c_helper.nfs4_pwrite(self._file, content_bytes, self._pos, len(content_bytes))
@@ -217,6 +247,6 @@ class FileObjectWrapper:
             if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
                 raise io.UnsupportedOperation("not writable") 
             print("Failed to write: ", c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
-            return -1
+            return None
         self._pos += bytes_written
         return bytes_written
