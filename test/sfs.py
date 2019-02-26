@@ -60,7 +60,7 @@ def mount(host_ip):
     if c_helper.nfs4_create(b_host_ip, ctypes.pointer(client)) != NFS4_OK:
         print("open client fail: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
     
-def open(file_name, mode='r'):
+def open(file_name, mode='r', buffering=256):
     #TODO: needs to validate MODE
     p = Nfs4_properties_struct()
     p.mask = NFS4_PROP_MODE
@@ -86,7 +86,13 @@ def open(file_name, mode='r'):
             raise PermissionError("[Errno 13] Permission denied: " + "'" + file_name + "'")
         print("Failed to open " + file_name + ": " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
         return
-    return FileObjectWrapper(f_ptr.contents, flags)
+    f = FileObjectWrapper(f_ptr.contents, flags)
+
+    if buffering > 1:
+        return io.BufferedRandom(f, buffering)
+    else:
+        # This is not to spec
+        return f
 
 class FileObjectWrapper(io.RawIOBase):
     def __init__(self, f, flags):
@@ -167,6 +173,7 @@ class FileObjectWrapper(io.RawIOBase):
             raise NotImplementedError("seeking from end not yet implemented")
         else:
             raise ValueError("illegal value of whence")
+        return self._pos
 
     def seekable(self):
         """Return True if the stream supports random access."""
