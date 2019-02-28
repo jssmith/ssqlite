@@ -74,6 +74,10 @@ static status set_expected_size(void *z, buffer b)
     return NFS4_OK;
 }
 
+int nfs4_write(nfs4_file f, void *source, bytes offset, bytes length) {
+    return f->is_trunc ? nfs4_pwrite(f, source, offset, length) : nfs4_append(f, source, length);
+}
+
 int nfs4_append(nfs4_file f, void *source, bytes length)
 {
     rpc r = file_rpc(f);
@@ -161,10 +165,12 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
         f->expected_size = 0;
         *dest = f;
         nfs4_change_properties(f, &t);
+        f->is_trunc = true;
         return nfs4_status;
     } else {
         push_fattr_mask(r, NFS4_PROP_SIZE);
         *dest = f;
+        f->is_trunc = false;
         return api_check(c, transact(r));
     }
 }
