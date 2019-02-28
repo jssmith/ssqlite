@@ -45,6 +45,7 @@ c_helper.nfs4_error_string.restype = ctypes.c_char_p
 c_helper.nfs4_open.argtypes = [Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_properties, ctypes.POINTER(Nfs4_file)]
 c_helper.nfs4_pread.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
 c_helper.nfs4_pwrite.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
+c_helper.nfs4_append.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong]
 
 client = Nfs4()
 
@@ -118,7 +119,8 @@ class FileObjectWrapper:
 
     def write(self, content_bytes):
         content_len = len(content_bytes)
-        write_status = c_helper.nfs4_pwrite(self._file, content_bytes, self._pos, content_len)
+        cp = ctypes.c_char_p(bytes(content_bytes, 'utf-8'))
+        write_status = c_helper.nfs4_pwrite(self._file, ctypes.cast(cp, ctypes.c_void_p), self._pos, content_len)
         if write_status != NFS4_OK:
             if write_status == NFS4ERR_OPENMODE:
                 raise io.UnsupportedOperation("not writable") 
