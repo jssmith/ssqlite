@@ -209,7 +209,7 @@ class FileObjectWrapper(io.RawIOBase):
         total_bytes_written = 0
         for line in lines:
             bytes_written = self.write(line)
-            if bytes_written < 1:
+            if bytes_written < 0:
                 return total_bytes_written
             total_bytes_written += bytes_written
         return total_bytes_written
