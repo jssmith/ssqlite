@@ -198,7 +198,7 @@ class FileObjectWrapper(io.RawIOBase):
 
     def writable(self):
         """Return True if the stream supports writing."""
-        return bool(self._flags and NFS4_WRONLY)
+        return bool(self._flags & NFS4_WRONLY)
 
     def writelines(self, lines):
         """
