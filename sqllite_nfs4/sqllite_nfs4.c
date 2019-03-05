@@ -49,27 +49,54 @@ static int nfs4Close(sqlite3_file *pFile){
     return SQLITE_OK;
 }
 
-static int nfs4Read(sqlite3_file *pFile, 
-                    void *zBuf, 
-                    int iAmt, 
-                    sqlite_int64 iOfst) 
+// Repeat nfs4_pread or nfs4_pwrite until completion or error.
+// Return the translate_status of nfs4_func.
+static int nfs4_full_read_write(
+    int (*nfs4_func)(nfs4_file, void*, bytes, bytes),
+    sqlfile f,
+    void *loc,
+    int iAmt,
+    sqlite_int64 iOfst)
+{
+    int progress = 0;
+    while (progress < iAmt) {
+        int step = nfs4_func(
+            f->f,
+            loc,
+            iOfst + progress,
+            iAmt - progress);
+        if (step < 0) {
+            return translate_status(f->ad, f->f->c->error_num);
+        }
+        progress += step;
+    }
+    return NFS4_OK;
+}
+
+static int nfs4Read(
+    sqlite3_file *pFile, 
+    void *zBuf, 
+    int iAmt, 
+    sqlite_int64 iOfst) 
 {
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) {
         eprintf ("read %s offset:%lld bytes:%d ", f->filename, iOfst, iAmt);
     }
-    translate_status(f->ad, nfs4_pread(f->f, zBuf, iOfst, iAmt));
+    return nfs4_full_read_write(nfs4_pread, f, zBuf, iAmt, iOfst);
 }
 
-static int nfs4Write(sqlite3_file *pFile,
-                     const void *z,
-                     int iAmt,
-                     sqlite_int64 iOfst)
+static int nfs4Write(
+    sqlite3_file *pFile,
+    const void *z,
+    int iAmt,
+    sqlite_int64 iOfst)
 {
     sqlfile f = (sqlfile)pFile;
     if (f->ad->trace) 
         eprintf ("write %s offset:%lld bytes:%d ", f->filename, iOfst, iAmt);
-    translate_status(f->ad, nfs4_pwrite(f->f, (void *)z, iOfst, iAmt));
+
+    return nfs4_full_read_write(nfs4_pwrite, f, (void *)z, iAmt, iOfst);
 }
 
 static int nfs4Truncate(sqlite3_file *pFile,
@@ -412,7 +439,8 @@ static int nfs4Fetch(sqlite3_file *pFile,  sqlite3_int64 iOfst, int iAmt, void *
     sqlfile f = (sqlfile)(void *)pFile;
     if (f->ad->trace) 
         eprintf ("fetch %s\n", f->filename);
-    translate_status(f->ad, nfs4_pread(f->f, *pp, iOfst, iAmt));
+
+    return nfs4_full_read_write(nfs4_pread, f, *pp, iAmt, iOfst);
 }
  
 static int nfs4Unfetch(sqlite3_file *pFile, sqlite3_int64 iOfst, void *pPage)
@@ -489,7 +517,9 @@ static int nfs4Open(sqlite3_vfs *pVfs,
     if (flags & SQLITE_OPEN_CREATE)   oflags |= NFS4_CREAT;
     if (flags & SQLITE_OPEN_READWRITE) oflags |= NFS4_RDWRITE;
     
-    nfs4_open(ad->c, f->filename, oflags, 0666, &f->f);
+    struct nfs4_properties p;
+    p.mode = 0666;
+    nfs4_open(ad->c, f->filename, oflags, &p, &f->f);
     
     return SQLITE_CANTOPEN;
 }

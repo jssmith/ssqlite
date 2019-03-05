@@ -84,6 +84,10 @@ char *server; // support multiple servers
 
 value dispatch(client c, vector n);
 
+// Execute the commmand in __n, // check the result's type tag,
+// and return the result.
+//
+// There are four possible tags or types.
 #define dispatch_tag(__c, __tag, __n)\
 ({\
     void *x = dispatch(__c, __n);\
@@ -104,7 +108,7 @@ char *terminate(buffer b)
 
 buffer pop_path(vector v)
 {
-    buffer n = vector_pop(v);
+    buffer n = fifo_pop(v);
     if (n == 0) error("command requires integer argument");
     return n;
 }
@@ -164,9 +168,9 @@ static value compare(client c, vector args)
 // optional seed
 static value generate(client v, vector args)
 {
-    u32 seed = 0;
+    u32 seed = 24601;
     u64 len = pop_integer_argument(args);
-    buffer result = allocate_buffer(0, len);
+    buffer result = allocate_buffer(h, len);
     
     for (int i = 0; i < len; i++) {
         seed = (seed * 1103515245 + 12345) & ((1U << 31) - 1);
@@ -252,13 +256,42 @@ static value open_command(client c, vector args)
     return TAG(f, FILE_TAG);
 }
 
+// Repeats read or write to completion or error
+static value full_read_write(
+    int (*nfs4_func)(nfs4_file, void*, bytes, bytes),
+    nfs4_file f,
+    buffer loc,
+    bytes length,
+    client c) 
+{
+    bytes progress = 0;
+    while (progress < length) {
+        bytes step = nfs4_func(
+            f,
+            loc->contents + loc->start,
+            progress,
+            length - progress);
+        if (step < 0) {
+            return TAG(nfs4_error_string(c->c), ERROR_TAG);
+        }
+        progress += step;
+    }
+    return 0;
+}
+
 static value read_command(client c, vector args)
 {
+    // The file read is the result of executing further arguments
     nfs4_file f = dispatch_tag(c, FILE_TAG, args);
     struct nfs4_properties n;
     ncheck(c, nfs4_fstat(f, &n));
     buffer b = allocate_buffer(h, n.size);
-    ncheck(c, nfs4_pread(f, b->contents, 0, n.size));
+
+    value result = full_read_write(nfs4_pread, f, b, n.size, c);
+    if ((int) result != 0) {
+      return result;
+    }  
+
     b->end  = n.size;
     return TAG(b, BUFFER_TAG);
 }
@@ -314,7 +347,12 @@ static value write_command(client c, vector args)
     // could wire these up monadically to permit asynch streaming
     nfs4_file f = dispatch_tag(c, FILE_TAG, args);    
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
-    ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, buffer_length(body)));
+
+    value result = full_read_write(nfs4_pwrite, f, body, buffer_length(body), c);
+    if ((int) result != 0) {
+      return result;
+    }  
+
     nfs4_close(f);
     return TAG(f, FILE_TAG);
 }
@@ -329,7 +367,17 @@ static value asynch_write_command(client c, vector args)
     ncheck(c, nfs4_open(c->c, relative_path(c, args), NFS4_CREAT | NFS4_WRONLY | NFS4_SERVER_ASYNCH, &p, &f));
     // could wire these up monadically
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
-    ncheck(c, nfs4_pwrite(f, body->contents + body->start, 0, buffer_length(body)));
+
+    value result = full_read_write(
+        nfs4_pwrite,
+        f,
+        body,
+        buffer_length(body),
+        c);
+    if ((int) result != 0) {
+      return result;
+    }  
+
     nfs4_close(f);
     return TAG(body, BUFFER_TAG);
 }
@@ -525,6 +573,8 @@ static value help(client c, vector args)
     return 0;
 }
 
+// Identify which function command refers to and 
+// return the result of its execution.
 value dispatch(client c, vector n)
 {
     int i;
@@ -532,6 +582,8 @@ value dispatch(client c, vector n)
     if (!c) return TAG("no session, set NFS4_SERVER environment or use explcit connect command", ERROR_TAG);
     if (command) {
         for (i = 0; c->commands[i].name[0] ; i++ )
+            // Compare the command with the name of each command in the list 
+            // See 45 lines above in nfs_commands
             if (strncmp(c->commands[i].name, command->contents, buffer_length(command)) == 0) 
                 return c->commands[i].f(c, n);
     }
@@ -555,7 +607,8 @@ void print_value(value v)
         return;
         
     case BUFFER_TAG:
-        printf ("[%lld]\n", buffer_length(valueof(v)));
+        printf ("%lld bytes:\n", buffer_length(valueof(v)));
+        printf ("'%s'\n", ((buffer) valueof(v))->contents);
         return;
 
     default:
