@@ -262,7 +262,7 @@ class FileObjectWrapper(io.RawIOBase):
         data = self.read(length)
         for i in range(len(data)):
             b[i] = data[i]
-        return len(data)
+        return len(data) or None
 
     def write(self, content_bytes):
         array = ctypes.c_byte * len(content_bytes)
