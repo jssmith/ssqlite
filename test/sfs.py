@@ -3,8 +3,6 @@ import io
 
 c_helper = ctypes.CDLL('../nfsv4/libnfs4.so')
 
-# Number of bytes per call when reading an entire file
-READ_ALL_CHUNK_SIZE = 2**16
 
 NFS4_RDONLY = 1
 NFS4_WRONLY = 2
@@ -60,7 +58,7 @@ def mount(host_ip):
     if c_helper.nfs4_create(b_host_ip, ctypes.pointer(client)) != NFS4_OK:
         print("open client fail: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
     
-def open(file_name, mode='r', buffering=256):
+def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE):
     #TODO: needs to validate MODE
     p = Nfs4_properties_struct()
     p.mask = NFS4_PROP_MODE
@@ -89,9 +87,15 @@ def open(file_name, mode='r', buffering=256):
     f = FileObjectWrapper(f_ptr.contents, flags)
 
     if buffering > 1:
-        return io.BufferedRandom(f, buffering)
+        if bool(flags & NFS4_RDONLY) and bool(flags & NFS4_WRONLY):
+            return io.BufferedRandom(f, buffering)
+        if (flags & NFS4_RDONLY):
+            return io.BufferedReader(f, buffering)
+        if (flags & NFS4_WRONLY):
+            return io.BufferedWriter(f, buffering)
+    elif buffering == 1:
+        raise NotImplementedError("line buffering is not supported yet")
     else:
-        # This is not to spec
         return f
 
 class FileObjectWrapper(io.RawIOBase):
@@ -105,13 +109,12 @@ class FileObjectWrapper(io.RawIOBase):
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):
-        # TODO ensure file closed
-        pass
+        self.close()
 
     def close(self):
         """Flush and close this stream."""
         # TODO support nfs4_close
-        pass
+        self._closed = True
 
     @property
     def closed(self):
@@ -135,7 +138,7 @@ class FileObjectWrapper(io.RawIOBase):
 
     def readable(self):
         """Return True if the stream can be read from."""
-        return bool(self._flags and NFS4_RDONLY)
+        return bool(self._flags & NFS4_RDONLY)
 
     def readline(self, size=-1):
         """
@@ -154,7 +157,7 @@ class FileObjectWrapper(io.RawIOBase):
         """
         raise io.UnsupportedOperation
 
-    def seek(self, offset, whence=0):
+    def seek(self, offset, whence=io.SEEK_SET):
         """Change the stream position to the given byte offset. 
         
         offset is interpreted relative to the position indicated by whence. The default value for whence is SEEK_SET. Values for whence are:
@@ -165,11 +168,13 @@ class FileObjectWrapper(io.RawIOBase):
 
         Return the new absolute position.
         """
-        if whence == 0:
+        if whence == io.SEEK_SET:
+            if offset < 0:
+                raise ValueError("illegal value of offset")
             self._pos = offset
-        elif whence == 1:
+        elif whence == io.SEEK_CUR:
             self._pos += offset
-        elif whence == 2:
+        elif whence == io.SEEK_END:
             raise NotImplementedError("seeking from end not yet implemented")
         else:
             raise ValueError("illegal value of whence")
@@ -239,13 +244,13 @@ class FileObjectWrapper(io.RawIOBase):
         
         Use multiple calls if necessary. Return None upon error.
         """
-        segments = []
+        segments = b''
 
-        segment = self.read(READ_ALL_CHUNK_SIZE)
+        segment = self.read(io.DEFAULT_BUFFER_SIZE)
         while segment:
-            segments.append(segment)
-            segment = self.read(READ_ALL_CHUNK_SIZE)
-        return ''.join(segments)
+            segments += segment
+            segment = self.read(io.DEFAULT_BUFFER_SIZE)
+        return segments
 
     def readinto(self, b):
         """
@@ -257,10 +262,15 @@ class FileObjectWrapper(io.RawIOBase):
         data = self.read(length)
         for i in range(len(data)):
             b[i] = data[i]
-        return length
+        return len(data)
 
     def write(self, content_bytes):
-        bytes_written = c_helper.nfs4_pwrite(self._file, content_bytes, self._pos, len(content_bytes))
+        array = ctypes.c_byte * len(content_bytes)
+        bytes_written = c_helper.nfs4_pwrite(
+                self._file,
+                array.from_buffer_copy(content_bytes),
+                self._pos,
+                len(content_bytes))
         if bytes_written < 0:
             if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
                 raise io.UnsupportedOperation("not writable") 
