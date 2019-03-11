@@ -1,7 +1,7 @@
 import ctypes
 import io
 
-c_helper = ctypes.CDLL('./libnfs4.so')
+c_helper = ctypes.CDLL('../nfsv4/libnfs4.so')
 
 
 NFS4_RDONLY = 1
@@ -64,6 +64,7 @@ def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE):
     p.mask = NFS4_PROP_MODE
     p.mode = 0o666
     
+    binary_mode = False
     flags = 0
     for c in mode:
         if c == 'r':
@@ -72,6 +73,8 @@ def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE):
             flags |= (NFS4_TRUNC | NFS4_WRONLY | NFS4_CREAT)
         elif c == 'a':
             flags |= (NFS4_WRONLY | NFS4_CREAT)
+        elif c == 'b':
+            binary_mode = True
         else:
             raise NotImplementedError("flags other than 'r', 'w' and 'a' not supported yet")
     
@@ -87,12 +90,22 @@ def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE):
     f = FileObjectWrapper(f_ptr.contents, flags)
 
     if buffering > 1:
+        buffered_f = None
         if bool(flags & NFS4_RDONLY) and bool(flags & NFS4_WRONLY):
-            return io.BufferedRandom(f, buffering)
-        if (flags & NFS4_RDONLY):
-            return io.BufferedReader(f, buffering)
-        if (flags & NFS4_WRONLY):
-            return io.BufferedWriter(f, buffering)
+            buffered_f = io.BufferedRandom(f, buffering)
+        elif (flags & NFS4_RDONLY):
+            buffered_f = io.BufferedReader(f, buffering)
+        elif (flags & NFS4_WRONLY):
+            buffered_f = io.BufferedWriter(f, buffering)
+        else:
+            raise ValueError("illegal combination of flags")
+
+        if binary_mode:
+            return buffered_f
+
+        return io.TextIOWrapper(buffered_f)
+
+
     elif buffering == 1:
         raise NotImplementedError("line buffering is not supported yet")
     else:
