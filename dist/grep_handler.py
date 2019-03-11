@@ -4,13 +4,14 @@ import sys
 
 from sfs import *
 
+
 def grep(file_name, phrase):
-    p = re.compile(phrase.encode("utf-8"))
+    p = re.compile(phrase)
     matched_lines = []
     with open(file_name, mode='r') as f:
         for line in f:
             if p.search(line):
-                matched_lines.append(file_name + ": " + line.decode("utf-8"))
+                matched_lines.append(file_name + ": " + line)
     return matched_lines
 
 
