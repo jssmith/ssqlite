@@ -1,7 +1,7 @@
 import ctypes
 import io
 
-c_helper = ctypes.CDLL('../nfsv4/libnfs4.so')
+c_helper = ctypes.CDLL('./libnfs4.so')
 
 
 NFS4_RDONLY = 1
@@ -14,11 +14,15 @@ NFS4_OK = 0
 NFS4_ENOENT = 2
 NFS4_EACCES = 13
 NFS4ERR_OPENMODE = 10038
-NFS4_PROP_MODE = 1<<33
+NFS4_PROP_MODE = 1 << 33
+
 
 class Nfs4_struct(ctypes.Structure):
     pass
-Nfs4 = ctypes.POINTER(Nfs4_struct) 
+
+
+Nfs4 = ctypes.POINTER(Nfs4_struct)
+
 
 class Nfs4_properties_struct(ctypes.Structure):
     _fields_ = [
@@ -34,10 +38,15 @@ class Nfs4_properties_struct(ctypes.Structure):
         ('access_time', ctypes.c_ulonglong),
         ('modify_time', ctypes.c_ulonglong)
     ]
+
+
 Nfs4_properties = ctypes.POINTER(Nfs4_properties_struct)
+
 
 class Nfs4_file_struct(ctypes.Structure):
     pass
+
+
 Nfs4_file = ctypes.POINTER(Nfs4_file_struct)
 
 c_helper.nfs4_create.argtypes = [ctypes.c_char_p, ctypes.POINTER(Nfs4)]
@@ -45,25 +54,31 @@ c_helper.nfs4_error_num.argtypes = [Nfs4]
 c_helper.nfs4_error_num.restype = ctypes.c_int
 c_helper.nfs4_error_string.argtypes = [Nfs4]
 c_helper.nfs4_error_string.restype = ctypes.c_char_p
-c_helper.nfs4_open.argtypes = [Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_properties, ctypes.POINTER(Nfs4_file)]
-c_helper.nfs4_pread.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
-c_helper.nfs4_pwrite.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
+c_helper.nfs4_open.argtypes = [
+    Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_properties, ctypes.POINTER(Nfs4_file)]
+c_helper.nfs4_pread.argtypes = [
+    Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
+c_helper.nfs4_pwrite.argtypes = [
+    Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
 
 client = Nfs4()
+
 
 def mount(host_ip):
     b_host_ip = host_ip.encode('utf-8')
     print("host_ip: " + host_ip)
     print("create client")
     if c_helper.nfs4_create(b_host_ip, ctypes.pointer(client)) != NFS4_OK:
-        print("open client fail: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
-    
+        print("open client fail: " +
+              c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
+
+
 def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE):
-    #TODO: needs to validate MODE
+    # TODO: needs to validate MODE
     p = Nfs4_properties_struct()
     p.mask = NFS4_PROP_MODE
     p.mode = 0o666
-    
+
     binary_mode = False
     flags = 0
     for c in mode:
@@ -76,16 +91,21 @@ def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE):
         elif c == 'b':
             binary_mode = True
         else:
-            raise NotImplementedError("flags other than 'r', 'w' and 'a' not supported yet")
-    
-    f_ptr = ctypes.pointer(Nfs4_file()) 
-    error_code = c_helper.nfs4_open(client, file_name.encode('utf-8'), flags, ctypes.byref(p), f_ptr)
+            raise NotImplementedError(
+                "flags other than 'r', 'w' and 'a' not supported yet")
+
+    f_ptr = ctypes.pointer(Nfs4_file())
+    error_code = c_helper.nfs4_open(client, file_name.encode(
+        'utf-8'), flags, ctypes.byref(p), f_ptr)
     if error_code != NFS4_OK:
         if error_code == NFS4_ENOENT:
-            raise FileNotFoundError("[Errno 2] No such file or directory: " + "'" + file_name + "'")
+            raise FileNotFoundError(
+                "[Errno 2] No such file or directory: " + "'" + file_name + "'")
         if error_code == NFS4_EACCES:
-            raise PermissionError("[Errno 13] Permission denied: " + "'" + file_name + "'")
-        print("Failed to open " + file_name + ": " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
+            raise PermissionError(
+                "[Errno 13] Permission denied: " + "'" + file_name + "'")
+        print("Failed to open " + file_name + ": " +
+              c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
         return
     f = FileObjectWrapper(f_ptr.contents, flags)
 
@@ -104,12 +124,11 @@ def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE):
             return buffered_f
 
         return io.TextIOWrapper(buffered_f)
-
-
     elif buffering == 1:
         raise NotImplementedError("line buffering is not supported yet")
     else:
         return f
+
 
 class FileObjectWrapper(io.RawIOBase):
     def __init__(self, f, flags):
@@ -140,7 +159,7 @@ class FileObjectWrapper(io.RawIOBase):
     def flush(self):
         """
         Flush the write buffers of the stream if applicable. 
-        
+
         This does nothing for read-only and non-blocking streams.
         """
         pass
@@ -156,7 +175,7 @@ class FileObjectWrapper(io.RawIOBase):
     def readline(self, size=-1):
         """
         Read and return one line from the stream. 
-        
+
         If size is specified, at most size bytes will be read.
         The line terminator is always b'\n' for binary files; for text files, the newline argument to open() can be used to select the line terminator(s) recognized.
         """
@@ -165,14 +184,14 @@ class FileObjectWrapper(io.RawIOBase):
     def readlines(self, hint=-1):
         """
         Read and return a list of lines from the stream. 
-        
+
         hint can be specified to control the number of lines read: no more lines will be read if the total size (in bytes/characters) of all lines so far exceeds hint.
         """
         raise io.UnsupportedOperation
 
     def seek(self, offset, whence=io.SEEK_SET):
         """Change the stream position to the given byte offset. 
-        
+
         offset is interpreted relative to the position indicated by whence. The default value for whence is SEEK_SET. Values for whence are:
 
             SEEK_SET or 0 - start of the stream (the default); offset should be zero or positive
@@ -245,8 +264,9 @@ class FileObjectWrapper(io.RawIOBase):
         bytes_read = c_helper.nfs4_pread(self._file, buffer, self._pos, size)
         if bytes_read < 0:
             if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
-                raise io.UnsupportedOperation("not readable") 
-            print("Failed to read file: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
+                raise io.UnsupportedOperation("not readable")
+            print("Failed to read file: " +
+                  c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
             return
         self._pos += len(buffer.value)
         return buffer.value
@@ -254,7 +274,7 @@ class FileObjectWrapper(io.RawIOBase):
     def readall(self):
         """
         Read and return all the bytes from the stream until EOF.
-        
+
         Use multiple calls if necessary. Return None upon error.
         """
         segments = b''
@@ -280,14 +300,15 @@ class FileObjectWrapper(io.RawIOBase):
     def write(self, content_bytes):
         array = ctypes.c_byte * len(content_bytes)
         bytes_written = c_helper.nfs4_pwrite(
-                self._file,
-                array.from_buffer_copy(content_bytes),
-                self._pos,
-                len(content_bytes))
+            self._file,
+            array.from_buffer_copy(content_bytes),
+            self._pos,
+            len(content_bytes))
         if bytes_written < 0:
             if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
-                raise io.UnsupportedOperation("not writable") 
-            print("Failed to write: ", c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
+                raise io.UnsupportedOperation("not writable")
+            print("Failed to write: ", c_helper.nfs4_error_string(
+                client).decode(encoding='utf-8'))
             return None
         self._pos += bytes_written
         return bytes_written
