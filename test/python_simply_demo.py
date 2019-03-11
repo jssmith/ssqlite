@@ -1,6 +1,13 @@
 import argparse
+import binascii
 
 from sfs import *
+
+def clean_print(s):
+    try:
+        print(s.encode('utf-8'))
+    except:
+        print(binascii.hexlify(s))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Demonstrate of SFS read with Python')
@@ -14,8 +21,11 @@ if __name__ == '__main__':
         raise ValueError('test-file should start with \'/\'')
 
     mount(args.mount_point)
-    with open(args.test_file) as f:
-        print("bytes [0, 128)", f.read(128).decode('utf-8'))
-        print("bytes [128, 256)", f.read(128).decode('utf-8'))
+    with open(args.test_file, mode='r',  buffering=256) as f:
+        print("bytes [0, 128)")
+        print(f.read(128))
+        print("bytes [128, 256)")
+        print(f.read(128))
         f.seek(0)
-        print("bytes [0, 64)", f.read(64).decode('utf-8'))
+        print("bytes [0, 64)")
+        print(f.read(64))
