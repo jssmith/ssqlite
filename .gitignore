@@ -1,3 +1,4 @@
 /sqlite*
 *.o
 *.so
+*.pyc
