@@ -159,7 +159,7 @@ class FileObjectWrapper(io.RawIOBase):
 
     def flush(self):
         """
-        Flush the write buffers of the stream if applicable. 
+        Flush the write buffers of the stream if applicable.
 
         This does nothing for read-only and non-blocking streams.
         """
@@ -175,7 +175,7 @@ class FileObjectWrapper(io.RawIOBase):
 
     def readline(self, size=-1):
         """
-        Read and return one line from the stream. 
+        Read and return one line from the stream.
 
         If size is specified, at most size bytes will be read.
         The line terminator is always b'\n' for binary files; for text files, the newline argument to open() can be used to select the line terminator(s) recognized.
@@ -184,14 +184,14 @@ class FileObjectWrapper(io.RawIOBase):
 
     def readlines(self, hint=-1):
         """
-        Read and return a list of lines from the stream. 
+        Read and return a list of lines from the stream.
 
         hint can be specified to control the number of lines read: no more lines will be read if the total size (in bytes/characters) of all lines so far exceeds hint.
         """
         raise io.UnsupportedOperation
 
     def seek(self, offset, whence=io.SEEK_SET):
-        """Change the stream position to the given byte offset. 
+        """Change the stream position to the given byte offset.
 
         offset is interpreted relative to the position indicated by whence. The default value for whence is SEEK_SET. Values for whence are:
 
@@ -223,7 +223,7 @@ class FileObjectWrapper(io.RawIOBase):
 
     def truncate(self, size=None):
         """
-        Resize the stream to the given size in bytes (or the current position if size is not specified). 
+        Resize the stream to the given size in bytes (or the current position if size is not specified).
 
         The current stream position isn't changed. This resizing can extend or reduce the current file size. In case of extension, the contents of the new file area depend on the platform (on most systems, additional bytes are zero-filled). The new file size is returned.
         """
@@ -251,7 +251,7 @@ class FileObjectWrapper(io.RawIOBase):
         """
         Read up to size bytes from the object and return them.
 
-        If size is -1, all bytes until EOF are returned with possibly 
+        If size is -1, all bytes until EOF are returned with possibly
         multiple underlying calls. If size is specified, only one call will be
         made.
 
@@ -288,12 +288,13 @@ class FileObjectWrapper(io.RawIOBase):
 
     def readinto(self, b):
         """
-        Read bytes into a pre-allocated, writable bytes-like object b, and return the number of bytes read. 
+        Read bytes into a pre-allocated, writable bytes-like object b, and return the number of bytes read.
 
         If the object is in non-blocking mode and no bytes are available, None is returned.
         """
         length = len(b)
         data = self.read(length)
+
         b[:len(data)] = data
         return len(data) or None
 
