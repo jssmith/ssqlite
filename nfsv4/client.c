@@ -82,13 +82,9 @@ int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
             s = transact(r);
         }
         if (nfs4_is_error(s)) {
-            if (total == 0) {
-                f->c->error_string = s->description;
-                f->c->nfs_error_num = s->error;
-                return -1;
-            } else {
-                return total;
-            }
+            f->c->error_string = s->description;
+            f->c->nfs_error_num = s->error;
+            return -1;
         }
         total += transferred;
         offset += transferred;
