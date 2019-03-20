@@ -90,8 +90,8 @@ void test_sequential_write(nfs4 client, char* filename, u_int64_t num_blocks, u_
   for (int bytes_traversed = 0; 
        bytes_traversed < block_size * num_blocks;
        bytes_traversed += block_size) {
-    int write_status = nfs4_pwrite(f, (void*) block_content, bytes_traversed, block_size);
-    if (write_status != NFS4_OK) { 
+    int write_amount = nfs4_pwrite(f, (void*) block_content, bytes_traversed, block_size);
+    if (write_amount < block_size) { 
       printf("Failed to write to %s:%s\n", filename, nfs4_error_string(client));
       exit(1);
     }
@@ -116,8 +116,8 @@ void test_sequential_read(nfs4 client, char* filename, u_int64_t num_blocks, u_i
   for (int bytes_traversed = 0; 
        bytes_traversed < block_size * num_blocks; 
        bytes_traversed += block_size) {
-    int read_status = nfs4_pread(f, read_dst, bytes_traversed, block_size);
-    if (read_status != NFS4_OK) { 
+    int bytes_read = nfs4_pread(f, read_dst, bytes_traversed, block_size);
+    if (bytes_read < block_size) { 
       printf("Failed to read %s:%s\n", filename, nfs4_error_string(client));
       exit(1);
     } 
@@ -143,7 +143,7 @@ int main(int argc, char **argv) {
   if (strcmp("read", operation) == 0) {
     test = test_sequential_read;
   } else if(strcmp("write", operation) == 0) {
-    test = test_sequential_write;;
+    test = test_sequential_write;
   } else {
     usage();
     exit(1);
