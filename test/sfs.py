@@ -45,7 +45,6 @@ c_helper.nfs4_error_string.restype = ctypes.c_char_p
 c_helper.nfs4_open.argtypes = [Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_properties, ctypes.POINTER(Nfs4_file)]
 c_helper.nfs4_pread.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
 c_helper.nfs4_write.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
-c_helper.nfs4_append.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong]
 
 client = Nfs4()
 

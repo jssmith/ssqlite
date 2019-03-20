@@ -65,7 +65,7 @@ struct nfs4_file {
     struct stateid open_sid;
     boolean asynch_writes;
     u64 expected_size;
-    boolean is_trunc;
+    boolean is_append;
 };
 
 struct nfs4_dir {

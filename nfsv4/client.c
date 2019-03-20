@@ -75,7 +75,7 @@ static status set_expected_size(void *z, buffer b)
 }
 
 int nfs4_write(nfs4_file f, void *source, bytes offset, bytes length) {
-    return f->is_trunc ? nfs4_pwrite(f, source, offset, length) : nfs4_append(f, source, length);
+    return f->is_append ? nfs4_append(f, source, length) : nfs4_pwrite(f, source, offset, length);
 }
 
 int nfs4_append(nfs4_file f, void *source, bytes length)
@@ -90,12 +90,12 @@ int nfs4_append(nfs4_file f, void *source, bytes length)
     push_op(r, OP_VERIFY, 0, 0);
     push_fattr(r, &p);
     push_op(r, OP_SETATTR, parse_attrmask, 0);
-    push_stateid(r, &f->open_sid);    
+    push_stateid(r, &f->open_sid);       
     push_fattr(r, &p);    
     push_lock(r, &f->open_sid, WRITE_LT, f->expected_size, f->expected_size + length, &f->latest_sid);
     buffer b = alloca_wrap_buffer(source, length);
     u64 offset = f->expected_size;
-        
+     
     while (buffer_length(b)) {
         if (!r) r = file_rpc(f);
         // join
@@ -135,44 +135,31 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
     f->path = path;
     f->c = c;
     f->asynch_writes = flags & NFS4_SERVER_ASYNCH; 
+    f->is_append = false;
     rpc r = allocate_rpc(f->c);
     push_sequence(r);
     char *final = push_initial_path(r, path);
     // property merge
     push_open(r, final, flags, f, p);
     push_op(r, OP_GETFH, parse_filehandle, f->filehandle);
-    /*
     push_op(r, OP_GETATTR, get_expected_size, f);
 
     push_fattr_mask(r, NFS4_PROP_SIZE);
     *dest = f;
     int nfs4_status = api_check(c, transact(r));
     // force write for trunc
-    if (nfs4_status == NFS4_OK && (flags & NFS4_TRUNC)) {
+    if (nfs4_status == NFS4_OK) {
         //struct nfs4_properties t;
-        p->mask = NFS4_PROP_SIZE;
-        p->size = 0;
-        f->expected_size = 0;
-        nfs4_change_properties(f, p); // nfs4_change_properties seems to be buggy
+        if (flags & NFS4_TRUNC) {
+            p->mask = NFS4_PROP_SIZE;
+            p->size = 0;
+            f->expected_size = 0;
+            nfs4_change_properties(f, p); // nfs4_change_properties seems to be buggy
+        } else if (flags & NFS4_WRONLY) {
+            f->is_append = true;
+        }
     } 
     return nfs4_status;
-    */
-   if (flags & NFS4_TRUNC) {
-        int nfs4_status = api_check(c, transact(r));
-        struct nfs4_properties t;
-        t.mask = NFS4_PROP_SIZE;
-        t.size = 0;
-        f->expected_size = 0;
-        *dest = f;
-        nfs4_change_properties(f, &t);
-        f->is_trunc = true;
-        return nfs4_status;
-    } else {
-        push_fattr_mask(r, NFS4_PROP_SIZE);
-        *dest = f;
-        f->is_trunc = false;
-        return api_check(c, transact(r));
-    }
 }
 
 int nfs4_close(nfs4_file f)
