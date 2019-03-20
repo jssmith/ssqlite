@@ -1,7 +1,7 @@
 import json
 import queue
 import string
-import threading
+import multiprocessing
 import time
 
 import boto3
@@ -61,10 +61,10 @@ def lambda_grep_multiple(file_paths, phrase, lambda_concurrency=4):
 
     # Create threads_num threads to process the queue
     for i in range(lambda_concurrency):
-        thread = threading.Thread(name="Consumer-"+str(i),
+        process = multiprocessing.Process(name="Consumer-"+str(i),
                                   target=process_queue,
                                   args=(q,))
-        thread.start()
+        process.start()
 
     # Wait for all files to be searched
     q.join()
@@ -80,6 +80,6 @@ if __name__ == "__main__":
     file_paths = ["/aeneid_test.txt", "NotARealFile", "/aeneid_test2.txt"]
     phrase = "sn"
     start = time.time()
-    lambda_grep_multiple(file_names[:100], phrase, 8)
+    lambda_grep_multiple(file_paths[:100], phrase, 8)
     end = time.time()
     print(end - start)
