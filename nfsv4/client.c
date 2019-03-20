@@ -21,6 +21,11 @@ void fill_default_user(nfs4_properties p)
         (__s)?(__s)->error:0;                                          \
     })
 
+int nfs4_error_num(nfs4 n)
+{
+    return n->nfs_error_num;
+}
+
 char *nfs4_error_string(nfs4 n)
 {
     return n->error_string->contents;
@@ -77,13 +82,9 @@ int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
             s = transact(r);
         }
         if (nfs4_is_error(s)) {
-            if (total == 0) {
-                f->c->error_string = s->description;
-                f->c->nfs_error_num = s->error;
-                return -1;
-            } else {
-                return total;
-            }
+            f->c->error_string = s->description;
+            f->c->nfs_error_num = s->error;
+            return -1;
         }
         total += transferred;
         offset += transferred;
