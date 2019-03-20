@@ -1,7 +1,7 @@
 import json
-import queue
+import multiprocessing as mp
+import os
 import string
-import multiprocessing
 import time
 
 import boto3
@@ -17,6 +17,7 @@ def lambda_grep(file_path, phrase):
         on success this will  include "matches",
         on error this will include "error_msg"
     """
+    start = time.time()
     test_event = {
         "file_path": file_path,
         "phrase": phrase
@@ -27,23 +28,9 @@ def lambda_grep(file_path, phrase):
         InvocationType='RequestResponse',
         Payload=json.dumps(test_event)
     )
+    end = time.time()
+    print(os.getpid(), "is searching", file_path, "in", end - start)
     return json.loads(invoke_response['Payload'].read().decode("utf-8"))
-
-
-def process_queue(q):
-    """Continually print the result of Lambda grep calls."""
-    while not q.empty():
-        file_path, phrase = q.get()
-        lambda_result = lambda_grep(file_path, phrase)
-        lines = lambda_result.get('matches')
-        if lines:
-            print(''.join(lines))
-        else:
-            err_type = lambda_result.get('errorType')
-            err_msg = lambda_result.get('errorMessage')
-            if err_type and err_msg:
-                print(f"{file_path}: {err_type} - {err_msg}\n")
-        q.task_done()
 
 
 def lambda_grep_multiple(file_paths, phrase, lambda_concurrency=4):
@@ -54,32 +41,30 @@ def lambda_grep_multiple(file_paths, phrase, lambda_concurrency=4):
         phrase: regex string to find matches of.
         lambda_concurrency: Max number of concurrent Lambda calls allowed.
     """
-    # Create a Queue and fill with file paths to search
-    q = queue.Queue()
-    for file_path in file_paths:
-        q.put((file_path, phrase))
 
-    # Create threads_num threads to process the queue
-    for i in range(lambda_concurrency):
-        process = multiprocessing.Process(name="Consumer-"+str(i),
-                                  target=process_queue,
-                                  args=(q,))
-        process.start()
-
-    # Wait for all files to be searched
-    q.join()
+    pool = mp.Pool(processes=lambda_concurrency)
+    results = pool.starmap(lambda_grep, zip(
+        file_paths, [phrase for file_path in file_paths]))
+    pool.close()
+    pool.join()
+    return results
 
 
-if __name__ == "__main__":
+def generate_file_names():
     file_names = []
     for letter in string.ascii_lowercase:
         for digit in string.digits:
             file_name = "/docs/file-" + letter + digit + ".txt"
             file_names.append(file_name)
+    return file_names
 
+
+if __name__ == "__main__":
+    file_names = generate_file_names()
     file_paths = ["/aeneid_test.txt", "NotARealFile", "/aeneid_test2.txt"]
-    phrase = "sn"
+    phrase = "awe"
+
     start = time.time()
-    lambda_grep_multiple(file_paths[:100], phrase, 8)
+    print(lambda_grep_multiple(file_names[:100], phrase, 8))
     end = time.time()
     print(end - start)
