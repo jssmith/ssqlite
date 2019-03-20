@@ -1,10 +1,11 @@
 import setuptools
 from setuptools.command.install import install
 from setuptools.command.test import test
-from setuptools import setup, Command
+from setuptools import Command
 import subprocess
 import os
 import unittest
+import traceback
 
 BASEPATH = os.path.dirname(os.path.abspath(__file__))
 NFSV4_PATH = os.path.join(BASEPATH, 'nfsv4')
@@ -34,8 +35,16 @@ class SfsTest(test):
         try:
             sfs.mount(self.ip)
         except Exception as e:
-            print("NFS SSERVER IP: ", self.ip)
-            print(e)
+            print("================")
+            print("ERROR:")
+            print("NFS SERVER IP you entered: ", self.ip)
+            if (self.ip == None):
+                print("Please use --ip= option to set your NFS_SEVER IP")
+            
+            print("\nERROR DETAIL:")
+            print(traceback.format_exc())
+            print("================")
+
 
         unittest.TextTestRunner().run(test_suite)
 
@@ -56,7 +65,7 @@ class SfsClean(Command):
     def run(self):
         subprocess.call(['make', 'clean'], cwd = NFSV4_PATH)
         subprocess.call(['rm', 'libnfs4.so'], cwd = SFS_PATH)
-        os.system('rm -vrf ./build ./dist ./*.pyc ./*.tgz ./*.egg-info')
+        os.system('rm -vrf ./build ./*.egg-info')
         
     
 setuptools.setup(
