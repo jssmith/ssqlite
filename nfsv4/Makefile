@@ -7,6 +7,7 @@ NFS4_OBJ = rpc.o xdr.o client.o format.o nfs4_codepoints.o session.o xdrattr.o h
 
 libnfs4.so: $(NFS4_OBJ)
 	ld -shared $(NFS4_OBJ) -o libnfs4.so
+	cp libnfs4.so ../sfs
 
 clean:
 	rm -f *.o nfs4.so libnfs4.so  *~

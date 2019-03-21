@@ -1,7 +1,10 @@
 import ctypes
 import io
+import os
 
-c_helper = ctypes.CDLL('../nfsv4/libnfs4.so')
+BASEPATH = os.path.dirname(os.path.abspath(__file__))
+LIBFS4_SO_PATH = os.path.join(BASEPATH, 'libnfs4.so')
+c_helper = ctypes.CDLL(LIBFS4_SO_PATH)
 
 
 NFS4_RDONLY = 1
