@@ -1,3 +1,8 @@
+"""
+Simple grep implementation for native and AWS Lambda usage.
+
+Provides the utility of grep on single files.
+"""
 import os
 import re
 import sys
@@ -5,19 +10,22 @@ import sys
 import sfs
 
 
-def grep(file_name, phrase, use_sfs=True):
+def grep_single(file_name, phrase, local):
     p = re.compile(phrase)
     matched_lines = []
 
-    if use_sfs:
-        file = sfs.open(file_name, mode='r')
+    if local:
+        try:
+            file = open(file_name, mode='r')
+        except FileNotFoundError as err:
+            return err
     else:
-        file = open(file_name, mode='r')
+        file = sfs.open(file_name, mode='r')
 
     try:
         for line in file:
             if p.search(line):
-                matched_lines.append(file_name + ": " + line)
+                matched_lines.append(line)
     finally:
         file.close()
 
@@ -31,12 +39,10 @@ def lambda_handler(event, context):
     context: if non-nil uses SFS
     """
 
-    use_sfs = context is not None
-    if use_sfs:
-        mount_point = os.environ["NFS4_SERVER"]
-        sfs.mount(mount_point)
+    mount_point = os.environ["NFS4_SERVER"]
+    sfs.mount(mount_point)
 
     return {
-        "matches": grep(event["file_path"], event["phrase"], use_sfs),
+        "matches": grep_single(event["file_path"], event["phrase"], False),
         "file_name": event["file_path"],
     }
