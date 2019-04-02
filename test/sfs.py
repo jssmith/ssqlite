@@ -281,7 +281,7 @@ class FileObjectWrapper(io.RawIOBase):
         cp = ctypes.c_char_p(bytes(content_bytes, 'utf-8'))
         bytes_written = c_helper.nfs4_write(
                 self._file,
-                ctypes.cast(cp, ctypes.c_void_p)
+                ctypes.cast(cp, ctypes.c_void_p),
                 self._pos,
                 content_len)
         if bytes_written < 0:

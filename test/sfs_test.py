@@ -101,7 +101,7 @@ class TestOpen(unittest.TestCase):
         # 1. check if opening a non-existing file will first create a such file
         # generate a 15-character-long letters-digits-mixed string as filename, 
         # chance that it already exists is close to zero.
-        random.seed(68) # I like 68
+        # random.seed(68) # lock won't be released if running this test too frequently
         filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
         f = sfs.open(filename, 'a')
         self.assertTrue(os.path.isfile('/efs'+filename))

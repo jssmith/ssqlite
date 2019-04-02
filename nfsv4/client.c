@@ -94,6 +94,10 @@ int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
     }
 }
 
+int nfs4_write(nfs4_file f, void *source, bytes offset, bytes length) {
+    return f->is_append ? nfs4_append(f, source, length) : nfs4_pwrite(f, source, offset, length);
+}
+
 static status set_expected_size(void *z, buffer b)
 {
     nfs4_file f = z;
@@ -160,42 +164,31 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
     f->path = path;
     f->c = c;
     f->asynch_writes = flags & NFS4_SERVER_ASYNCH; 
+    f->is_append = false;
     rpc r = allocate_rpc(f->c);
     push_sequence(r);
     char *final = push_initial_path(r, path);
     // property merge
     push_open(r, final, flags, f, p);
     push_op(r, OP_GETFH, parse_filehandle, f->filehandle);
-    /*
     push_op(r, OP_GETATTR, get_expected_size, f);
 
     push_fattr_mask(r, NFS4_PROP_SIZE);
     *dest = f;
     int nfs4_status = api_check(c, transact(r));
     // force write for trunc
-    if (nfs4_status == NFS4_OK && (flags & NFS4_TRUNC)) {
+    if (nfs4_status == NFS4_OK) {
         //struct nfs4_properties t;
-        p->mask = NFS4_PROP_SIZE;
-        p->size = 0;
-        f->expected_size = 0;
-        nfs4_change_properties(f, p); // nfs4_change_properties seems to be buggy
+        if (flags & NFS4_TRUNC) {
+            p->mask = NFS4_PROP_SIZE;
+            p->size = 0;
+            f->expected_size = 0;
+            nfs4_change_properties(f, p); // nfs4_change_properties seems to be buggy
+        } else if (flags & NFS4_WRONLY) {
+            f->is_append = true;
+        }
     } 
     return nfs4_status;
-    */
-   if (flags & NFS4_TRUNC) {
-        int nfs4_status = api_check(c, transact(r));
-        struct nfs4_properties t;
-        t.mask = NFS4_PROP_SIZE;
-        t.size = 0;
-        f->expected_size = 0;
-        *dest = f;
-        nfs4_change_properties(f, &t);
-        return nfs4_status;
-    } else {
-        push_fattr_mask(r, NFS4_PROP_SIZE);
-        *dest = f;
-        return api_check(c, transact(r));
-    }
 }
 
 int nfs4_close(nfs4_file f)
