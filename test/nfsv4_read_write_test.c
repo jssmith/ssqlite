@@ -7,7 +7,7 @@
 #include <time.h>
 
 void usage() {
-  fprintf(stderr, "Usage nfsv4_test [ read | write ] file\n");
+  fprintf(stderr, "Usage nfsv4_test [ read | write | append ] file\n");
 }
 
 typedef struct {
@@ -75,6 +75,33 @@ void open_file(nfs4 client, char* filename, int flags, nfs4_file* f) {
   } 
   assert(f != NULL);
 }
+
+void test_append(nfs4 client, char* filename, u_int64_t num_blocks, u_int64_t block_size) {
+  printf("Conducting append test\n");
+
+  char block_content[block_size];
+  fill_random(block_content, block_size);
+
+  nfs4_file f;
+  open_file(client, filename, NFS4_RDWRITE | NFS4_CREAT, &f);
+
+  Timing timing;
+  timing_start(&timing);
+  for (int bytes_traversed = 0; 
+       bytes_traversed < block_size * num_blocks;
+       bytes_traversed += block_size) {
+    int append_status = nfs4_append(f, (void*) block_content, block_size);
+    if (append_status != NFS4_OK) { 
+      printf("Failed to append to %s:%s\n", filename, nfs4_error_string(client));
+      exit(1);
+    }
+  }
+  timing_finish(&timing);
+
+  nfs4_close(f);
+  print_perf("append", "-", block_size, num_blocks, &timing);
+}
+
 
 void test_sequential_write(nfs4 client, char* filename, u_int64_t num_blocks, u_int64_t block_size) {
   printf("Conducting write sequential test\n");
@@ -144,6 +171,8 @@ int main(int argc, char **argv) {
     test = test_sequential_read;
   } else if(strcmp("write", operation) == 0) {
     test = test_sequential_write;;
+  } else if (strcmp("append", operation) == 0) {
+    test = test_append;
   } else {
     usage();
     exit(1);
