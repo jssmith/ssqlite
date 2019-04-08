@@ -28,7 +28,7 @@ class TestOpen(unittest.TestCase):
         new_f.write(content)
         new_f.close()
         f = sfs.open('/test.txt', 'r')
-        self.assertEqual(f.read(len(content)).decode('utf-8'), content)
+        self.assertEqual(f.read(len(content)), content)
 
         # 3. check if cannot write
         self.assertRaises(io.UnsupportedOperation, f.write, "1")
@@ -71,6 +71,7 @@ class TestOpen(unittest.TestCase):
         content = 'Writing to an empty file'
         f = sfs.open(filename, 'w')
         n = f.write(content)
+        f.flush()
         self.assertEqual(n, len(content)) # make sure sfs.write returns the correct number of bytes written
         # use Python built-in open and read to check the content written by sfs.write
         new_f = open('/efs' + filename, 'r')
@@ -86,6 +87,7 @@ class TestOpen(unittest.TestCase):
         f = sfs.open(filename, 'w')
         new_content = 'Writing to a non-empty file'
         n = f.write(new_content)
+        f.flush()
         self.assertEqual(n, len(new_content))
         new_f = open('/efs'+filename, 'r')
         self.assertEqual(new_f.read(len(new_content)), new_content)
@@ -101,7 +103,8 @@ class TestOpen(unittest.TestCase):
         # 1. check if opening a non-existing file will first create a such file
         # generate a 15-character-long letters-digits-mixed string as filename, 
         # chance that it already exists is close to zero.
-        # random.seed(68) # lock won't be released if running this test too frequently
+        
+        # random.seed(68) # file lock won't be released if running this test too frequently
         filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
         f = sfs.open(filename, 'a')
         self.assertTrue(os.path.isfile('/efs'+filename))
@@ -122,6 +125,7 @@ class TestOpen(unittest.TestCase):
         content = 'Writing to an empty file'
         f = sfs.open(filename, 'a')
         n = f.write(content)
+        f.flush()
         self.assertEqual(n, len(content)) # make sure sfs.write returns the correct number of bytes written
         # use Python built-in open and read to check the content written by sfs.write
         new_f = open('/efs' + filename, 'r')
@@ -137,14 +141,15 @@ class TestOpen(unittest.TestCase):
         f = sfs.open(filename, 'a')
         new_content = 'Writing to a non-empty file'
         n = f.write(new_content)
+        f.flush()
         self.assertEqual(n, len(new_content))
         new_f = open('/efs'+filename, 'r')
         self.assertEqual(new_f.read(len(old_content)+len(new_content)), old_content+new_content)
         new_f.close()
-
+        
 if __name__ == '__main__':
     """
-    run all tests by "sudo python3 sfs_test.py ${NFS4_SERVER}"
+    run all tests by "python3 sfs_test.py ${NFS4_SERVER}"
     """
     sfs.mount(sys.argv.pop())
     unittest.main()

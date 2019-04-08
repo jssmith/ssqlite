@@ -14,8 +14,8 @@ NFS4_CREAT = 4
 NFS4_TRUNC = 16
 
 NFS4_OK = 0
-NFS4ERR_NOENT = 2
-NFS4ERR_ACCESS = 13
+NFS4_ENOENT = 2
+NFS4_EACCES = 13
 NFS4ERR_OPENMODE = 10038
 NFS4_PROP_MODE = 1<<33
 
@@ -50,7 +50,7 @@ c_helper.nfs4_error_string.argtypes = [Nfs4]
 c_helper.nfs4_error_string.restype = ctypes.c_char_p
 c_helper.nfs4_open.argtypes = [Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_properties, ctypes.POINTER(Nfs4_file)]
 c_helper.nfs4_pread.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
-c_helper.nfs4_write.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
+c_helper.nfs4_pwrite.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
 
 client = Nfs4()
 
@@ -84,9 +84,9 @@ def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE):
     f_ptr = ctypes.pointer(Nfs4_file()) 
     error_code = c_helper.nfs4_open(client, file_name.encode('utf-8'), flags, ctypes.byref(p), f_ptr)
     if error_code != NFS4_OK:
-        if error_code == NFS4ERR_NOENT:
+        if error_code == NFS4_ENOENT:
             raise FileNotFoundError("[Errno 2] No such file or directory: " + "'" + file_name + "'")
-        if error_code == NFS4ERR_ACCESS:
+        if error_code == NFS4_EACCES:
             raise PermissionError("[Errno 13] Permission denied: " + "'" + file_name + "'")
         print("Failed to open " + file_name + ": " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
         return
@@ -280,13 +280,12 @@ class FileObjectWrapper(io.RawIOBase):
         return len(data) or None
 
     def write(self, content_bytes):
-        content_len = len(content_bytes)
-        cp = ctypes.c_char_p(bytes(content_bytes, 'utf-8'))
-        bytes_written = c_helper.nfs4_write(
+        array = ctypes.c_byte * len(content_bytes)
+        bytes_written = c_helper.nfs4_pwrite(
                 self._file,
-                ctypes.cast(cp, ctypes.c_void_p),
+                array.from_buffer_copy(content_bytes),
                 self._pos,
-                content_len)
+                len(content_bytes))
         if bytes_written < 0:
             if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
                 raise io.UnsupportedOperation("not writable") 

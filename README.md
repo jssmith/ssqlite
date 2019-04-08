@@ -164,3 +164,11 @@ Ensure you have Python 3.x installed for instructions below
 ## Run the SFS Python Tests
 
 `sudo python3 sfs_test.py ${NFS4_SERVER}`
+
+## Using setup.py to create a local installation, test and clean 
+### local installation
+`python3 setup.py install`
+### test
+`python3 setup.py test --ip=${NFS4_SERVER_IP}`
+### clean
+`python3 setup.py clean`
