@@ -280,13 +280,12 @@ class FileObjectWrapper(io.RawIOBase):
         return len(data) or None
 
     def write(self, content_bytes):
-        content_len = len(content_bytes)
-        cp = ctypes.c_char_p(bytes(content_bytes, 'utf-8'))
-        bytes_written = c_helper.nfs4_write(
+        array = ctypes.c_byte * len(content_bytes)
+        bytes_written = c_helper.nfs4_pwrite(
                 self._file,
-                ctypes.cast(cp, ctypes.c_void_p),
+                array.from_buffer_copy(content_bytes),
                 self._pos,
-                content_len)
+                len(content_bytes))
         if bytes_written < 0:
             if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
                 raise io.UnsupportedOperation("not writable") 
