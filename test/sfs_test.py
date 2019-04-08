@@ -28,7 +28,7 @@ class TestOpen(unittest.TestCase):
         new_f.write(content)
         new_f.close()
         f = sfs.open('/test.txt', 'r')
-        self.assertEqual(f.read(len(content)).decode('utf-8'), content)
+        self.assertEqual(f.read(len(content)), content)
 
         # 3. check if cannot write
         self.assertRaises(io.UnsupportedOperation, f.write, "1")
@@ -88,6 +88,56 @@ class TestOpen(unittest.TestCase):
         self.assertEqual(new_f.read(len(new_content)), new_content)
         new_f.close()
 
+    def test_append_mode(self):
+        '''
+        'a': open for writing, appending to the end of file if it exists. Create the file if it doesn't exist.
+        Demonstrate that unable to read, can append to the end of an existing file, 
+        can create a file if it doesn't exist, error on an existing file that doesn't have write permission,
+        error on missing directory permission (including on the directory tree) 
+        '''
+        # 1. check if opening a non-existing file will first create a such file
+        # generate a 15-character-long letters-digits-mixed string as filename, 
+        # chance that it already exists is close to zero.
+        # random.seed(68) # lock won't be released if running this test too frequently
+        filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
+        f = sfs.open(filename, 'a')
+        self.assertTrue(os.path.isfile('/efs'+filename))
+
+        # 2. check if write-only TODO: write-only yet to be supported
+        # new_f = open('/efs/test.txt', 'w+')
+        # new_f.write('You cannot read it')
+        # new_f.close()
+        # f = sfs.open('/test.txt', 'a')
+        # self.assertRaises(io.UnsupportedOperation, f.read, 1)
+
+        # 3. write to an empty file.
+        # first create an empty file using Python built-in open
+        filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
+        new_f = open('/efs'+filename, 'w+') 
+        new_f.close()
+        # open and write using sfs library
+        content = 'Writing to an empty file'
+        f = sfs.open(filename, 'a')
+        n = f.write(content)
+        self.assertEqual(n, len(content)) # make sure sfs.write returns the correct number of bytes written
+        # use Python built-in open and read to check the content written by sfs.write
+        new_f = open('/efs' + filename, 'r')
+        self.assertEqual(new_f.read(len(content)), content) # check written content
+        new_f.close()
+
+        # 4. write to a non-empty existing file, should append to the file
+        filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
+        new_f = open('/efs'+filename, 'w+')
+        old_content = 'This is a test file'
+        n = new_f.write(old_content)
+        new_f.close()
+        f = sfs.open(filename, 'a')
+        new_content = 'Writing to a non-empty file'
+        n = f.write(new_content)
+        self.assertEqual(n, len(new_content))
+        new_f = open('/efs'+filename, 'r')
+        self.assertEqual(new_f.read(len(old_content)+len(new_content)), old_content+new_content)
+        new_f.close()
         
 if __name__ == '__main__':
     """
