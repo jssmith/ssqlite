@@ -39,9 +39,17 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
 
     while (1) {
         rpc r = file_rpc(f);
-        u64 transferred = push_read(r, offset,  dest + total, len - total, &f->latest_sid);
+        
+        struct nfs4_read_data read_data = {
+          // dummy values that will be replaced
+          .eof = 8675309,
+          .len = 24601,
+          .dest = dest + total
+        };
+
+        u64 requested_length = push_read(r, offset,  &read_data, len - total, &f->latest_sid);
         status s;
-        if (total + transferred < len) {
+        if (total + requested_length < len) {
             // reestablish connection here
             s = rpc_send(r);
         } else {
@@ -57,9 +65,11 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
                 return total;
             }
         }
-        total += transferred;
-        offset += transferred;
-        if (total >= len) {
+
+        u32 send_data_length = read_data.len;
+        total += send_data_length;
+        offset += send_data_length;
+        if (read_data.eof != 0 || total >= len) {
             return total;
         }
     }

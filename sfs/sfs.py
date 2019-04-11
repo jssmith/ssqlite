@@ -251,7 +251,7 @@ class FileObjectWrapper(io.RawIOBase):
                 raise io.UnsupportedOperation("not readable") 
             print("Failed to read file: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
             return
-        self._pos += len(buffer.value)
+        self._pos += bytes_read
         return buffer.value
 
     def readall(self):

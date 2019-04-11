@@ -68,6 +68,12 @@ struct nfs4_file {
     u64 expected_size;
 };
 
+struct nfs4_read_data {
+    u32 eof;
+    u32 len;
+    void *dest;
+};
+
 struct nfs4_dir {
     struct nfs4_file f;
     u64 cookie;
