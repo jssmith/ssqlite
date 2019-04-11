@@ -281,7 +281,7 @@ class FileObjectWrapper(io.RawIOBase):
 
     def write(self, content_bytes):
         array = ctypes.c_byte * len(content_bytes)
-        bytes_written = c_helper.nfs4_pwrite(
+        bytes_written = c_helper.nfs4_write(
                 self._file,
                 array.from_buffer_copy(content_bytes),
                 self._pos,
