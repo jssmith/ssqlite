@@ -107,10 +107,6 @@ static status set_expected_size(void *z, buffer b)
     return NFS4_OK;
 }
 
-int nfs4_write(nfs4_file f, void *source, bytes offset, bytes length) {
-    return f->is_append ? nfs4_append(f, source, length) : nfs4_pwrite(f, source, offset, length);
-}
-
 int nfs4_append(nfs4_file f, void *source, bytes length)
 {
     rpc r = file_rpc(f);
