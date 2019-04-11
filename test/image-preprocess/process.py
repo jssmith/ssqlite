@@ -15,11 +15,12 @@ def process_image(input_file, output_file, filters, local):
         image = Image.open(input_file)
     else:
         image_file = sfs.open(input_file, "rb")
-        image = Image.open(image_file)
+        image = Image.open(io.BytesIO(image_file.read()))
 
     for enhancer, factor in filters:
         image = enhancer(image).enhance(factor)
-    image.save(output_file, "JPEG")
+    image_out_file = sfs.open(output_file, "wb")
+    image.save(image_out_file, "JPEG")
 
 
 def process_imamges(input_files, output_files, filters, local):
@@ -39,11 +40,5 @@ if __name__ == "__main__":
     import os
     mount_point = os.environ["NFS4_SERVER"]
     sfs.mount(mount_point)
-    sfs_file = sfs.open("/cat.jpg", "rb")
-    reg_file = open("/efs/cat.jpg", "rb")
-    sfs_data = sfs_file.read()
-    reg_data = reg_file.read()
-    print(len(sfs_data))
-    print(len(reg_data))
-
+    process_image("/cat.jpg", "/new_cat.jpg", DEFAULT_FILTERS, False)
 
