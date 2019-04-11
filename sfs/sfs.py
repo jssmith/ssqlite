@@ -244,15 +244,17 @@ class FileObjectWrapper(io.RawIOBase):
             return self.readall()
         elif size < 0:
             raise ValueError("size must be >= -1")
-        buffer = ctypes.create_string_buffer(size)
-        bytes_read = c_helper.nfs4_pread(self._file, buffer, self._pos, size)
+        buf = ctypes.cast(
+                ctypes.create_string_buffer(size),
+                ctypes.POINTER(ctypes.c_char))
+        bytes_read = c_helper.nfs4_pread(self._file, buf, self._pos, size)
         if bytes_read < 0:
             if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
                 raise io.UnsupportedOperation("not readable") 
             print("Failed to read file: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
             return
         self._pos += bytes_read
-        return buffer.value
+        return bytes(buf[:bytes_read])
 
     def readall(self):
         """
