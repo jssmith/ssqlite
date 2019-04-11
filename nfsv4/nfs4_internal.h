@@ -7,7 +7,7 @@
 #include <config.h>
 #include <unistd.h>
 #include <string.h>
-
+int num=0;
 static int nfs4_is_error(status s) {return s?1:0;}
 
 static inline status error(int code, char* fmt, ...)
@@ -121,7 +121,7 @@ static inline void push_op(rpc r, u32 op, completion c, void *a)
     push_be32(r->b, op);
     r->response_length += 8;
     if (config_boolean("NFS_TRACE", false))
-        eprintf("pushed op: %C\n", nfsops, op);
+        eprintf("%d pushed op: %C\n", num++, nfsops, op);
 }
 
 
