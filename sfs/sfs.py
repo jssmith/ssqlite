@@ -244,9 +244,7 @@ class FileObjectWrapper(io.RawIOBase):
             return self.readall()
         elif size < 0:
             raise ValueError("size must be >= -1")
-        buf = ctypes.cast(
-                ctypes.create_string_buffer(size),
-                ctypes.POINTER(ctypes.c_char))
+        buf = ctypes.create_string_buffer(size)
         bytes_read = c_helper.nfs4_pread(self._file, buf, self._pos, size)
         if bytes_read < 0:
             if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
