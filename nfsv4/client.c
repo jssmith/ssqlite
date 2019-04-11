@@ -109,33 +109,33 @@ static status set_expected_size(void *z, buffer b)
 
 int nfs4_append(nfs4_file f, void *source, bytes length)
 {
-    rpc r = file_rpc(f);
+    rpc r = file_rpc(f);//pushed op: SEQUENCE; pushed op: PUTFH
     struct nfs4_properties p;
     p.mask = NFS4_PROP_SIZE;
     p.size = f->expected_size;
     // get the offset in case we fail
-    push_op(r, OP_GETATTR, set_expected_size, &f);    
+    push_op(r, OP_GETATTR, set_expected_size, &f);    //pushed op: GETATTR
     push_fattr_mask(r, NFS4_PROP_SIZE);
-    push_op(r, OP_VERIFY, 0, 0);
+    push_op(r, OP_VERIFY, 0, 0); //pushed op: VERIFY
     push_fattr(r, &p);
-    push_op(r, OP_SETATTR, parse_attrmask, 0);
+    push_op(r, OP_SETATTR, parse_attrmask, 0);//pushed op: SETATTR
     push_stateid(r, &f->open_sid);       
     push_fattr(r, &p);    
-    push_lock(r, &f->open_sid, WRITE_LT, f->expected_size, f->expected_size + length, &f->latest_sid);
+    push_lock(r, &f->open_sid, WRITE_LT, f->expected_size, f->expected_size + length, &f->latest_sid);//pushed op: LOCK
     buffer b = alloca_wrap_buffer(source, length);
     u64 offset = f->expected_size;
      
     while (buffer_length(b)) {
         if (!r) r = file_rpc(f);
         // join
-        offset += push_write(r, offset, b, &f->latest_sid);
+        offset += push_write(r, offset, b, &f->latest_sid);//pushed op: WRITE
         rpc_send(r);
         r = 0;
     }
     // drain
     
     r = file_rpc(f);
-    push_unlock(r, &f->latest_sid, WRITE_LT, f->expected_size, f->expected_size + length);
+    push_unlock(r, &f->latest_sid, WRITE_LT, f->expected_size, f->expected_size + length);//pushed op: LOCKU
     rpc_send(r);    
     // fix direct transmission of nfs4 error codes
     status s = transact(r);
