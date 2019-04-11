@@ -107,6 +107,10 @@ static status set_expected_size(void *z, buffer b)
     return NFS4_OK;
 }
 
+int nfs4_write(nfs4_file f, void *source, bytes offset, bytes length) {
+    return f->is_append ? nfs4_append(f, source, length) : nfs4_pwrite(f, source, offset, length);
+}
+
 int nfs4_append(nfs4_file f, void *source, bytes length)
 {
     rpc r = file_rpc(f);
@@ -119,12 +123,12 @@ int nfs4_append(nfs4_file f, void *source, bytes length)
     push_op(r, OP_VERIFY, 0, 0);
     push_fattr(r, &p);
     push_op(r, OP_SETATTR, parse_attrmask, 0);
-    push_stateid(r, &f->open_sid);    
+    push_stateid(r, &f->open_sid);       
     push_fattr(r, &p);    
     push_lock(r, &f->open_sid, WRITE_LT, f->expected_size, f->expected_size + length, &f->latest_sid);
     buffer b = alloca_wrap_buffer(source, length);
     u64 offset = f->expected_size;
-        
+     
     while (buffer_length(b)) {
         if (!r) r = file_rpc(f);
         // join
