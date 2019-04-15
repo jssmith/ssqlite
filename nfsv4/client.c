@@ -406,8 +406,8 @@ int nfs4_create(char *hostname, nfs4 *dest)
     c->default_properties.group = NFS4_ID_ANONYMOUS;    
 
     // this can be much larger
-    c->maxresp = config_u64("NFS_READ_LIMIT", 1048576);
-    c->maxreq = config_u64("NFS_WRITE_LIMIT", 1048576);
+    c->maxresp = config_u64("NFS_READ_LIMIT", 1048576 + 1024);
+    c->maxreq = config_u64("NFS_WRITE_LIMIT", 1048576 + 1024);
     c->buffersize = MAX(c->maxresp,  c->maxreq);
     c->error_string = allocate_buffer(c->h, 128);
     c->outstanding = allocate_vector(c->h, 5);
