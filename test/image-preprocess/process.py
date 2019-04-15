@@ -1,6 +1,7 @@
 from PIL import ImageEnhance, Image
 import io
 import sfs
+import logging
 
 DEFAULT_FILTERS = [
     (ImageEnhance.Color, 0.0),
@@ -26,6 +27,7 @@ def process_image(input_file, output_file, filters, local):
 def process_imamges(input_files, output_files, filters, local):
     """Apply filters to multiple files."""
     for i, input_file in enumerate(input_files):
+        logging.info("processing image %s", i)
         process_image(input_file, output_files[i], filters, local)
 
 
@@ -38,7 +40,13 @@ def process_image_arguments(input_folder, output_folder, filters, local, files):
 
 if __name__ == "__main__":
     import os
+
+    logging.basicConfig(
+            level=os.environ.get("LOGLEVEL", "DEBUG"),
+            format="%(asctime)s\t%(levelname)s\t%(funcName)s\t%(message)s")
+
     mount_point = os.environ["NFS4_SERVER"]
     sfs.mount(mount_point)
+
     process_image("/cat.jpg", "/new_cat.jpg", DEFAULT_FILTERS, False)
 
