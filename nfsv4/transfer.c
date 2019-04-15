@@ -10,10 +10,11 @@ status finish_read(void *dest, buffer b)
     u32 len = read_beu32(b);
 
     struct nfs4_read_data *read_data = (struct nfs4_read_data*) dest;
-    read_data->eof = eof;
-    read_data->len = len;
+    *read_data->eof = eof;
+    *read_data->total_sent += len;
 
     memcpy(read_data->dest, buffer_ref(b, 0), len);
+    free(read_data);
     // assumes ordering
 
     // data is padded into multiple of 4

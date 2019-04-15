@@ -35,21 +35,26 @@ char *nfs4_error_string(nfs4 n)
 // the error is recorded in the nfs4 
 int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
 {
-    u64 total = 0;
+    u64 total_requested = 0;
+
+    u64 total_sent = 0;
+    u32 eof = 0;
 
     while (1) {
         rpc r = file_rpc(f);
         
-        struct nfs4_read_data read_data = {
-          // dummy values that will be replaced
-          .eof = 8675309,
-          .len = 24601,
-          .dest = dest + total
-        };
+        struct nfs4_read_data *read_data = malloc(
+            sizeof(struct nfs4_read_data));
+        read_data->eof = &eof;
+        read_data->total_sent = &total_sent;
+        read_data->dest = dest + total_requested;
 
-        u64 requested_length = push_read(r, offset,  &read_data, len - total, &f->latest_sid);
+        u64 requested_length = push_read(
+            r, offset,  read_data, len - total_requested, &f->latest_sid);
+        total_requested += requested_length;
+        offset += requested_length;
         status s;
-        if (total + requested_length < len) {
+        if (total_requested < len) {
             // reestablish connection here
             s = rpc_send(r);
         } else {
@@ -57,20 +62,13 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
             s = transact(r);
         }
         if (nfs4_is_error(s)) {
-            if (total == 0) {
-                f->c->error_string = s->description;
-                f->c->nfs_error_num = s->error;
-                return -1;
-            } else {
-                return total;
-            }
+            f->c->error_string = s->description;
+            f->c->nfs_error_num = s->error;
+            return -1;
         }
 
-        u32 send_data_length = read_data.len;
-        total += send_data_length;
-        offset += send_data_length;
-        if (read_data.eof != 0 || total >= len) {
-            return total;
+        if (eof != 0 || total_sent >= len) {
+            return total_sent;
         }
     }
 }
@@ -408,8 +406,8 @@ int nfs4_create(char *hostname, nfs4 *dest)
     c->default_properties.group = NFS4_ID_ANONYMOUS;    
 
     // this can be much larger
-    c->maxresp = config_u64("NFS_READ_LIMIT", 65536);
-    c->maxreq = config_u64("NFS_WRITE_LIMIT", 65536);
+    c->maxresp = config_u64("NFS_READ_LIMIT", 1048576);
+    c->maxreq = config_u64("NFS_WRITE_LIMIT", 1048576);
     c->buffersize = MAX(c->maxresp,  c->maxreq);
     c->error_string = allocate_buffer(c->h, 128);
     c->outstanding = allocate_vector(c->h, 5);

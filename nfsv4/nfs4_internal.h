@@ -69,8 +69,8 @@ struct nfs4_file {
 };
 
 struct nfs4_read_data {
-    u32 eof;
-    u32 len;
+    u32 *eof;
+    u64 *total_sent;
     void *dest;
 };
 
