@@ -10,6 +10,6 @@ sfs.mount(mount_point)
 
 def lambda_handler(event, context):
     input_files = event["input_files"]
-    output_files = event["input_files"]
-    process.process_image(
-        input_files, process.DEFAULT_FILTERS, output_files, False)
+    output_files = event["output_files"]
+    process.process_images(
+        input_files, output_files, process.DEFAULT_FILTERS, False)

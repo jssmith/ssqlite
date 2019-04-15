@@ -24,7 +24,7 @@ def process_image(input_file, output_file, filters, local):
     image.save(image_out_file, "JPEG")
 
 
-def process_imamges(input_files, output_files, filters, local):
+def process_images(input_files, output_files, filters, local):
     """Apply filters to multiple files."""
     for i, input_file in enumerate(input_files):
         logging.info("processing image %s", i)
@@ -48,5 +48,9 @@ if __name__ == "__main__":
     mount_point = os.environ["NFS4_SERVER"]
     sfs.mount(mount_point)
 
-    process_image("/cat.jpg", "/new_cat.jpg", DEFAULT_FILTERS, False)
+    process_images(
+            ["/before/cat.jpg", "/before/dog.jpg"],
+            ["/after/cat.jpg", "/after/dog.jpg"], 
+            DEFAULT_FILTERS, 
+            False)
 
