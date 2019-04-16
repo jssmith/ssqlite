@@ -70,7 +70,7 @@ class SfsClean(Command):
     
 setuptools.setup(
     name="sfs",
-    version="0.0.1",
+    version="0.0.2",
     author="sfs team",
     author_email="sfs@example.com",
     description="A small example package",
