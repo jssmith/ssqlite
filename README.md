@@ -172,3 +172,45 @@ Ensure you have Python 3.x installed for instructions below
 `python3 setup.py test --ip=${NFS4_SERVER_IP}`
 ### clean
 `python3 setup.py clean`
+
+
+## Uploading to (Test) PyPI instruction
+Reference: https://packaging.python.org/tutorials/packaging-projects/
+
+### Generating distribution archives
+Make sure you have the latest versions of setuptools and wheel installed:
+
+`python3 -m pip install --user --upgrade setuptools wheel`
+
+Now run this command from the same directory where setup.py is located (ssqlite/):
+
+`python3 setup.py sdist bdist_wheel`
+
+Once completed should generate two files in the dist directory:
+
+```
+dist/
+    sfs-0.0.1-py3-none-any.whl
+    sfs-0.0.1.tar.gz`
+```
+
+### Uploading the distribution archives¶
+The first thing you’ll need to do is register an account on Test PyPI and PyPI (two different accounts).
+
+Now that you are registered, you can use twine to upload the distribution packages. You’ll need to install Twine:
+
+`python3 -m pip install --user --upgrade twine`
+
+Once installed, run Twine to upload all of the archives under dist:
+#### Upload to Test PyPI
+`python3 -m twine upload --repository-url https://test.pypi.org/legacy/ dist/*`
+
+#### Upload to PyPI
+`twine upload dist/*`
+
+### Installing your newly uploaded package
+#### If you uploaded to Test PyPI
+`python3 -m pip install --index-url https://test.pypi.org/simple/ --no-deps sfs`
+
+#### If you uploaded to PyPI
+`pip install sfs`
