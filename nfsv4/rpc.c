@@ -47,7 +47,7 @@ static status parse_response(rpc r, buffer b)
     while (buffer_length(b)) {
         int op = read_beu32(b);
         if (config_boolean("NFS_TRACE", false))  {
-            eprintf("received op: %C\n", nfsops, op);
+            eprintf("received op: %C %x\n", nfsops, op, op);
         }
 
         remote_op rop = fifo_pop(r->ops);
