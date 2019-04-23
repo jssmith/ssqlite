@@ -124,21 +124,27 @@ int nfs4_append(nfs4_file f, void *source, bytes length)
     push_lock(r, &f->open_sid, WRITE_LT, f->expected_size, f->expected_size + length, &f->latest_sid);//pushed op: LOCK
     buffer b = alloca_wrap_buffer(source, length);
     u64 offset = f->expected_size;
-     
+   
+    transact(r);
+    //r = 0;
+ 
     while (buffer_length(b)) {
-        if (!r) r = file_rpc(f);
+        //if (!r) r = file_rpc(f);
+        r = file_rpc(f);
         // join
         offset += push_write(r, offset, b, &f->latest_sid);//pushed op: WRITE
-        rpc_send(r);
-        r = 0;
+        //rpc_send(r);
+        transact(r);
+        //r = 0;
     }
     // drain
     
     r = file_rpc(f);
     push_unlock(r, &f->latest_sid, WRITE_LT, f->expected_size, f->expected_size + length);//pushed op: LOCKU
-    rpc_send(r);    
+    //rpc_send(r);    
     // fix direct transmission of nfs4 error codes
     status s = transact(r);
+    f->expected_size += length;
     return api_check(f->c, s);
 }
 

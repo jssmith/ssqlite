@@ -129,7 +129,7 @@ status parse_open(void *z, buffer b)
     parse_change_info(0, b);
     read_beu32(b); // rflags
     buffer m = allocate_buffer(f->c->h, 10);
-    parse_attrmask(b, m);
+    parse_attrmask(m, b);
     u32 delegation_type = read_beu32(b);
 
     switch (delegation_type) {
@@ -328,7 +328,8 @@ void push_lock(rpc r, stateid sid, int locktype, bytes offset, bytes length, sta
 
 void push_unlock(rpc r, stateid sid, int locktype, bytes offset, bytes length)
 {
-    push_op(r, OP_LOCKU, 0, 0);
+    //push_op(r, OP_LOCKU, 0, 0);
+    push_op(r, OP_LOCKU, parse_stateid, sid);
     push_be32(r->b, locktype);
     push_bare_sequence(r);
     push_stateid(r, sid);
