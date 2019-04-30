@@ -1,6 +1,7 @@
 import ctypes
 import io
 import os
+import locale
 
 BASEPATH = os.path.dirname(os.path.abspath(__file__))
 LIBFS4_SO_PATH = os.path.join(BASEPATH, 'libnfs4.so')
@@ -14,8 +15,8 @@ NFS4_CREAT = 4
 NFS4_TRUNC = 16
 
 NFS4_OK = 0
-NFS4_ENOENT = 2
-NFS4_EACCES = 13
+NFS4ERR_NOENT = 2
+NFS4ERR_ACCESS = 13
 NFS4ERR_OPENMODE = 10038
 NFS4_PROP_MODE = 1<<33
 
@@ -50,7 +51,7 @@ c_helper.nfs4_error_string.argtypes = [Nfs4]
 c_helper.nfs4_error_string.restype = ctypes.c_char_p
 c_helper.nfs4_open.argtypes = [Nfs4, ctypes.c_char_p, ctypes.c_int, Nfs4_properties, ctypes.POINTER(Nfs4_file)]
 c_helper.nfs4_pread.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
-c_helper.nfs4_pwrite.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
+c_helper.nfs4_write.argtypes = [Nfs4_file, ctypes.c_void_p, ctypes.c_ulonglong, ctypes.c_ulonglong]
 
 client = Nfs4()
 
@@ -61,7 +62,7 @@ def mount(host_ip):
     if c_helper.nfs4_create(b_host_ip, ctypes.pointer(client)) != NFS4_OK:
         print("open client fail: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
     
-def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE):
+def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE, encoding=None):
     #TODO: needs to validate MODE
     p = Nfs4_properties_struct()
     p.mask = NFS4_PROP_MODE
@@ -81,16 +82,19 @@ def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE):
         else:
             raise NotImplementedError("flags other than 'r', 'w' and 'a' not supported yet")
     
+    if not binary_mode and encoding is None:
+        encoding = locale.getpreferredencoding(False)
+
     f_ptr = ctypes.pointer(Nfs4_file()) 
     error_code = c_helper.nfs4_open(client, file_name.encode('utf-8'), flags, ctypes.byref(p), f_ptr)
     if error_code != NFS4_OK:
-        if error_code == NFS4_ENOENT:
+        if error_code == NFS4ERR_NOENT:
             raise FileNotFoundError("[Errno 2] No such file or directory: " + "'" + file_name + "'")
-        if error_code == NFS4_EACCES:
+        if error_code == NFS4ERR_ACCESS:
             raise PermissionError("[Errno 13] Permission denied: " + "'" + file_name + "'")
         print("Failed to open " + file_name + ": " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
         return
-    f = FileObjectWrapper(f_ptr.contents, flags)
+    f = FileObjectWrapper(f_ptr.contents, flags, encoding)
 
     if buffering > 1:
         buffered_f = None
@@ -115,11 +119,12 @@ def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE):
         return f
 
 class FileObjectWrapper(io.RawIOBase):
-    def __init__(self, f, flags):
+    def __init__(self, f, flags, encoding):
         self._file = f
-        self._pos = 0
+        self._pos = 0  #TODO: inaccurate in append mode
         self._closed = False
         self._flags = flags
+        self._encoding = encoding
 
     def __enter__(self):
         return self
@@ -251,8 +256,9 @@ class FileObjectWrapper(io.RawIOBase):
                 raise io.UnsupportedOperation("not readable") 
             print("Failed to read file: " + c_helper.nfs4_error_string(client).decode(encoding='utf-8'))
             return
-        self._pos += len(buffer.value)
-        return buffer.value
+        value = buffer.value
+        self._pos += len(value)
+        return value
 
     def readall(self):
         """
@@ -281,10 +287,10 @@ class FileObjectWrapper(io.RawIOBase):
 
     def write(self, content_bytes):
         array = ctypes.c_byte * len(content_bytes)
-        bytes_written = c_helper.nfs4_pwrite(
+        bytes_written = c_helper.nfs4_write(
                 self._file,
                 array.from_buffer_copy(content_bytes),
-                self._pos,
+                self._pos,  # ignored in append mode
                 len(content_bytes))
         if bytes_written < 0:
             if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
