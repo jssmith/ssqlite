@@ -90,8 +90,8 @@ void test_append(nfs4 client, char* filename, u_int64_t num_blocks, u_int64_t bl
   for (int bytes_traversed = 0; 
        bytes_traversed < block_size * num_blocks;
        bytes_traversed += block_size) {
-    int append_status = nfs4_append(f, (void*) block_content, block_size);
-    if (append_status != NFS4_OK) { 
+    int append_amount = nfs4_append(f, (void*) block_content, block_size);
+    if (append_amount < block_size) {
       printf("Failed to append to %s:%s\n", filename, nfs4_error_string(client));
       exit(1);
     }
