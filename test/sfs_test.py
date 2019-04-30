@@ -105,7 +105,7 @@ class TestOpen(unittest.TestCase):
         # chance that it already exists is close to zero.
 
         
-        # random.seed(68) # file lock won't be released if running this test too frequently
+        # random.seed(68) # file lock won't be released if open a file  too frequently
         filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
         f = sfs.open(filename, 'a')
         self.assertTrue(os.path.isfile('/efs'+filename))
@@ -117,7 +117,7 @@ class TestOpen(unittest.TestCase):
         # f = sfs.open('/test.txt', 'a')
         # self.assertRaises(io.UnsupportedOperation, f.read, 1)
 
-        # 3. write to an empty file.
+        # 3. append to an empty file.
         # first create an empty file using Python built-in open
         filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
         new_f = open('/efs'+filename, 'w+') 
@@ -133,7 +133,7 @@ class TestOpen(unittest.TestCase):
         self.assertEqual(new_f.read(len(content)), content) # check written content
         new_f.close()
 
-        # 4. write to a non-empty existing file, should append to the file
+        # 4. append to a non-empty existing filee
         filename = '/'+''.join(random.choices(string.ascii_letters + string.digits, k=15))
         new_f = open('/efs'+filename, 'w+')
         old_content = 'This is a test file'
