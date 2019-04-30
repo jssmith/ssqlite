@@ -116,7 +116,7 @@ int nfs4_append(nfs4_file f, void *source, bytes length)
     // get the offset in case we fail
     push_op(r, OP_GETATTR, set_expected_size, &f);
     push_fattr_mask(r, NFS4_PROP_SIZE);
-    push_op(r, OP_VERIFY, 0, 0); 
+    push_op(r, OP_VERIFY, 0, 0);
     push_fattr(r, &p);
     push_op(r, OP_SETATTR, parse_attrmask, 0);
     push_stateid(r, &f->open_sid);

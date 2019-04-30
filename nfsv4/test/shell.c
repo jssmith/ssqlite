@@ -339,7 +339,6 @@ static value append_command(client c, vector args)
     nfs4_file f = dispatch_tag(c, FILE_TAG, args);    
     buffer body = dispatch_tag(c, BUFFER_TAG, args);
     // asynch flag?
-    //ncheck(c, nfs4_append(f, body->contents + body->start, buffer_length(body)));
     int append_amount = nfs4_append(f, body->contents + body->start, buffer_length(body));
     if (append_amount < 0) {
         return TAG(nfs4_error_string(c->c), ERROR_TAG);

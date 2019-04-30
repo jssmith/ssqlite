@@ -328,7 +328,6 @@ void push_lock(rpc r, stateid sid, int locktype, bytes offset, bytes length, sta
 
 void push_unlock(rpc r, stateid sid, int locktype, bytes offset, bytes length)
 {
-    //push_op(r, OP_LOCKU, 0, 0);
     push_op(r, OP_LOCKU, parse_stateid, sid);
     push_be32(r->b, locktype);
     push_bare_sequence(r);
