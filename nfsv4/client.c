@@ -102,6 +102,10 @@ int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
     }
 }
 
+int nfs4_write(nfs4_file f, void *source, bytes offset, bytes length) {
+    return f->is_append ? nfs4_append(f, source, length) : nfs4_pwrite(f, source, offset, length);
+}
+
 static status set_expected_size(void *z, buffer b)
 {
     nfs4_file f = z;
@@ -118,32 +122,39 @@ int nfs4_append(nfs4_file f, void *source, bytes length)
     p.mask = NFS4_PROP_SIZE;
     p.size = f->expected_size;
     // get the offset in case we fail
-    push_op(r, OP_GETATTR, set_expected_size, &f);    
+    push_op(r, OP_GETATTR, set_expected_size, &f);
     push_fattr_mask(r, NFS4_PROP_SIZE);
     push_op(r, OP_VERIFY, 0, 0);
     push_fattr(r, &p);
     push_op(r, OP_SETATTR, parse_attrmask, 0);
-    push_stateid(r, &f->open_sid);    
+    push_stateid(r, &f->open_sid);
     push_fattr(r, &p);    
     push_lock(r, &f->open_sid, WRITE_LT, f->expected_size, f->expected_size + length, &f->latest_sid);
     buffer b = alloca_wrap_buffer(source, length);
     u64 offset = f->expected_size;
-        
+ 
+    transact(r);
+
     while (buffer_length(b)) {
-        if (!r) r = file_rpc(f);
+        r = file_rpc(f);
         // join
         offset += push_write(r, offset, b, &f->latest_sid);
         rpc_send(r);
-        r = 0;
     }
     // drain
     
     r = file_rpc(f);
     push_unlock(r, &f->latest_sid, WRITE_LT, f->expected_size, f->expected_size + length);
-    rpc_send(r);    
     // fix direct transmission of nfs4 error codes
     status s = transact(r);
-    return api_check(f->c, s);
+    if (nfs4_is_error(s)) {
+        f->c->error_string = s->description;
+        f->c->nfs_error_num = s->error;
+        return -1;
+    } else {
+        f->expected_size += length;
+        return length;
+    }
 }
 
 static status parse_getfilehandle(buffer b, buffer fh)
@@ -168,6 +179,7 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
     f->path = path;
     f->c = c;
     f->asynch_writes = flags & NFS4_SERVER_ASYNCH; 
+    f->is_append = false;
     rpc r = allocate_rpc(f->c);
     push_sequence(r);
     char *final = push_initial_path(r, path);
@@ -180,13 +192,16 @@ int nfs4_open(nfs4 c, char *path, int flags, nfs4_properties p, nfs4_file *dest)
     *dest = f;
     int nfs4_status = api_check(c, transact(r));
     // force write for trunc
-    if (nfs4_status == NFS4_OK && (flags & NFS4_TRUNC)) {
-        //struct nfs4_properties t;
-        p->mask = NFS4_PROP_SIZE;
-        p->size = 0;
-        f->expected_size = 0;
-        nfs4_change_properties(f, p); // nfs4_change_properties seems to be buggy
-    } 
+    if (nfs4_status == NFS4_OK) {
+        if (flags & NFS4_TRUNC) {
+            p->mask = NFS4_PROP_SIZE;
+            p->size = 0;
+            f->expected_size = 0;
+            nfs4_status = nfs4_change_properties(f, p);
+        } else if (flags & NFS4_WRONLY) {
+            f->is_append = true;
+        }
+    }
     return nfs4_status;
 }
 
@@ -318,7 +333,7 @@ int nfs4_synch(nfs4 c)
 int nfs4_change_properties(nfs4_file f, nfs4_properties p)
 {
     rpc r = file_rpc(f);
-    push_op(r, OP_SETATTR, 0, 0);
+    push_op(r, OP_SETATTR, parse_attrmask, 0);
     push_stateid(r, &f->latest_sid);
     push_fattr(r, p);
     return api_check(f->c, transact(r));
