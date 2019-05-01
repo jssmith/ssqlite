@@ -16,9 +16,9 @@ status parse_int(buffer b, u32 *result)
   return NFS4_OK;
 }
 
-status parse_attrmask(void *z, buffer dest)
+status parse_attrmask(void *z, buffer b)
 {
-    buffer b = z;
+    buffer dest = z;
     u32 count = read_beu32(b);
     for (int i = 0 ; i < count; i++) {
         u32 m = read_beu32(b);
