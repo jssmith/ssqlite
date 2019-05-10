@@ -265,7 +265,7 @@ class FileObjectWrapper(io.RawIOBase):
         elif size > NFS4_MAX_READ_SIZE:
             raise ValueError("size must be <= 2^20")
 
-        buf = ctypes.create_string_buffer(size)
+        buf = ctypes.cast(ctypes.create_string_buffer(size), ctypes.POINTER(ctypes.c_char))
         bytes_read = c_helper.nfs4_pread(self._file, buf, self._pos, size)
         if bytes_read < 0:
             if c_helper.nfs4_error_num(client) == NFS4ERR_OPENMODE:
@@ -278,7 +278,7 @@ class FileObjectWrapper(io.RawIOBase):
                 size, bytes_read)
         self._pos += bytes_read
         # Trying new return value here
-        value = buf.value
+        value = buf[:bytes_read]
         return value
 
     def readall(self):
