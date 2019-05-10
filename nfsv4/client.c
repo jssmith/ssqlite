@@ -17,7 +17,7 @@ void fill_default_user(nfs4_properties p)
 #define api_check(__d, __st) \
     ({                       \
         status __s = __st;\
-        if (nfs4_is_error(__s)){  __d->error_string = __s->description; return __s->error;} \
+        if (nfs4_is_error(__s)){  __d->error_string = __s->description; __d->nfs_error_num = __s->error; return __s->error;} \
         (__s)?(__s)->error:0;                                          \
     })
 
@@ -73,7 +73,8 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
     }
 }
 
-// Write from source into f and return bytes written or -1 upon error.
+// Write LENGTH bytes from SOURCE into a given OFFSET of F
+// and return bytes written or -1 upon error.
 int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
 {
     u64 total = 0;
@@ -102,6 +103,7 @@ int nfs4_pwrite(nfs4_file f, void *source, bytes offset, bytes length)
     }
 }
 
+// Call nfs4_append if is_append is set, OFFSET is ignored; call nfs4_pwrite otherwise
 int nfs4_write(nfs4_file f, void *source, bytes offset, bytes length) {
     return f->is_append ? nfs4_append(f, source, length) : nfs4_pwrite(f, source, offset, length);
 }
@@ -115,6 +117,7 @@ static status set_expected_size(void *z, buffer b)
     return NFS4_OK;
 }
 
+// Append LENGTH bytes from SOURCE to F and return bytes appended or -1 upon error.
 int nfs4_append(nfs4_file f, void *source, bytes length)
 {
     rpc r = file_rpc(f);
@@ -133,7 +136,8 @@ int nfs4_append(nfs4_file f, void *source, bytes length)
     buffer b = alloca_wrap_buffer(source, length);
     u64 offset = f->expected_size;
  
-    transact(r);
+    int error_code = api_check(f->c, transact(r));
+    if (error_code) return -1;
 
     while (buffer_length(b)) {
         r = file_rpc(f);
@@ -146,10 +150,9 @@ int nfs4_append(nfs4_file f, void *source, bytes length)
     r = file_rpc(f);
     push_unlock(r, &f->latest_sid, WRITE_LT, f->expected_size, f->expected_size + length);
     // fix direct transmission of nfs4 error codes
-    status s = transact(r);
-    if (nfs4_is_error(s)) {
-        f->c->error_string = s->description;
-        f->c->nfs_error_num = s->error;
+
+    error_code = api_check(f->c, transact(r));
+    if (error_code) {
         return -1;
     } else {
         f->expected_size += length;
