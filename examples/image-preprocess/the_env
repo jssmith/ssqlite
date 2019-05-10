@@ -1,0 +1,5 @@
+export AWS_DEFAULT_REGION=us-west-2
+export AWS_DEFAULT_PROFILE=default
+export EC2_KEY_PAIR=sfs-restart
+export SSQL_CODE_BUCKET=numascott.sfs-restart.ssql.code
+export SSQL_STACK_NAME=ssqlite-test
