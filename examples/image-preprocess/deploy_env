@@ -1,0 +1,4 @@
+export AWS_DEFAULT_REGION=us-west-2
+export AWS_DEFAULT_PROFILE=default
+export LAMBDA_CODE_S3_BUCKET=numascott.sfs-restart.ssql.code
+export LAMBDA_FUNCTION_NAME=sfs-image-preprocess
