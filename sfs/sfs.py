@@ -22,7 +22,7 @@ NFS4ERR_OPENMODE = 10038
 NFS4_PROP_MODE = 1<<33
 
 # The max size for a single read operation
-# NFS4ERR_DELAY occurs whne exceeding this value
+# NFS4ERR_DELAY occurs when exceeding this value
 # The value was empirically determined to be a mebibyte
 NFS4_MAX_READ_SIZE = 2**20
 

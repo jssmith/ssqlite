@@ -11,12 +11,15 @@ DEFAULT_FILTERS = [
 
 
 def process_image(input_file, output_file, filters, local):
-    """Apply series of filters to input_file and record changes in output_file."""
+    """
+    Apply series of filters to input_file and record changes in output_file.
+
+    local (bool): A flag on whether to not use SFS
+    """
     if local:
         image = Image.open(input_file)
     else:
-        image_file = sfs.open(input_file, "rb")
-        image = Image.open(io.BytesIO(image_file.read()))
+        image = Image.open(sfs.open(input_file, "rb", buffering=2**20))
 
     logging.info("starting filters")
     for enhancer, factor in filters:
