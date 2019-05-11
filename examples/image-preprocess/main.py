@@ -65,7 +65,7 @@ def lambda_process_images(input_files, output_files):
 
     print("starting lambda")
     invoke_response = lambda_client.invoke(
-        FunctionName="SQLiteDemo-ssqlite-test",
+        FunctionName="sfs-image-preprocess",
         InvocationType='RequestResponse',
         Payload=json.dumps(input_event)
     )
@@ -90,5 +90,5 @@ def main():
 
 
 if __name__ == "__main__":
-    lambda_process_images("/cat.jpg", "/lambda_cat.jpg")
+    lambda_process_images(["/cat.jpg"], ["/lambda_cat.jpg"])
     #main()

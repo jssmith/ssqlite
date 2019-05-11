@@ -14,7 +14,7 @@ Install Pillow to this folder
 pip install --target . Pillow
 ```
 
-Create a lambda function with a name such as `sfs-image-preprocess`
+Create a lambda function with a name `sfs-image-preprocess`
 Configure execution role.
 Configure VPC, subnets, and security groups.
 Configure memory and timeout.
@@ -32,3 +32,19 @@ In the console, change the handler function to `handler.lambda_handler`
 Create a test event
 
 Test your function
+
+Example test json
+```
+{
+  "input_files": [
+    "/cat.jpg"
+  ],
+  "output_files": [
+    "/c_cat.jpg"
+  ]
+}
+```
+
+## Usage
+
+Run main.py
