@@ -28,14 +28,10 @@ def process_image(input_file, output_file, filters, local):
 
     if local:
         image_out_file = open(output_file, "wb")
-        image.save()
+        image.save(image_out_file, "JPEG")
     else:
-        temp_out_file = io.BytesIO()
-        image.save(temp_out_file, "JPEG")
-        temp_out_file.seek(0)
-
-        image_out_file = sfs.open(output_file, "wb")
-        image_out_file.write(temp_out_file.read())
+        image_out_file = sfs.open(output_file, "wb", buffering=2**20)
+        image.save(image_out_file, "JPEG")
 
 
 def process_images(input_files, output_files, filters, local):
