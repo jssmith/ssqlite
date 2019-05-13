@@ -43,12 +43,6 @@ def process_images(input_files, output_files, filters, local):
     logging.info("finished %s images", len(input_files))
 
 
-def process_image_arguments(input_folder, output_folder, filters, local, files):
-    """Generator to process process_image arguments into a tuple."""
-    for file_name in files:
-        input_file = "{}/{}".format(input_folder, file_name)
-        output_file = "{}/{}".format(output_folder, file_name)
-        yield (input_file, output_file, filters, local)
 
 if __name__ == "__main__":
     import os

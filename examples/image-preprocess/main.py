@@ -16,6 +16,7 @@ lambda_client = boto3.client('lambda')
 parser = argparse.ArgumentParser()
 parser.add_argument("input_folder", help="folder of images to process")
 parser.add_argument("output_folder", help="folder to save processed images in")
+parser.add_argument("num_threads", help="num of threads to use")
 
 def distributed_processing_args(input_folder, output_folder, files, num_lambda):
     """Create NUM_LAMBDA sets of input files and output files."""
@@ -90,7 +91,7 @@ def distributed_main():
             args.input_folder,
             args.output_folder,
             files,
-            4)
+            args.num_threads)
     end_time = time.time()
 
     for x in results:
@@ -99,12 +100,19 @@ def distributed_main():
     print("number of images", len(files))
     print("duration: %.3f s" % (end_time - start_time))
 
+def single_processing_args(input_folder, output_folder, filters, local, files):
+    """Generator to process process_image arguments into a tuple."""
+    for file_name in files:
+        input_file = "{}/{}".format(input_folder, file_name)
+        output_file = "{}/{}".format(output_folder, file_name)
+        yield (input_file, output_file, filters, local)
+
 def single_machine_processing(args, files):
     """Process the images on a single machine."""
-    with mp.Pool(4) as pool:
+    with mp.Pool(args.num_threads) as pool:
         pool.starmap(
             process.process_image,
-            process.process_image_arguments(
+            single_processings_args(
                 args.input_folder,
                 args.output_folder,
                 process.DEFAULT_FILTERS,
