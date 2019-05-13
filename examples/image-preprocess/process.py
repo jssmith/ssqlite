@@ -21,10 +21,10 @@ def process_image(input_file, output_file, filters, local):
     else:
         image = Image.open(sfs.open(input_file, "rb", buffering=2**20))
 
-    logging.info("starting filters")
+    logging.debug("starting filters")
     for enhancer, factor in filters:
         image = enhancer(image).enhance(factor)
-    logging.info("finishing filters")
+    logging.debug("finishing filters")
 
     if local:
         image_out_file = open(output_file, "wb")
@@ -36,9 +36,11 @@ def process_image(input_file, output_file, filters, local):
 
 def process_images(input_files, output_files, filters, local):
     """Apply filters to multiple files."""
+    logging.info("starting %s images", len(input_files))
     for i, input_file in enumerate(input_files):
         logging.info("processing image %s: %s", i, input_file)
         process_image(input_file, output_files[i], filters, local)
+    logging.info("finished %s images", len(input_files))
 
 
 def process_image_arguments(input_folder, output_folder, filters, local, files):

@@ -48,3 +48,5 @@ Example test json
 ## Usage
 
 Run main.py
+
+Download the image dataset from [S3](https://docs.opendata.aws/aft-vbi-pds/readme.html).
