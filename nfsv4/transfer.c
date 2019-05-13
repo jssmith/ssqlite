@@ -13,8 +13,7 @@ status finish_read(void *dest, buffer b)
     *read_data->eof = eof;
     *read_data->total_sent += len;
 
-    memcpy(read_data->dest, buffer_ref(b, 0), len);
-    free(read_data);
+    memcpy(read_data->dest + *read_data->total_requested, buffer_ref(b, 0), len);
     // assumes ordering
 
     // data is padded into multiple of 4
