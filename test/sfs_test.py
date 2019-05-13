@@ -1,3 +1,11 @@
+"""
+Tests SFS read, write, and append functionality
+
+Run all tests by `python3 sfs_test.py ${NFS4_SERVER}".
+
+We assume that NFS is mounted at /efs/.
+"""
+
 import sfs
 import unittest
 import string
@@ -39,6 +47,32 @@ class TestOpen(unittest.TestCase):
         #new_f.close()
         #os.chmod("/efs/no_read_perm.txt", 0o000)
         #self.assertRaises(PermissionError, sfs.open, "/no_read_perm.txt", 'r')
+
+    def test_read_mode_binary(self):
+        """
+        Demonstrate the ability to read binary files.
+        """
+        new_f = open("/efs/test.txt", 'wb') # make sure to run this script as ROOT
+        content = b"This is a test file."
+        new_f.write(content)
+        new_f.close()
+
+        f = sfs.open('/test.txt', 'rb')
+        self.assertEqual(f.read(), content)
+
+    def test_read_mode_binary_with_null(self):
+        """
+        Demonstrate the ability to read binary files.
+        """
+        new_f = open("/efs/test.txt", 'wb') # make sure to run this script as ROOT
+        content = b"This is a test file.\0There is more to this line \0\0\0Done."
+        new_f.write(content)
+        new_f.close()
+
+        f = sfs.open('/test.txt', 'rb')
+        read_content = f.read()
+        self.assertEqual(len(read_content), len(content))
+        self.assertEqual(read_content, content)
     
     def test_write_mode(self):
         '''
