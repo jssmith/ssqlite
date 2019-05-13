@@ -40,21 +40,19 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
     u64 total_sent = 0;
     u32 eof = 0;
 
+    struct nfs4_read_data read_data;
+    read_data.eof = &eof;
+    read_data.total_sent = &total_sent;
+    read_data.total_requested = &total_requested;
+    read_data.dest = dest;
+
     while (1) {
         rpc r = file_rpc(f);
         
-        struct nfs4_read_data *read_data = malloc(
-            sizeof(struct nfs4_read_data));
-        read_data->eof = &eof;
-        read_data->total_sent = &total_sent;
-        read_data->dest = dest + total_requested;
-
         u64 requested_length = push_read(
-            r, offset,  read_data, len - total_requested, &f->latest_sid);
-        total_requested += requested_length;
-        offset += requested_length;
+            r, offset,  &read_data, len - total_requested, &f->latest_sid);
         status s;
-        if (total_requested < len) {
+        if (total_requested + requested_length < len) {
             // reestablish connection here
             s = rpc_send(r);
         } else {
@@ -66,6 +64,9 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
             f->c->nfs_error_num = s->error;
             return -1;
         }
+
+        total_requested += requested_length;
+        offset += requested_length;
 
         if (eof != 0 || total_sent >= len) {
             return total_sent;
