@@ -114,13 +114,7 @@ def open(file_name, mode='r', buffering=io.DEFAULT_BUFFER_SIZE, encoding=None):
             raise FileNotFoundError("[Errno 2] No such file or directory: " + "'" + file_name + "'")
         if error_code == NFS4ERR_ACCESS:
             raise PermissionError("[Errno 13] Permission denied: " + "'" + file_name + "'")
-
-        logging.error(
-            "[Errno %s] %s: %s",
-            error_code,
-            get_client_error_msg(client),
-            file_name)
-        return
+        raise IOError(error_code, get_client_error_msg(client), file_name)
     f = FileObjectWrapper(f_ptr.contents, flags, encoding)
 
     if buffering > 1:
