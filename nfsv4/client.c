@@ -35,13 +35,24 @@ char *nfs4_error_string(nfs4 n)
 // the error is recorded in the nfs4 
 int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
 {
-    u64 total = 0;
+    u64 total_requested = 0;
+
+    u64 total_sent = 0;
+    u32 eof = 0;
+
+    struct nfs4_read_data read_data;
+    read_data.eof = &eof;
+    read_data.total_sent = &total_sent;
+    read_data.total_requested = &total_requested;
+    read_data.dest = dest;
 
     while (1) {
         rpc r = file_rpc(f);
-        u64 transferred = push_read(r, offset,  dest + total, len - total, &f->latest_sid);
+        
+        u64 requested_length = push_read(
+            r, offset,  &read_data, len - total_requested, &f->latest_sid);
         status s;
-        if (total + transferred < len) {
+        if (total_requested + requested_length < len) {
             // reestablish connection here
             s = rpc_send(r);
         } else {
@@ -49,18 +60,16 @@ int nfs4_pread(nfs4_file f, void *dest, bytes offset, bytes len)
             s = transact(r);
         }
         if (nfs4_is_error(s)) {
-            if (total == 0) {
-                f->c->error_string = s->description;
-                f->c->nfs_error_num = s->error;
-                return -1;
-            } else {
-                return total;
-            }
+            f->c->error_string = s->description;
+            f->c->nfs_error_num = s->error;
+            return -1;
         }
-        total += transferred;
-        offset += transferred;
-        if (total >= len) {
-            return total;
+
+        total_requested += requested_length;
+        offset += requested_length;
+
+        if (eof != 0 || total_sent >= len) {
+            return total_sent;
         }
     }
 }
@@ -416,8 +425,8 @@ int nfs4_create(char *hostname, nfs4 *dest)
     c->default_properties.group = NFS4_ID_ANONYMOUS;    
 
     // this can be much larger
-    c->maxresp = config_u64("NFS_READ_LIMIT", 65536);
-    c->maxreq = config_u64("NFS_WRITE_LIMIT", 65536);
+    c->maxresp = config_u64("NFS_READ_LIMIT", 1048576 + 1024);
+    c->maxreq = config_u64("NFS_WRITE_LIMIT", 1048576 + 1024);
     c->buffersize = MAX(c->maxresp,  c->maxreq);
     c->error_string = allocate_buffer(c->h, 128);
     c->outstanding = allocate_vector(c->h, 5);

@@ -69,6 +69,13 @@ struct nfs4_file {
     boolean is_append;
 };
 
+struct nfs4_read_data {
+    u32 *eof;
+    u64 *total_sent;
+    u64 *total_requested;
+    void *dest;
+};
+
 struct nfs4_dir {
     struct nfs4_file f;
     u64 cookie;
