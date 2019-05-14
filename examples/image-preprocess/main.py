@@ -76,11 +76,16 @@ def divide_files(files, divisor):
     return assigned_files
 
 
-
+def efs_file_names():
+    """Return 2**14 image file names."""
+    with open("image_index.txt") as f:
+        content = f.read()
+        file_names = content.split("\n")[:-1]
+        return file_names[:2**14]
 
 def distributed_main():
     args = parser.parse_args()
-    files = ["{:05d}.jpg".format(num) for num in range(0, 1000)]
+    files = efs_file_names()[:2**4]
 
     start_time = time.time()
     results = distributed_processing(
@@ -95,6 +100,7 @@ def distributed_main():
 
     print("number of images", len(files))
     print("duration: %.3f s" % (end_time - start_time))
+    return results
 
 def single_processing_args(input_folder, output_folder, filters, local, files):
     """Generator to process process_image arguments into a tuple."""
