@@ -13,7 +13,7 @@ def setup_logging():
 
     logging.basicConfig(
             level=os.environ.get("LOGLEVEL", "DEBUG"),
-            format="%(asctime)s\t%(levelname)s\t%(funcName)s\t%(message)s")
+            format="%(asctime)s\t%(levelname)s\t%(filename)s:%(lineno)d:%(funcName)s\t%(message)s")
     logging.info("starting")
 
 def lambda_handler(event, context):
@@ -22,9 +22,11 @@ def lambda_handler(event, context):
     logging.info("input_files: %s", input_files)
     logging.info("output_files: %s", output_files)
 
-    process.process_images(
+    process_results = process.process_images(
         input_files, output_files, process.DEFAULT_FILTERS, False)
     logging.info("finished")
+    return process_results
+
 
 setup_logging()
 
@@ -32,7 +34,7 @@ mount_point = os.environ["NFS4_SERVER"]
 sfs.mount(mount_point)
 
 if __name__ == "__main__":
-    lambda_handler({
+    print(lambda_handler({
         "input_files": ["/cat.jpg"],
         "output_files": ["/a_cat.jpg"]},
-        None)
+        None))

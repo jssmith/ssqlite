@@ -5,18 +5,35 @@ import json
 import time
 import logging
 
-import handler
 import process
 
 import boto3
 
 lambda_client = boto3.client('lambda')
 
+def lambda_process_images(input_files, output_files):
+    """
+    Call and return the result of an AWS Lambda call of grep on file_path.
+    Returns:
+        a dictionary of the Lambda response
+        on success this will  include "matches",
+        on error this will include "error_msg"
+    """
+    input_event = {
+        "input_files": input_files,
+        "output_files": output_files,
+    }
 
-parser = argparse.ArgumentParser()
-parser.add_argument("input_folder", help="folder of images to process")
-parser.add_argument("output_folder", help="folder to save processed images in")
-parser.add_argument("num_threads", help="num of threads to use")
+    logging.info("starting lambda")
+    invoke_response = lambda_client.invoke(
+        FunctionName="sfs-image-preprocess",
+        InvocationType='RequestResponse',
+        Payload=json.dumps(input_event)
+    )
+    logging.info("finished lambda")
+
+    payload = invoke_response['Payload'].read()
+    return json.loads(payload.decode("utf-8"))
 
 def distributed_processing_args(input_folder, output_folder, files, num_lambda):
     """Create NUM_LAMBDA sets of input files and output files."""
@@ -59,27 +76,6 @@ def divide_files(files, divisor):
     return assigned_files
 
 
-def lambda_process_images(input_files, output_files):
-    """
-    Call and return the result of an AWS Lambda call of grep on file_path.
-    Returns:
-        a dictionary of the Lambda response
-        on success this will  include "matches",
-        on error this will include "error_msg"
-    """
-    input_event = {
-        "input_files": input_files,
-        "output_files": output_files,
-    }
-
-    print("starting lambda")
-    invoke_response = lambda_client.invoke(
-        FunctionName="sfs-image-preprocess",
-        InvocationType='RequestResponse',
-        Payload=json.dumps(input_event)
-    )
-    print("finished lambda")
-    return json.loads(invoke_response['Payload'].read().decode("utf-8"))
 
 
 def distributed_main():
@@ -133,4 +129,10 @@ def single_main():
     print("duration: %.3f s" % (end_time - start_time))
 
 if __name__ == "__main__":
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("input_folder", help="folder of images to process")
+    parser.add_argument("output_folder", help="folder to save processed images in")
+    parser.add_argument("num_threads", type=int, help="num of threads to use")
+
     distributed_main()

@@ -19,7 +19,8 @@ def process_image(input_file, output_file, filters, local):
     if local:
         image = Image.open(input_file)
     else:
-        image = Image.open(sfs.open(input_file, "rb", buffering=2**20))
+        f = sfs.open(input_file, "rb", buffering=2**20)
+        image = Image.open(f)
 
     logging.debug("starting filters")
     for enhancer, factor in filters:
@@ -36,12 +37,20 @@ def process_image(input_file, output_file, filters, local):
 
 def process_images(input_files, output_files, filters, local):
     """Apply filters to multiple files."""
+    if type(input_files) is str or type(output_files) is str:
+        raise ValueError("input_files and output_files must be a collection of strings")
+
+    finished_images = []
     logging.info("starting %s images", len(input_files))
     for i, input_file in enumerate(input_files):
         logging.info("processing image %s: %s", i, input_file)
-        process_image(input_file, output_files[i], filters, local)
+        try:
+            process_image(input_file, output_files[i], filters, local)
+            finished_images.append(output_files[i])
+        except Exception as err:
+            logging.error("failed to process image %s: %s", input_file, err)
     logging.info("finished %s images", len(input_files))
-
+    return finished_images
 
 
 if __name__ == "__main__":
