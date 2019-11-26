@@ -1,0 +1,9 @@
+{"experiment_spec":mytest,"mode":"rr","block_size":1024,"blocks_per_thread":100,"num_threads":1,"results":[{"thread_start_time":1885.334309145,"thread_end_time":1885.334475013}]}
+{"experiment_spec":mytest,"mode":"rr","block_size":1024,"blocks_per_thread":1000,"num_threads":1,"results":[{"thread_start_time":1889.786185006,"thread_end_time":1889.787550105}]}
+{"experiment_spec":mytest,"mode":"rr","block_size":1024,"blocks_per_thread":1000,"num_threads":1,"results":[{"thread_start_time":2246.150428917,"thread_end_time":2249.177229724}]}
+{"experiment_spec":mytest,"mode":"rw","block_size":1024,"blocks_per_thread":1000,"num_threads":1,"results":[{"thread_start_time":2262.143343453,"thread_end_time":2271.508012458}]}
+{"experiment_spec":mytest,"mode":"rw","block_size":1024,"blocks_per_thread":100,"num_threads":1,"results":[{"thread_start_time":2346.010732860,"thread_end_time":2346.873156574}]}
+{"experiment_spec":mytest,"mode":"rw","block_size":1024,"blocks_per_thread":100,"num_threads":1,"results":[{"thread_start_time":2350.720866601,"thread_end_time":2351.567379667}]}
+{"experiment_spec":mytest,"mode":"rw","block_size":1024,"blocks_per_thread":1000,"num_threads":1,"results":[{"thread_start_time":2436.285101704,"thread_end_time":2444.933711250}]}
+{"experiment_spec":mytest,"mode":"rw","block_size":1024,"blocks_per_thread":1000,"num_threads":1,"results":[{"thread_start_time":2436.284943581,"thread_end_time":2444.936428318}]}
+{"experiment_spec":mytest,"mode":"rw","block_size":1024,"blocks_per_thread":1000,"num_threads":1,"results":[{"thread_start_time":647.443158367,"thread_end_time":657.282958175}]}

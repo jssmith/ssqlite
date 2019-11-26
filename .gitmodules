@@ -1,4 +1,0 @@
-[submodule "py-tpcc"]
-	path = py-tpcc
-	url = https://github.com/jssmith/py-tpcc
-	branch = master

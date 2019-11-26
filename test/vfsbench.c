@@ -343,6 +343,8 @@ int main(int argc, char* argv[])
 
     srandom(time(0));
 
+    printf("%s\n", sqlite3_libversion()); 
+
     sqlite3* db;
     char* zErrMsg = 0;
     int rc;

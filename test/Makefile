@@ -16,6 +16,9 @@ testnfsvfs: testnfsvfs.c check-env
 nfsoptest: nfsoptest.c check-env
 	$(CC) $(CFLAGS) -I../nfsv4 -L../nfsv4 -lnfs4 $< -o $@
 
+basic_ops_bench: basic_ops_bench.c
+	$(CC) $(CFLAGS) -I../nfsv4 -L../nfsv4 -lnfs4 $< -o $@
+
 clean:
 	rm -f vfsbench testnfsvfs *~
 
